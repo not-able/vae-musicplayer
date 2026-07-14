@@ -11,6 +11,13 @@ import type {
 export const DEFAULT_REPEAT_COUNT = 1;
 export const MAX_REPEAT_COUNT = 99;
 
+export type RepeatCountInputResult =
+  | { isValid: true; value: number }
+  | {
+      isValid: false;
+      reason: "required" | "not-positive-integer" | "exceeds-maximum";
+    };
+
 interface CreateTemporaryPlaylistInput {
   id: EntityId;
   name?: string;
@@ -46,8 +53,45 @@ export function createTemporaryPlaylist({
   };
 }
 
-export function normalizeRepeatCount(value: number): number {
-  if (!Number.isInteger(value) || value < DEFAULT_REPEAT_COUNT) {
+export function isValidRepeatCount(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= DEFAULT_REPEAT_COUNT &&
+    value <= MAX_REPEAT_COUNT
+  );
+}
+
+export function parseRepeatCountInput(value: string): RepeatCountInputResult {
+  const trimmedValue = value.trim();
+
+  if (trimmedValue.length === 0) {
+    return { isValid: false, reason: "required" };
+  }
+
+  if (!/^\d+$/.test(trimmedValue)) {
+    return { isValid: false, reason: "not-positive-integer" };
+  }
+
+  const repeatCount = Number(trimmedValue);
+
+  if (!Number.isSafeInteger(repeatCount) || repeatCount < DEFAULT_REPEAT_COUNT) {
+    return { isValid: false, reason: "not-positive-integer" };
+  }
+
+  if (repeatCount > MAX_REPEAT_COUNT) {
+    return { isValid: false, reason: "exceeds-maximum" };
+  }
+
+  return { isValid: true, value: repeatCount };
+}
+
+export function normalizeRepeatCount(value: unknown): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < DEFAULT_REPEAT_COUNT
+  ) {
     return DEFAULT_REPEAT_COUNT;
   }
 
@@ -110,9 +154,7 @@ export function updatePlaylistItemRepeatCount(
     return playlist;
   }
 
-  const normalizedRepeatCount = normalizeRepeatCount(repeatCount);
-
-  if (item.repeatCount === normalizedRepeatCount) {
+  if (!isValidRepeatCount(repeatCount) || item.repeatCount === repeatCount) {
     return playlist;
   }
 
@@ -122,7 +164,7 @@ export function updatePlaylistItemRepeatCount(
       ...playlist.itemsById,
       [itemId]: {
         ...item,
-        repeatCount: normalizedRepeatCount
+        repeatCount
       }
     },
     updatedAt

@@ -8,9 +8,11 @@ import {
   clearTemporaryPlaylist,
   createTemporaryPlaylist,
   expandPlaylistToPlaySequence,
+  isValidRepeatCount,
   MAX_REPEAT_COUNT,
   movePlaylistItem,
   normalizeRepeatCount,
+  parseRepeatCountInput,
   removePlaylistItem,
   updatePlaylistItemRepeatCount
 } from "../utils/playlist";
@@ -116,10 +118,70 @@ describe("temporary playlist operations", () => {
     expect(secondAdd.itemsById.item_001.repeatCount).toBe(1);
   });
 
-  it("normalizes repeatCount to a supported positive integer", () => {
+  it("validates and normalizes repeatCount at its supported boundaries", () => {
+    expect(isValidRepeatCount(1)).toBe(true);
+    expect(isValidRepeatCount(MAX_REPEAT_COUNT)).toBe(true);
+    expect(isValidRepeatCount(0)).toBe(false);
+    expect(isValidRepeatCount(-1)).toBe(false);
+    expect(isValidRepeatCount(1.5)).toBe(false);
+    expect(isValidRepeatCount(Number.NaN)).toBe(false);
+    expect(isValidRepeatCount(Number.POSITIVE_INFINITY)).toBe(false);
+    expect(isValidRepeatCount(MAX_REPEAT_COUNT + 1)).toBe(false);
+
     expect(normalizeRepeatCount(0)).toBe(1);
+    expect(normalizeRepeatCount(-1)).toBe(1);
     expect(normalizeRepeatCount(1.5)).toBe(1);
+    expect(normalizeRepeatCount(Number.NaN)).toBe(1);
     expect(normalizeRepeatCount(MAX_REPEAT_COUNT + 1)).toBe(MAX_REPEAT_COUNT);
+  });
+
+  it("parses only decimal positive-integer repeatCount input", () => {
+    expect(parseRepeatCountInput("1")).toEqual({ isValid: true, value: 1 });
+    expect(parseRepeatCountInput(` ${MAX_REPEAT_COUNT} `)).toEqual({
+      isValid: true,
+      value: MAX_REPEAT_COUNT
+    });
+    expect(parseRepeatCountInput("03")).toEqual({ isValid: true, value: 3 });
+
+    expect(parseRepeatCountInput("")).toEqual({
+      isValid: false,
+      reason: "required"
+    });
+    for (const input of ["0", "-2", "abc", "1.5", "1e1"]) {
+      expect(parseRepeatCountInput(input)).toEqual({
+        isValid: false,
+        reason: "not-positive-integer"
+      });
+    }
+    expect(parseRepeatCountInput(String(MAX_REPEAT_COUNT + 1))).toEqual({
+      isValid: false,
+      reason: "exceeds-maximum"
+    });
+  });
+
+  it("rejects invalid repeatCount updates without changing the playlist", () => {
+    const playlist = updatePlaylistItemRepeatCount(
+      addSampleTrack(createEmptyPlaylist(), "item_001"),
+      "item_001",
+      3,
+      updatedAt
+    );
+
+    for (const repeatCount of [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      MAX_REPEAT_COUNT + 1
+    ]) {
+      expect(
+        updatePlaylistItemRepeatCount(playlist, "item_001", repeatCount, updatedAt)
+      ).toBe(playlist);
+    }
+
+    expect(playlist.itemsById.item_001.repeatCount).toBe(3);
+    expect(expandPlaylistToPlaySequence(playlist)).toHaveLength(3);
   });
 
   it("removes one playlist item without changing the remaining items", () => {

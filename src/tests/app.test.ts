@@ -65,6 +65,16 @@ function setVerticalBounds(element: Element, top: number, height = 80) {
   });
 }
 
+function changeInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value"
+  )?.set;
+
+  valueSetter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+}
+
 function getVisualQueueTitles(container: HTMLElement) {
   return Array.from(
     container.querySelectorAll<HTMLElement>(
@@ -98,17 +108,22 @@ describe("temporary playlist workflow", () => {
     expect(container.querySelector(".queue-item")?.textContent).not.toContain(
       "示例专辑 A"
     );
+    expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×1");
+
+    await act(async () => {
+      findButton(container, "打开示例歌曲一的更多操作")?.click();
+    });
+
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
     expect(
-      container.querySelector<HTMLInputElement>(".repeat-stepper input")?.value
+      document.body.querySelector<HTMLInputElement>(".repeat-stepper input")?.value
     ).toBe("1");
 
     await act(async () => {
-      findButton(container, "增加示例歌曲一的播放次数")?.click();
+      findButton(document.body, "增加示例歌曲一的播放次数")?.click();
     });
 
-    expect(
-      container.querySelector<HTMLInputElement>(".repeat-stepper input")?.value
-    ).toBe("2");
+    expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×2");
     expect(container.querySelector(".playlist-heading-actions")?.textContent).toContain(
       "1 首 · 2 次"
     );
@@ -118,7 +133,7 @@ describe("temporary playlist workflow", () => {
     });
 
     await act(async () => {
-      findButton(container, "下移示例歌曲一")?.click();
+      findButton(document.body, "下移示例歌曲一")?.click();
     });
 
     expect(
@@ -128,7 +143,11 @@ describe("temporary playlist workflow", () => {
     ).toEqual(["示例歌曲二", "示例歌曲一"]);
 
     await act(async () => {
-      findButton(container, "删除示例歌曲二")?.click();
+      findButton(container, "打开示例歌曲二的更多操作")?.click();
+    });
+
+    await act(async () => {
+      findButton(document.body, "删除示例歌曲二")?.click();
     });
 
     expect(container.querySelectorAll(".queue-item")).toHaveLength(1);
@@ -148,6 +167,191 @@ describe("temporary playlist workflow", () => {
         heading.textContent?.trim()
       )
     ).toEqual(["示例歌曲一", "示例歌曲二"]);
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("opens a compact item menu for top, up, down, and dismiss actions", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(App));
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+
+    const firstTrigger = findButton(container, "打开示例歌曲一的更多操作");
+    const secondTrigger = findButton(container, "打开示例歌曲二的更多操作");
+
+    expect(firstTrigger?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      firstTrigger?.click();
+    });
+
+    expect(firstTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(
+      document.body.querySelector('[role="dialog"]')?.getAttribute("aria-label")
+    ).toBe("示例歌曲一的歌单项设置");
+    expect(findButton(document.body, "置顶示例歌曲一")?.disabled).toBe(true);
+    expect(findButton(document.body, "上移示例歌曲一")?.disabled).toBe(true);
+    expect(findButton(document.body, "下移示例歌曲一")?.disabled).toBe(false);
+
+    await act(async () => {
+      secondTrigger?.click();
+    });
+
+    expect(firstTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(secondTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(findButton(document.body, "下移示例歌曲二")?.disabled).toBe(true);
+
+    await act(async () => {
+      findButton(document.body, "置顶示例歌曲二")?.click();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲二", "示例歌曲一"]);
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => {
+      firstTrigger?.click();
+    });
+    await act(async () => {
+      findButton(document.body, "上移示例歌曲一")?.click();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲一", "示例歌曲二"]);
+
+    await act(async () => {
+      firstTrigger?.click();
+    });
+    await act(async () => {
+      findButton(document.body, "下移示例歌曲一")?.click();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲二", "示例歌曲一"]);
+
+    await act(async () => {
+      secondTrigger?.click();
+    });
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+      );
+    });
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    expect(secondTrigger?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      firstTrigger?.click();
+    });
+    await act(async () => {
+      container
+        .querySelector(".workspace")
+        ?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("updates the playback sequence immediately and preserves it for invalid input", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(App));
+    });
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    await act(async () => {
+      findButton(container, "打开示例歌曲一的更多操作")?.click();
+    });
+
+    const repeatDialog = document.body.querySelector(
+      '[role="dialog"][aria-label="示例歌曲一的歌单项设置"]'
+    );
+    const input = repeatDialog?.querySelector<HTMLInputElement>(
+      ".repeat-stepper input"
+    );
+    const sequenceSummary = () =>
+      container.querySelector(".playlist-heading-actions .pill")?.textContent;
+
+    expect(input).not.toBeNull();
+    expect(input?.value).toBe("1");
+    expect(input?.labels?.[0]?.textContent).toContain("播放次数");
+    expect(input?.getAttribute("aria-label")).toBe("示例歌曲一的播放次数");
+    expect(sequenceSummary()).toContain("1 首 · 1 次");
+
+    await act(async () => {
+      changeInputValue(input as HTMLInputElement, "3");
+    });
+
+    expect(input?.value).toBe("3");
+    expect(input?.getAttribute("aria-invalid")).toBe("false");
+    expect(sequenceSummary()).toContain("1 首 · 3 次");
+
+    const invalidInputs = [
+      ["", "请输入播放次数"],
+      ["0", "播放次数需要是正整数"],
+      ["-2", "播放次数需要是正整数"],
+      ["abc", "播放次数需要是正整数"],
+      ["1.5", "播放次数需要是正整数"],
+      ["100", "播放次数最多为 99"]
+    ] as const;
+
+    for (const [value, message] of invalidInputs) {
+      await act(async () => {
+        changeInputValue(input as HTMLInputElement, value);
+      });
+
+      const error = document.body.querySelector(".repeat-count-error");
+
+      expect(input?.value).toBe(value);
+      expect(input?.getAttribute("aria-invalid")).toBe("true");
+      expect(error?.textContent).toContain(message);
+      expect(error?.textContent).toContain("当前仍按 3 次播放");
+      expect(input?.getAttribute("aria-describedby")).toBe(error?.id);
+      expect(sequenceSummary()).toContain("1 首 · 3 次");
+    }
+
+    await act(async () => {
+      changeInputValue(input as HTMLInputElement, "2");
+    });
+
+    expect(input?.value).toBe("2");
+    expect(input?.getAttribute("aria-invalid")).toBe("false");
+    expect(document.body.querySelector(".repeat-count-error")).toBeNull();
+    expect(sequenceSummary()).toContain("1 首 · 2 次");
 
     await act(async () => {
       root.unmount();
@@ -194,10 +398,10 @@ describe("temporary playlist workflow", () => {
     ).toEqual(["示例歌曲一", "示例歌曲二"]);
     expect(
       Array.from(
-        container.querySelectorAll<HTMLInputElement>(".repeat-stepper input"),
-        (input) => input.value
+        container.querySelectorAll(".queue-repeat-count"),
+        (badge) => badge.textContent
       )
-    ).toEqual(["1", "1"]);
+    ).toEqual(["×1", "×1"]);
     expect(container.querySelector(".album-drop-feedback")).toBeNull();
 
     await act(async () => {
@@ -245,9 +449,7 @@ describe("temporary playlist workflow", () => {
         heading.textContent?.trim()
       )
     ).toEqual(["示例歌曲一"]);
-    expect(
-      container.querySelector<HTMLInputElement>(".repeat-stepper input")?.value
-    ).toBe("1");
+    expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×1");
 
     await act(async () => {
       root.unmount();

@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent
+} from "react";
+import { createPortal } from "react-dom";
 
 import type { EntityId, TemporaryPlaylist, Track } from "../../types";
 import {
@@ -13,7 +20,9 @@ import {
 import {
   expandPlaylistToPlaySequence,
   MAX_REPEAT_COUNT,
-  moveItem
+  moveItem,
+  parseRepeatCountInput,
+  type RepeatCountInputResult
 } from "../../utils/playlist";
 import { findQueueInsertionIndex } from "./queueDrag";
 
@@ -44,6 +53,7 @@ export function TemporaryPlaylistPanel({
   const [draggingQueueItemId, setDraggingQueueItemId] = useState<EntityId>();
   const [queuePreviewToIndex, setQueuePreviewToIndex] = useState<number>();
   const [isQueueDragOutside, setIsQueueDragOutside] = useState(false);
+  const [openQueueMenuItemId, setOpenQueueMenuItemId] = useState<EntityId>();
   const catalogDragEnterDepth = useRef(0);
   const draggingQueueItemIdRef = useRef<EntityId | undefined>(undefined);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -249,6 +259,7 @@ export function TemporaryPlaylistPanel({
     itemId: EntityId
   ) {
     writePlaylistItemDragData(event.dataTransfer, itemId);
+    setOpenQueueMenuItemId(undefined);
     draggingQueueItemIdRef.current = itemId;
     setDraggingQueueItemId(itemId);
     setQueuePreviewToIndex(undefined);
@@ -375,89 +386,43 @@ export function TemporaryPlaylistPanel({
                     : undefined
                 }
               >
-                <div
-                  className="queue-item-copy"
-                  draggable
-                  title={`拖动${track?.title ?? "歌曲"}调整顺序或移出歌单`}
-                  onDragStart={(event) => handleQueueItemDragStart(event, itemId)}
-                  onDragEnd={resetQueueDragState}
-                >
-                  <span className="queue-drag-handle" aria-hidden="true">
-                    ⠿
-                  </span>
-                  <h3>{track?.title ?? "未知歌曲"}</h3>
-                </div>
-
-                <div className="queue-item-controls">
-                  <div className="repeat-control">
-                    <span className="repeat-stepper">
-                      <button
-                        type="button"
-                        aria-label={`减少${track?.title ?? "歌曲"}的播放次数`}
-                        disabled={item.repeatCount <= 1}
-                        onClick={() =>
-                          onRepeatCountChange(itemId, item.repeatCount - 1)
-                        }
-                      >
-                        −
-                      </button>
-                      <input
-                        type="number"
-                        min="1"
-                        max={MAX_REPEAT_COUNT}
-                        inputMode="numeric"
-                        aria-label={`${track?.title ?? "歌曲"}的播放次数`}
-                        value={item.repeatCount}
-                        onChange={(event) =>
-                          onRepeatCountChange(itemId, Number(event.currentTarget.value))
-                        }
-                      />
-                      <button
-                        type="button"
-                        aria-label={`增加${track?.title ?? "歌曲"}的播放次数`}
-                        disabled={item.repeatCount >= MAX_REPEAT_COUNT}
-                        onClick={() =>
-                          onRepeatCountChange(itemId, item.repeatCount + 1)
-                        }
-                      >
-                        +
-                      </button>
+                <div className="queue-item-main">
+                  <div
+                    className="queue-item-copy"
+                    draggable
+                    title={`拖动${track?.title ?? "歌曲"}调整顺序或移出歌单`}
+                    onDragStart={(event) => handleQueueItemDragStart(event, itemId)}
+                    onDragEnd={resetQueueDragState}
+                  >
+                    <span className="queue-drag-handle" aria-hidden="true">
+                      ⠿
                     </span>
+                    <h3>{track?.title ?? "未知歌曲"}</h3>
                   </div>
 
-                  <div className="queue-item-actions">
-                    <div className="queue-order-actions" aria-label="调整播放顺序">
-                      <button
-                        className="icon-button"
-                        type="button"
-                        aria-label={`上移${track?.title ?? "歌曲"}`}
-                        title="上移"
-                        disabled={index === 0}
-                        onClick={() => onMove(itemId, index - 1)}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        className="icon-button"
-                        type="button"
-                        aria-label={`下移${track?.title ?? "歌曲"}`}
-                        title="下移"
-                        disabled={index === playlist.itemIds.length - 1}
-                        onClick={() => onMove(itemId, index + 1)}
-                      >
-                        ↓
-                      </button>
-                    </div>
-                    <button
-                      className="icon-button remove-button"
-                      type="button"
-                      aria-label={`删除${track?.title ?? "未知歌曲"}`}
-                      title="从临时歌单删除"
-                      onClick={() => onRemove(itemId)}
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <span
+                    className="queue-repeat-count"
+                    aria-label={`播放 ${item.repeatCount} 次`}
+                  >
+                    ×{item.repeatCount}
+                  </span>
+
+                  <QueueItemActionsMenu
+                    itemId={itemId}
+                    trackTitle={track?.title ?? "歌曲"}
+                    repeatCount={item.repeatCount}
+                    isOpen={openQueueMenuItemId === itemId}
+                    isFirst={index === 0}
+                    isLast={index === playlist.itemIds.length - 1}
+                    onOpenChange={(isOpen) =>
+                      setOpenQueueMenuItemId(isOpen ? itemId : undefined)
+                    }
+                    onRepeatCountChange={onRepeatCountChange}
+                    onMoveToTop={() => onMove(itemId, 0)}
+                    onMoveUp={() => onMove(itemId, index - 1)}
+                    onMoveDown={() => onMove(itemId, index + 1)}
+                    onRemove={() => onRemove(itemId)}
+                  />
                 </div>
               </article>
             );
@@ -495,6 +460,315 @@ export function TemporaryPlaylistPanel({
       )}
     </div>
   );
+}
+
+interface RepeatCountControlProps {
+  itemId: EntityId;
+  trackTitle: string;
+  repeatCount: number;
+  onRepeatCountChange: (itemId: EntityId, repeatCount: number) => void;
+}
+
+interface QueueItemActionsMenuProps extends RepeatCountControlProps {
+  isOpen: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onMoveToTop: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+}
+
+interface QueueMenuPosition {
+  top: number;
+  left: number;
+  openAbove: boolean;
+}
+
+function QueueItemActionsMenu({
+  itemId,
+  trackTitle,
+  repeatCount,
+  isOpen,
+  isFirst,
+  isLast,
+  onOpenChange,
+  onRepeatCountChange,
+  onMoveToTop,
+  onMoveUp,
+  onMoveDown,
+  onRemove
+}: QueueItemActionsMenuProps) {
+  const popoverId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<QueueMenuPosition>();
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !triggerRef.current?.contains(event.target) &&
+        !popoverRef.current?.contains(event.target)
+      ) {
+        onOpenChange(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onOpenChange(false);
+        triggerRef.current?.focus();
+      }
+    }
+
+    function handleViewportChange() {
+      onOpenChange(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("resize", handleViewportChange);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("scroll", handleViewportChange, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [isOpen, onOpenChange]);
+
+  function toggleMenu() {
+    if (isOpen) {
+      onOpenChange(false);
+      return;
+    }
+
+    const anchorBounds = triggerRef.current?.getBoundingClientRect();
+
+    if (!anchorBounds) {
+      return;
+    }
+
+    setPosition(getQueueMenuPosition(anchorBounds));
+    onOpenChange(true);
+  }
+
+  function runAction(action: () => void) {
+    onOpenChange(false);
+    action();
+  }
+
+  return (
+    <>
+      <button
+        className="icon-button queue-menu-trigger"
+        ref={triggerRef}
+        type="button"
+        aria-label={`打开${trackTitle}的更多操作`}
+        aria-controls={popoverId}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        title="更多操作"
+        onClick={toggleMenu}
+      >
+        ⋯
+      </button>
+
+      {isOpen &&
+        position &&
+        createPortal(
+          <div
+            className="queue-item-menu-popover"
+            id={popoverId}
+            ref={popoverRef}
+            role="dialog"
+            aria-label={`${trackTitle}的歌单项设置`}
+            style={{
+              top: position.top,
+              left: position.left,
+              transform: position.openAbove ? "translateY(-100%)" : undefined
+            }}
+          >
+            <RepeatCountControl
+              itemId={itemId}
+              trackTitle={trackTitle}
+              repeatCount={repeatCount}
+              onRepeatCountChange={onRepeatCountChange}
+            />
+            <div className="queue-menu-actions" aria-label="调整歌曲位置">
+              <button
+                type="button"
+                disabled={isFirst}
+                aria-label={`置顶${trackTitle}`}
+                onClick={() => runAction(onMoveToTop)}
+              >
+                置顶
+              </button>
+              <button
+                type="button"
+                disabled={isFirst}
+                aria-label={`上移${trackTitle}`}
+                onClick={() => runAction(onMoveUp)}
+              >
+                上移
+              </button>
+              <button
+                type="button"
+                disabled={isLast}
+                aria-label={`下移${trackTitle}`}
+                onClick={() => runAction(onMoveDown)}
+              >
+                下移
+              </button>
+              <button
+                className="queue-menu-remove"
+                type="button"
+                aria-label={`删除${trackTitle}`}
+                onClick={() => runAction(onRemove)}
+              >
+                移除
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+function getQueueMenuPosition(anchorBounds: DOMRect): QueueMenuPosition {
+  const viewportPadding = 8;
+  const menuGap = 6;
+  const menuWidth = 220;
+  const estimatedMenuHeight = 180;
+  const availableBelow = window.innerHeight - anchorBounds.bottom;
+  const openAbove =
+    availableBelow < estimatedMenuHeight + viewportPadding &&
+    anchorBounds.top >= estimatedMenuHeight + viewportPadding;
+  const maximumLeft = Math.max(
+    viewportPadding,
+    window.innerWidth - menuWidth - viewportPadding
+  );
+
+  return {
+    top: openAbove ? anchorBounds.top - menuGap : anchorBounds.bottom + menuGap,
+    left: Math.min(
+      Math.max(viewportPadding, anchorBounds.right - menuWidth),
+      maximumLeft
+    ),
+    openAbove
+  };
+}
+
+function RepeatCountControl({
+  itemId,
+  trackTitle,
+  repeatCount,
+  onRepeatCountChange
+}: RepeatCountControlProps) {
+  const inputId = useId();
+  const errorId = `${inputId}-error`;
+  const [invalidDraft, setInvalidDraft] = useState<
+    | {
+        value: string;
+        validationError: RepeatCountInputResult & { isValid: false };
+      }
+    | undefined
+  >();
+  const draftValue = invalidDraft?.value ?? String(repeatCount);
+  const validationError = invalidDraft?.validationError;
+
+  function commitRepeatCount(nextRepeatCount: number) {
+    setInvalidDraft(undefined);
+    onRepeatCountChange(itemId, nextRepeatCount);
+  }
+
+  function handleInputChange(value: string) {
+    const result = parseRepeatCountInput(value);
+
+    if (!result.isValid) {
+      setInvalidDraft({ value, validationError: result });
+      return;
+    }
+
+    setInvalidDraft(undefined);
+    onRepeatCountChange(itemId, result.value);
+  }
+
+  function resetDraft() {
+    setInvalidDraft(undefined);
+  }
+
+  return (
+    <div className="repeat-control">
+      <label className="repeat-label" htmlFor={inputId}>
+        播放次数
+      </label>
+      <span className="repeat-stepper">
+        <button
+          type="button"
+          aria-label={`减少${trackTitle}的播放次数`}
+          disabled={repeatCount <= 1}
+          onClick={() => commitRepeatCount(repeatCount - 1)}
+        >
+          −
+        </button>
+        <input
+          id={inputId}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label={`${trackTitle}的播放次数`}
+          aria-describedby={validationError ? errorId : undefined}
+          aria-invalid={Boolean(validationError)}
+          value={draftValue}
+          onChange={(event) => handleInputChange(event.currentTarget.value)}
+          onBlur={resetDraft}
+        />
+        <button
+          type="button"
+          aria-label={`增加${trackTitle}的播放次数`}
+          disabled={repeatCount >= MAX_REPEAT_COUNT}
+          onClick={() => commitRepeatCount(repeatCount + 1)}
+        >
+          +
+        </button>
+      </span>
+      <span className="repeat-unit" aria-hidden="true">
+        次
+      </span>
+      {validationError && (
+        <p className="repeat-count-error" id={errorId} role="status">
+          {getRepeatCountErrorMessage(validationError.reason, repeatCount)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function getRepeatCountErrorMessage(
+  reason: Extract<RepeatCountInputResult, { isValid: false }>["reason"],
+  currentRepeatCount: number
+): string {
+  const currentValueMessage = `当前仍按 ${currentRepeatCount} 次播放。`;
+
+  switch (reason) {
+    case "required":
+      return `请输入播放次数，${currentValueMessage}`;
+    case "not-positive-integer":
+      return `播放次数需要是正整数，${currentValueMessage}`;
+    case "exceeds-maximum":
+      return `播放次数最多为 ${MAX_REPEAT_COUNT}，${currentValueMessage}`;
+  }
 }
 
 function getCatalogDragKind(dataTransfer: DataTransfer): CatalogDragKind | undefined {
