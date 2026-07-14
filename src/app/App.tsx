@@ -31,6 +31,12 @@ export function App() {
   );
 
   function addTrack(trackId: EntityId) {
+    const trackExists = mockCatalog.tracks.some((track) => track.id === trackId);
+
+    if (!trackExists) {
+      return;
+    }
+
     dispatch({
       type: "add-track",
       trackId,
@@ -98,6 +104,7 @@ export function App() {
                 updatedAt: new Date().toISOString()
               })
             }
+            onAddTrack={addTrack}
             onAddAlbum={addAlbum}
           />
         </aside>

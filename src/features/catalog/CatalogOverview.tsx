@@ -1,7 +1,7 @@
 import { useState, type DragEvent } from "react";
 
 import type { Album, AlbumType, CatalogData, EntityId, Track } from "../../types";
-import { writeAlbumDragData } from "../../utils/albumDrag";
+import { writeAlbumDragData, writeTrackDragData } from "../../utils/albumDrag";
 import { getAlbumTracks, getReleaseYear, getSortedAlbums } from "./catalog";
 
 interface CatalogOverviewProps {
@@ -25,12 +25,18 @@ export function CatalogOverview({
   const albums = getSortedAlbums(catalog);
   const [selectedAlbumId, setSelectedAlbumId] = useState(() => albums[0]?.id);
   const [draggingAlbumId, setDraggingAlbumId] = useState<EntityId>();
+  const [draggingTrackId, setDraggingTrackId] = useState<EntityId>();
   const selectedAlbum =
     albums.find((album) => album.id === selectedAlbumId) ?? albums[0];
 
   function startAlbumDrag(event: DragEvent<HTMLButtonElement>, albumId: EntityId) {
     writeAlbumDragData(event.dataTransfer, albumId);
     setDraggingAlbumId(albumId);
+  }
+
+  function startTrackDrag(event: DragEvent<HTMLDivElement>, trackId: EntityId) {
+    writeTrackDragData(event.dataTransfer, trackId);
+    setDraggingTrackId(trackId);
   }
 
   if (!selectedAlbum) {
@@ -104,8 +110,11 @@ export function CatalogOverview({
         <AlbumDetail
           album={selectedAlbum}
           catalog={catalog}
+          draggingTrackId={draggingTrackId}
           onAddTrack={onAddTrack}
           onAddAlbum={onAddAlbum}
+          onTrackDragStart={startTrackDrag}
+          onTrackDragEnd={() => setDraggingTrackId(undefined)}
         />
       </div>
     </div>
@@ -115,11 +124,22 @@ export function CatalogOverview({
 interface AlbumDetailProps {
   album: Album;
   catalog: CatalogData;
+  draggingTrackId?: EntityId;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
+  onTrackDragStart: (event: DragEvent<HTMLDivElement>, trackId: EntityId) => void;
+  onTrackDragEnd: () => void;
 }
 
-function AlbumDetail({ album, catalog, onAddTrack, onAddAlbum }: AlbumDetailProps) {
+function AlbumDetail({
+  album,
+  catalog,
+  draggingTrackId,
+  onAddTrack,
+  onAddAlbum,
+  onTrackDragStart,
+  onTrackDragEnd
+}: AlbumDetailProps) {
   const tracks = getAlbumTracks(catalog, album);
   const releaseYear = getReleaseYear(album.releaseDate);
 
@@ -155,7 +175,10 @@ function AlbumDetail({ album, catalog, onAddTrack, onAddAlbum }: AlbumDetailProp
               key={track.id}
               track={track}
               album={album}
+              isDragging={track.id === draggingTrackId}
               onAdd={() => onAddTrack(track.id)}
+              onDragStart={(event) => onTrackDragStart(event, track.id)}
+              onDragEnd={onTrackDragEnd}
             />
           ))}
         </ol>
@@ -169,23 +192,46 @@ function AlbumDetail({ album, catalog, onAddTrack, onAddAlbum }: AlbumDetailProp
 interface TrackRowProps {
   track: Track;
   album: Album;
+  isDragging: boolean;
   onAdd: () => void;
+  onDragStart: (event: DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
 }
 
-function TrackRow({ track, album, onAdd }: TrackRowProps) {
+function TrackRow({
+  track,
+  album,
+  isDragging,
+  onAdd,
+  onDragStart,
+  onDragEnd
+}: TrackRowProps) {
   const hasTrackNumber = Number.isInteger(track.trackNumber);
 
   return (
-    <li>
-      <span
-        className="track-number"
-        aria-label={hasTrackNumber ? `音轨序号 ${track.trackNumber}` : "音轨序号待维护"}
+    <li className={isDragging ? "is-dragging" : undefined}>
+      <div
+        className="track-drag-source"
+        draggable
+        title={`拖动${track.title}到临时歌单`}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
       >
-        {hasTrackNumber ? String(track.trackNumber).padStart(2, "0") : "--"}
-      </span>
-      <div className="track-copy">
-        <strong>{track.title}</strong>
-        <span>{album.title}</span>
+        <span className="track-drag-handle" aria-hidden="true">
+          ⠿
+        </span>
+        <span
+          className="track-number"
+          aria-label={
+            hasTrackNumber ? `音轨序号 ${track.trackNumber}` : "音轨序号待维护"
+          }
+        >
+          {hasTrackNumber ? String(track.trackNumber).padStart(2, "0") : "--"}
+        </span>
+        <div className="track-copy">
+          <strong>{track.title}</strong>
+          <span>{album.title}</span>
+        </div>
       </div>
       <div className="track-actions">
         <span className="binding-status">未绑定音频</span>
