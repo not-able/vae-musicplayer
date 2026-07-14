@@ -798,26 +798,101 @@ button:disabled {
   bottom: 24px;
   left: 24px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 1fr);
+  gap: 12px;
   align-items: center;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 12px 14px;
   box-shadow: 0 12px 32px rgb(24 32 38 / 12%);
+}
+
+.player-now-playing {
+  min-width: 0;
+}
+
+.player-now-playing strong {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-sequence-meta {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .player-actions {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
 }
 
 .player-actions button {
-  min-height: 40px;
+  min-height: 34px;
   border: 1px solid var(--border);
   background: var(--surface-strong);
   color: var(--ink);
+  cursor: pointer;
+  padding: 5px 9px;
+  font-size: 12px;
   font-weight: 700;
+}
+
+.player-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #e5f0ec;
+}
+
+.player-actions .primary-player-action {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.player-actions .mock-ended-action {
+  color: var(--muted);
+}
+
+.player-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.player-status > span[aria-hidden="true"] {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #a2aaa7;
+}
+
+.player-status.is-playing {
+  color: var(--accent-strong);
+}
+
+.player-status.is-playing > span[aria-hidden="true"] {
+  background: var(--accent);
+}
+
+.player-status.is-ended {
+  color: var(--warning);
+}
+
+.player-status.is-ended > span[aria-hidden="true"] {
+  background: var(--warning);
 }
 
 @media (max-width: 860px) {
@@ -856,6 +931,11 @@ button:disabled {
 
   .player-actions button {
     flex: 1;
+  }
+
+  .player-status {
+    justify-content: flex-start;
+    text-align: left;
   }
 }
 

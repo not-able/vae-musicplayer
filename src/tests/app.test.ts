@@ -359,6 +359,116 @@ describe("temporary playlist workflow", () => {
     container.remove();
   });
 
+  it("runs the mock player through an expanded repeatCount sequence", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(App));
+    });
+
+    const playerTitle = () =>
+      container.querySelector(".player-now-playing strong")?.textContent;
+    const playerMeta = () =>
+      container.querySelector(".player-sequence-meta")?.textContent;
+    const playerStatus = () => container.querySelector(".player-status")?.textContent;
+
+    expect(playerTitle()).toBe("播放队列为空");
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(".player-actions button"),
+        (button) => button.disabled
+      )
+    ).toEqual([true, true, true, true, true]);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+
+    expect(playerTitle()).toBe("示例歌曲一");
+    expect(playerMeta()).toContain("播放序列 1 / 2");
+    expect(playerStatus()).toContain("已暂停");
+
+    await act(async () => {
+      findButton(container, "打开示例歌曲一的更多操作")?.click();
+    });
+    await act(async () => {
+      findButton(document.body, "增加示例歌曲一的播放次数")?.click();
+    });
+
+    expect(playerMeta()).toContain("播放序列 1 / 3");
+    expect(playerMeta()).toContain("本项第 1 / 2 次");
+
+    await act(async () => {
+      findButton(container, "打开示例歌曲一的更多操作")?.click();
+    });
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
+    expect(playerStatus()).toContain("正在播放");
+    expect(findButton(container, "暂停")).not.toBeUndefined();
+
+    await act(async () => {
+      findButton(container, "模拟当前歌曲播放结束")?.click();
+    });
+
+    expect(playerTitle()).toBe("示例歌曲一");
+    expect(playerMeta()).toContain("播放序列 2 / 3");
+    expect(playerMeta()).toContain("本项第 2 / 2 次");
+
+    await act(async () => {
+      findButton(container, "模拟当前歌曲播放结束")?.click();
+    });
+
+    expect(playerTitle()).toBe("示例歌曲二");
+    expect(playerMeta()).toContain("播放序列 3 / 3");
+
+    await act(async () => {
+      findButton(container, "上一首")?.click();
+    });
+    expect(playerTitle()).toBe("示例歌曲一");
+    expect(playerMeta()).toContain("播放序列 2 / 3");
+
+    await act(async () => {
+      findButton(container, "从头播放")?.click();
+      findButton(container, "下一首")?.click();
+    });
+    expect(playerTitle()).toBe("示例歌曲二");
+
+    await act(async () => {
+      findButton(container, "模拟当前歌曲播放结束")?.click();
+    });
+    expect(playerStatus()).toContain("播放队列已结束");
+    expect(findButton(container, "重新播放")).not.toBeUndefined();
+
+    await act(async () => {
+      findButton(container, "重新播放")?.click();
+    });
+    expect(playerTitle()).toBe("示例歌曲一");
+    expect(playerMeta()).toContain("播放序列 1 / 3");
+    expect(playerStatus()).toContain("正在播放");
+
+    await act(async () => {
+      findButton(container, "暂停")?.click();
+    });
+    expect(playerStatus()).toContain("已暂停");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".danger-button")?.click();
+    });
+    expect(playerTitle()).toBe("播放队列为空");
+    expect(playerMeta()).toContain("请先将歌曲加入临时歌单");
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
   it("adds a dragged album in track order with repeatCount 1", async () => {
     const container = document.createElement("div");
     document.body.append(container);
