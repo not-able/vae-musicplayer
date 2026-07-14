@@ -26,8 +26,8 @@ export interface Track {
   artistId: EntityId;
   albumId: EntityId;
   title: string;
-  discNumber: number;
-  trackNumber: number;
+  discNumber?: number;
+  trackNumber?: number;
   durationSeconds?: number;
   version?: string;
   releaseDate?: ISODateString;

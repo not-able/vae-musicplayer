@@ -1,52 +1,104 @@
+import { useReducer } from "react";
+
 import { PageShell } from "../components/PageShell";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
 import { PlayerBar } from "../features/player/PlayerBar";
 import { TemporaryPlaylistPanel } from "../features/playlist/TemporaryPlaylistPanel";
-import type { TemporaryPlaylist } from "../types";
+import { temporaryPlaylistReducer } from "../features/playlist/playlistReducer";
+import type { EntityId } from "../types";
+import { createTemporaryPlaylist } from "../utils/playlist";
 
-const now = new Date().toISOString();
+function createInitialPlaylist() {
+  const createdAt = new Date().toISOString();
 
-const mockTemporaryPlaylist: TemporaryPlaylist = {
-  id: "playlist_temp_current",
-  name: "临时歌单",
-  itemIds: ["queue_item_sample_001", "queue_item_sample_002"],
-  itemsById: {
-    queue_item_sample_001: {
-      id: "queue_item_sample_001",
-      trackId: "track_sample_001",
-      playCount: 1,
-      playedCount: 0,
-      source: "album",
-      sourceAlbumId: "album_sample_001",
-      addedAt: now
-    },
-    queue_item_sample_002: {
-      id: "queue_item_sample_002",
-      trackId: "track_sample_002",
-      playCount: 2,
-      playedCount: 0,
-      source: "single",
-      addedAt: now
-    }
-  },
-  createdAt: now,
-  updatedAt: now
-};
+  return createTemporaryPlaylist({
+    id: "playlist_temp_current",
+    name: "临时歌单",
+    createdAt
+  });
+}
+
+function createPlaylistItemId(): string {
+  return `queue_item_${crypto.randomUUID()}`;
+}
 
 export function App() {
+  const [playlist, dispatch] = useReducer(
+    temporaryPlaylistReducer,
+    undefined,
+    createInitialPlaylist
+  );
+
+  function addTrack(trackId: EntityId) {
+    dispatch({
+      type: "add-track",
+      trackId,
+      itemId: createPlaylistItemId(),
+      addedAt: new Date().toISOString()
+    });
+  }
+
+  function addAlbum(albumId: EntityId) {
+    const album = mockCatalog.albums.find((item) => item.id === albumId);
+
+    if (!album) {
+      return;
+    }
+
+    dispatch({
+      type: "add-album",
+      album,
+      itemIds: album.trackIds.map(() => createPlaylistItemId()),
+      addedAt: new Date().toISOString()
+    });
+  }
+
   return (
     <PageShell>
       <main className="app-layout">
         <section className="workspace" aria-labelledby="catalog-heading">
-          <CatalogOverview catalog={mockCatalog} />
+          <CatalogOverview
+            catalog={mockCatalog}
+            onAddTrack={addTrack}
+            onAddAlbum={addAlbum}
+          />
         </section>
 
         <aside className="queue-panel" aria-labelledby="playlist-heading">
           <TemporaryPlaylistPanel
-            playlist={mockTemporaryPlaylist}
+            playlist={playlist}
             tracks={mockCatalog.tracks}
-            albums={mockCatalog.albums}
+            onRepeatCountChange={(itemId, repeatCount) =>
+              dispatch({
+                type: "set-repeat-count",
+                itemId,
+                repeatCount,
+                updatedAt: new Date().toISOString()
+              })
+            }
+            onRemove={(itemId) =>
+              dispatch({
+                type: "remove-item",
+                itemId,
+                updatedAt: new Date().toISOString()
+              })
+            }
+            onClear={() =>
+              dispatch({
+                type: "clear",
+                updatedAt: new Date().toISOString()
+              })
+            }
+            onMove={(itemId, toIndex) =>
+              dispatch({
+                type: "move-item",
+                itemId,
+                toIndex,
+                updatedAt: new Date().toISOString()
+              })
+            }
+            onAddAlbum={addAlbum}
           />
         </aside>
       </main>

@@ -14,7 +14,7 @@ export interface TemporaryPlaylist {
 export interface PlaylistItem {
   id: EntityId;
   trackId: EntityId;
-  playCount: number;
+  repeatCount: number;
   playedCount: number;
   source: PlaylistItemSource;
   sourceAlbumId?: EntityId;

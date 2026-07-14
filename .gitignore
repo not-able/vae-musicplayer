@@ -10,6 +10,8 @@ Thumbs.db
 .env.local
 .env.*.local
 !.env.example
+finish.txt
+
 
 # Do not commit unauthorized audio, lyrics, covers, or media exports.
 *.mp3

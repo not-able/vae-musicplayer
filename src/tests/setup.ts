@@ -1,1 +1,1 @@
-// Reserved for future React Testing Library setup.
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

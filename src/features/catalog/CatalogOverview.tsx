@@ -1,18 +1,51 @@
-import type { Album, CatalogData, Track } from "../../types";
+import { useState, type DragEvent } from "react";
+
+import type { Album, AlbumType, CatalogData, EntityId, Track } from "../../types";
+import { writeAlbumDragData } from "../../utils/albumDrag";
+import { getAlbumTracks, getReleaseYear, getSortedAlbums } from "./catalog";
 
 interface CatalogOverviewProps {
   catalog: CatalogData;
+  onAddTrack: (trackId: EntityId) => void;
+  onAddAlbum: (albumId: EntityId) => void;
 }
 
-export function CatalogOverview({ catalog }: CatalogOverviewProps) {
-  const tracksById = new Map(catalog.tracks.map((track) => [track.id, track]));
-  const albums = [...catalog.albums].sort(
-    (left, right) => left.sortOrder - right.sortOrder
-  );
+const albumTypeLabels: Record<AlbumType, string> = {
+  album: "专辑",
+  ep: "EP",
+  single_collection: "单曲合集",
+  other: "其他发行"
+};
+
+export function CatalogOverview({
+  catalog,
+  onAddTrack,
+  onAddAlbum
+}: CatalogOverviewProps) {
+  const albums = getSortedAlbums(catalog);
+  const [selectedAlbumId, setSelectedAlbumId] = useState(() => albums[0]?.id);
+  const [draggingAlbumId, setDraggingAlbumId] = useState<EntityId>();
+  const selectedAlbum =
+    albums.find((album) => album.id === selectedAlbumId) ?? albums[0];
+
+  function startAlbumDrag(event: DragEvent<HTMLButtonElement>, albumId: EntityId) {
+    writeAlbumDragData(event.dataTransfer, albumId);
+    setDraggingAlbumId(albumId);
+  }
+
+  if (!selectedAlbum) {
+    return (
+      <section className="catalog-empty" aria-labelledby="catalog-heading">
+        <p className="eyebrow">Catalog</p>
+        <h2 id="catalog-heading">专辑目录</h2>
+        <p className="muted">尚未维护专辑数据。</p>
+      </section>
+    );
+  }
 
   return (
     <div className="catalog">
-      <div className="section-heading">
+      <div className="section-heading catalog-heading">
         <div>
           <p className="eyebrow">Catalog</p>
           <h2 id="catalog-heading">专辑目录</h2>
@@ -20,55 +53,152 @@ export function CatalogOverview({ catalog }: CatalogOverviewProps) {
         <span className="pill">{catalog.schemaVersion} 版元数据</span>
       </div>
 
-      <div className="album-grid">
-        {albums.map((album) => (
-          <AlbumCard
-            key={album.id}
-            album={album}
-            tracks={album.trackIds
-              .map((trackId) => tracksById.get(trackId))
-              .filter((track): track is Track => Boolean(track))}
-          />
-        ))}
+      <div className="catalog-browser">
+        <nav className="album-directory" aria-labelledby="album-list-heading">
+          <div className="directory-heading">
+            <h3 id="album-list-heading">全部专辑</h3>
+            <span>{albums.length} 张</span>
+          </div>
+
+          <ul className="album-list">
+            {albums.map((album) => {
+              const tracks = getAlbumTracks(catalog, album);
+              const isSelected = album.id === selectedAlbum.id;
+
+              return (
+                <li
+                  className={
+                    draggingAlbumId === album.id
+                      ? "album-list-item is-dragging"
+                      : "album-list-item"
+                  }
+                  key={album.id}
+                >
+                  <button
+                    className="album-list-button"
+                    type="button"
+                    draggable
+                    aria-current={isSelected ? "true" : undefined}
+                    onClick={() => setSelectedAlbumId(album.id)}
+                    onDragStart={(event) => startAlbumDrag(event, album.id)}
+                    onDragEnd={() => setDraggingAlbumId(undefined)}
+                  >
+                    <span className="album-monogram" aria-hidden="true">
+                      {album.title.slice(0, 1)}
+                    </span>
+                    <span className="album-list-copy">
+                      <strong>{album.title}</strong>
+                      <span>
+                        {getReleaseYear(album.releaseDate) ?? "年份待维护"}
+                        <span aria-hidden="true"> · </span>
+                        {tracks.length} 首
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        <AlbumDetail
+          album={selectedAlbum}
+          catalog={catalog}
+          onAddTrack={onAddTrack}
+          onAddAlbum={onAddAlbum}
+        />
       </div>
     </div>
   );
 }
 
-interface AlbumCardProps {
+interface AlbumDetailProps {
   album: Album;
-  tracks: Track[];
+  catalog: CatalogData;
+  onAddTrack: (trackId: EntityId) => void;
+  onAddAlbum: (albumId: EntityId) => void;
 }
 
-function AlbumCard({ album, tracks }: AlbumCardProps) {
-  return (
-    <article className="album-card">
-      <div className="album-cover-placeholder" aria-hidden="true">
-        {album.title.slice(0, 1)}
-      </div>
+function AlbumDetail({ album, catalog, onAddTrack, onAddAlbum }: AlbumDetailProps) {
+  const tracks = getAlbumTracks(catalog, album);
+  const releaseYear = getReleaseYear(album.releaseDate);
 
-      <div className="album-content">
-        <div>
-          <p className="eyebrow">{album.type}</p>
-          <h3>{album.title}</h3>
-          <p className="muted">
-            {album.releaseDate ?? "发行日期待维护"} · {tracks.length} 首占位歌曲
+  return (
+    <section className="album-detail" aria-labelledby="album-detail-heading">
+      <header className="album-detail-header">
+        <div className="album-detail-monogram" aria-hidden="true">
+          {album.title.slice(0, 1)}
+        </div>
+        <div className="album-detail-copy">
+          <p className="eyebrow">{albumTypeLabels[album.type]}</p>
+          <h3 id="album-detail-heading">{album.title}</h3>
+          <p className="album-meta">
+            {releaseYear && <span>{releaseYear} 年</span>}
+            <span>{tracks.length} 首歌曲</span>
           </p>
         </div>
+        <button
+          className="secondary-button add-album-button"
+          type="button"
+          onClick={() => onAddAlbum(album.id)}
+        >
+          整张加入
+        </button>
+      </header>
 
-        <ol className="track-list">
+      {album.note && <p className="album-note">{album.note}</p>}
+
+      {tracks.length > 0 ? (
+        <ol className="album-track-list">
           {tracks.map((track) => (
-            <li key={track.id}>
-              <span>{track.trackNumber}</span>
-              <strong>{track.title}</strong>
-            </li>
+            <TrackRow
+              key={track.id}
+              track={track}
+              album={album}
+              onAdd={() => onAddTrack(track.id)}
+            />
           ))}
         </ol>
+      ) : (
+        <p className="catalog-empty-message">这张专辑尚未维护歌曲数据。</p>
+      )}
+    </section>
+  );
+}
 
-        <button className="secondary-button" type="button" disabled>
-          整张专辑加入临时歌单
+interface TrackRowProps {
+  track: Track;
+  album: Album;
+  onAdd: () => void;
+}
+
+function TrackRow({ track, album, onAdd }: TrackRowProps) {
+  const hasTrackNumber = Number.isInteger(track.trackNumber);
+
+  return (
+    <li>
+      <span
+        className="track-number"
+        aria-label={hasTrackNumber ? `音轨序号 ${track.trackNumber}` : "音轨序号待维护"}
+      >
+        {hasTrackNumber ? String(track.trackNumber).padStart(2, "0") : "--"}
+      </span>
+      <div className="track-copy">
+        <strong>{track.title}</strong>
+        <span>{album.title}</span>
+      </div>
+      <div className="track-actions">
+        <span className="binding-status">未绑定音频</span>
+        <button
+          className="icon-button add-track-button"
+          type="button"
+          aria-label={`将${track.title}加入临时歌单`}
+          title="加入临时歌单"
+          onClick={onAdd}
+        >
+          +
         </button>
       </div>
-    </article>
+    </li>
   );
 }

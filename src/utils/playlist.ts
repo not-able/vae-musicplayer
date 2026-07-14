@@ -1,14 +1,193 @@
-import type { PlaySequenceEntry, TemporaryPlaylist } from "../types";
+import type {
+  Album,
+  EntityId,
+  ISODateString,
+  PlaylistItem,
+  PlaylistItemSource,
+  PlaySequenceEntry,
+  TemporaryPlaylist
+} from "../types";
 
-export const DEFAULT_PLAY_COUNT = 1;
-export const MAX_PLAY_COUNT = 99;
+export const DEFAULT_REPEAT_COUNT = 1;
+export const MAX_REPEAT_COUNT = 99;
 
-export function normalizePlayCount(value: number): number {
-  if (!Number.isInteger(value) || value < DEFAULT_PLAY_COUNT) {
-    return DEFAULT_PLAY_COUNT;
+interface CreateTemporaryPlaylistInput {
+  id: EntityId;
+  name?: string;
+  createdAt: ISODateString;
+}
+
+interface AddTrackToPlaylistInput {
+  trackId: EntityId;
+  itemId: EntityId;
+  addedAt: ISODateString;
+  source?: PlaylistItemSource;
+  sourceAlbumId?: EntityId;
+}
+
+interface AddAlbumToPlaylistInput {
+  album: Album;
+  itemIds: EntityId[];
+  addedAt: ISODateString;
+}
+
+export function createTemporaryPlaylist({
+  id,
+  name = "临时歌单",
+  createdAt
+}: CreateTemporaryPlaylistInput): TemporaryPlaylist {
+  return {
+    id,
+    name,
+    itemIds: [],
+    itemsById: {},
+    createdAt,
+    updatedAt: createdAt
+  };
+}
+
+export function normalizeRepeatCount(value: number): number {
+  if (!Number.isInteger(value) || value < DEFAULT_REPEAT_COUNT) {
+    return DEFAULT_REPEAT_COUNT;
   }
 
-  return Math.min(value, MAX_PLAY_COUNT);
+  return Math.min(value, MAX_REPEAT_COUNT);
+}
+
+export function addTrackToPlaylist(
+  playlist: TemporaryPlaylist,
+  {
+    trackId,
+    itemId,
+    addedAt,
+    source = "single",
+    sourceAlbumId
+  }: AddTrackToPlaylistInput
+): TemporaryPlaylist {
+  const item: PlaylistItem = {
+    id: itemId,
+    trackId,
+    repeatCount: DEFAULT_REPEAT_COUNT,
+    playedCount: 0,
+    source,
+    sourceAlbumId,
+    addedAt
+  };
+
+  return appendPlaylistItems(playlist, [item], addedAt);
+}
+
+export function addAlbumToPlaylist(
+  playlist: TemporaryPlaylist,
+  { album, itemIds, addedAt }: AddAlbumToPlaylistInput
+): TemporaryPlaylist {
+  if (itemIds.length !== album.trackIds.length) {
+    throw new Error("Each album track requires one playlist item ID.");
+  }
+
+  const items = album.trackIds.map<PlaylistItem>((trackId, index) => ({
+    id: itemIds[index],
+    trackId,
+    repeatCount: DEFAULT_REPEAT_COUNT,
+    playedCount: 0,
+    source: "album",
+    sourceAlbumId: album.id,
+    addedAt
+  }));
+
+  return appendPlaylistItems(playlist, items, addedAt);
+}
+
+export function updatePlaylistItemRepeatCount(
+  playlist: TemporaryPlaylist,
+  itemId: EntityId,
+  repeatCount: number,
+  updatedAt: ISODateString
+): TemporaryPlaylist {
+  const item = playlist.itemsById[itemId];
+
+  if (!item) {
+    return playlist;
+  }
+
+  const normalizedRepeatCount = normalizeRepeatCount(repeatCount);
+
+  if (item.repeatCount === normalizedRepeatCount) {
+    return playlist;
+  }
+
+  return {
+    ...playlist,
+    itemsById: {
+      ...playlist.itemsById,
+      [itemId]: {
+        ...item,
+        repeatCount: normalizedRepeatCount
+      }
+    },
+    updatedAt
+  };
+}
+
+export function removePlaylistItem(
+  playlist: TemporaryPlaylist,
+  itemId: EntityId,
+  updatedAt: ISODateString
+): TemporaryPlaylist {
+  if (!playlist.itemsById[itemId]) {
+    return playlist;
+  }
+
+  return {
+    ...playlist,
+    itemIds: playlist.itemIds.filter((currentItemId) => currentItemId !== itemId),
+    itemsById: Object.fromEntries(
+      Object.entries(playlist.itemsById).filter(
+        ([currentItemId]) => currentItemId !== itemId
+      )
+    ),
+    updatedAt
+  };
+}
+
+export function clearTemporaryPlaylist(
+  playlist: TemporaryPlaylist,
+  updatedAt: ISODateString
+): TemporaryPlaylist {
+  if (playlist.itemIds.length === 0) {
+    return playlist;
+  }
+
+  return {
+    ...playlist,
+    itemIds: [],
+    itemsById: {},
+    updatedAt
+  };
+}
+
+export function movePlaylistItem(
+  playlist: TemporaryPlaylist,
+  itemId: EntityId,
+  toIndex: number,
+  updatedAt: ISODateString
+): TemporaryPlaylist {
+  const fromIndex = playlist.itemIds.indexOf(itemId);
+
+  if (
+    fromIndex === -1 ||
+    toIndex < 0 ||
+    toIndex >= playlist.itemIds.length ||
+    fromIndex === toIndex
+  ) {
+    return playlist;
+  }
+
+  return {
+    ...playlist,
+    itemIds: moveItem(playlist.itemIds, fromIndex, toIndex),
+    updatedAt
+  };
 }
 
 export function expandPlaylistToPlaySequence(
@@ -21,7 +200,7 @@ export function expandPlaylistToPlaySequence(
       return [];
     }
 
-    const repeatTotal = normalizePlayCount(item.playCount);
+    const repeatTotal = normalizeRepeatCount(item.repeatCount);
 
     return Array.from({ length: repeatTotal }, (_, index) => ({
       queueItemId,
@@ -48,4 +227,33 @@ export function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[]
   nextItems.splice(toIndex, 0, movedItem);
 
   return nextItems;
+}
+
+function appendPlaylistItems(
+  playlist: TemporaryPlaylist,
+  items: PlaylistItem[],
+  updatedAt: ISODateString
+): TemporaryPlaylist {
+  if (items.length === 0) {
+    return playlist;
+  }
+
+  const newItemIds = items.map((item) => item.id);
+  const hasDuplicateItemId =
+    new Set(newItemIds).size !== newItemIds.length ||
+    newItemIds.some((itemId) => playlist.itemsById[itemId]);
+
+  if (hasDuplicateItemId) {
+    throw new Error("Playlist item IDs must be unique.");
+  }
+
+  return {
+    ...playlist,
+    itemIds: [...playlist.itemIds, ...newItemIds],
+    itemsById: {
+      ...playlist.itemsById,
+      ...Object.fromEntries(items.map((item) => [item.id, item]))
+    },
+    updatedAt
+  };
 }
