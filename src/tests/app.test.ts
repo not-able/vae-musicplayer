@@ -1,8 +1,11 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../app/App";
+import { createLocalAudioFileRecord } from "../features/local-library/localAudioFile";
+import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
+import type { LocalAudioFileRecord } from "../types";
 import {
   ALBUM_DRAG_MIME_TYPE,
   PLAYLIST_ITEM_DRAG_MIME_TYPE,
@@ -85,6 +88,91 @@ function getVisualQueueTitles(container: HTMLElement) {
       return Number(firstItem.style.order) - Number(secondItem.style.order);
     })
     .map((item) => item.querySelector("h3")?.textContent?.trim());
+}
+
+let restoreObjectUrlMocks: (() => void) | undefined;
+
+afterEach(() => {
+  restoreObjectUrlMocks?.();
+  restoreObjectUrlMocks = undefined;
+  vi.restoreAllMocks();
+});
+
+function createMemoryLocalAudioRepository(
+  initialRecords: readonly LocalAudioFileRecord[] = []
+): LocalAudioFileRepository {
+  const recordsByTrackId = new Map(
+    initialRecords.map((record) => [record.trackId, record])
+  );
+
+  return {
+    list: vi.fn(async () => [...recordsByTrackId.values()]),
+    save: vi.fn(async (record) => {
+      recordsByTrackId.set(record.trackId, record);
+    }),
+    remove: vi.fn(async (trackId) => {
+      recordsByTrackId.delete(trackId);
+    })
+  };
+}
+
+function installAudioElementMocks() {
+  const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
+    URL,
+    "createObjectURL"
+  );
+  const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(
+    URL,
+    "revokeObjectURL"
+  );
+  let objectUrlSequence = 0;
+  const createObjectURL = vi.fn((file: Blob) => {
+    objectUrlSequence += 1;
+    return `blob:test/${(file as File).name}/${objectUrlSequence}`;
+  });
+  const revokeObjectURL = vi.fn();
+
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    value: createObjectURL
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: revokeObjectURL
+  });
+
+  restoreObjectUrlMocks = () => {
+    restoreProperty(URL, "createObjectURL", originalCreateObjectUrl);
+    restoreProperty(URL, "revokeObjectURL", originalRevokeObjectUrl);
+  };
+
+  const play = vi
+    .spyOn(HTMLMediaElement.prototype, "play")
+    .mockResolvedValue(undefined);
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => undefined);
+
+  return { createObjectURL, revokeObjectURL, play };
+}
+
+function restoreProperty(
+  target: typeof URL,
+  propertyName: "createObjectURL" | "revokeObjectURL",
+  descriptor: PropertyDescriptor | undefined
+) {
+  if (descriptor) {
+    Object.defineProperty(target, propertyName, descriptor);
+  } else {
+    Reflect.deleteProperty(target, propertyName);
+  }
+}
+
+function selectFile(input: HTMLInputElement, file: File) {
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [file]
+  });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 describe("temporary playlist workflow", () => {
@@ -359,13 +447,162 @@ describe("temporary playlist workflow", () => {
     container.remove();
   });
 
-  it("runs the mock player through an expanded repeatCount sequence", async () => {
+  it("blocks unbound playback and supports binding and unbinding a local file", async () => {
+    const repository = createMemoryLocalAudioRepository();
+    const mediaMocks = installAudioElementMocks();
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
 
     await act(async () => {
-      root.render(createElement(App));
+      root.render(createElement(App, { localAudioRepository: repository }));
+    });
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "未绑定音频文件"
+    );
+    expect(findButton(container, "播放")?.disabled).toBe(true);
+    expect(mediaMocks.play).not.toHaveBeenCalled();
+
+    const audioInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="为示例歌曲一选择本地音频文件"]'
+    );
+    const localFile = new File(["self-created test bytes"], "sample-one.mp3", {
+      type: "audio/mpeg"
+    });
+
+    expect(audioInput).not.toBeNull();
+
+    await act(async () => {
+      selectFile(audioInput as HTMLInputElement, localFile);
+    });
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trackId: "track_sample_001",
+        fileName: "sample-one.mp3",
+        file: localFile
+      })
+    );
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "已绑定：sample-one.mp3"
+    );
+    expect(findButton(container, "播放")?.disabled).toBe(false);
+
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
+    expect(mediaMocks.createObjectURL).toHaveBeenCalledWith(localFile);
+    expect(mediaMocks.play).toHaveBeenCalled();
+    expect(container.querySelector(".player-status")?.textContent).toContain(
+      "正在播放"
+    );
+
+    await act(async () => {
+      findButton(container, "解除示例歌曲一的本地音频绑定")?.click();
+    });
+
+    expect(repository.remove).toHaveBeenCalledWith("track_sample_001");
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "未绑定音频文件"
+    );
+    expect(container.querySelector(".player-status")?.textContent).toContain(
+      "未绑定音频文件"
+    );
+    expect(findButton(container, "播放")?.disabled).toBe(true);
+    expect(mediaMocks.revokeObjectURL).toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("pauses instead of playing when automatic advance reaches an unbound track", async () => {
+    const firstFile = new File(["first test file"], "sample-one.mp3", {
+      type: "audio/mpeg"
+    });
+    const repository = createMemoryLocalAudioRepository([
+      createLocalAudioFileRecord(
+        "track_sample_001",
+        firstFile,
+        "2026-07-15T00:00:00.000Z"
+      )
+    ]);
+    const mediaMocks = installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(App, { localAudioRepository: repository }));
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
+    const playCallCountBeforeEnded = mediaMocks.play.mock.calls.length;
+
+    await act(async () => {
+      container
+        .querySelector("audio")
+        ?.dispatchEvent(new Event("ended", { bubbles: true }));
+    });
+
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲二"
+    );
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "未绑定音频文件"
+    );
+    expect(container.querySelector(".player-status")?.textContent).toContain(
+      "未绑定音频文件"
+    );
+    expect(mediaMocks.play).toHaveBeenCalledTimes(playCallCountBeforeEnded);
+    expect(findButton(container, "播放")?.disabled).toBe(true);
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("plays local files through an expanded repeatCount sequence", async () => {
+    const firstFile = new File(["first test file"], "sample-one.mp3", {
+      type: "audio/mpeg"
+    });
+    const secondFile = new File(["second test file"], "sample-two.ogg", {
+      type: "audio/ogg"
+    });
+    const repository = createMemoryLocalAudioRepository([
+      createLocalAudioFileRecord(
+        "track_sample_001",
+        firstFile,
+        "2026-07-15T00:00:00.000Z"
+      ),
+      createLocalAudioFileRecord(
+        "track_sample_002",
+        secondFile,
+        "2026-07-15T00:00:00.000Z"
+      )
+    ]);
+    const mediaMocks = installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(App, { localAudioRepository: repository }));
     });
 
     const playerTitle = () =>
@@ -380,7 +617,7 @@ describe("temporary playlist workflow", () => {
         container.querySelectorAll<HTMLButtonElement>(".player-actions button"),
         (button) => button.disabled
       )
-    ).toEqual([true, true, true, true, true]);
+    ).toEqual([true, true, true, true]);
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
@@ -389,6 +626,9 @@ describe("temporary playlist workflow", () => {
     expect(playerTitle()).toBe("示例歌曲一");
     expect(playerMeta()).toContain("播放序列 1 / 2");
     expect(playerStatus()).toContain("已暂停");
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "已绑定：sample-one.mp3"
+    );
 
     await act(async () => {
       findButton(container, "打开示例歌曲一的更多操作")?.click();
@@ -411,9 +651,14 @@ describe("temporary playlist workflow", () => {
 
     expect(playerStatus()).toContain("正在播放");
     expect(findButton(container, "暂停")).not.toBeUndefined();
+    expect(mediaMocks.play).toHaveBeenCalled();
+
+    const audioElement = container.querySelector("audio");
+
+    expect(audioElement).not.toBeNull();
 
     await act(async () => {
-      findButton(container, "模拟当前歌曲播放结束")?.click();
+      audioElement?.dispatchEvent(new Event("ended", { bubbles: true }));
     });
 
     expect(playerTitle()).toBe("示例歌曲一");
@@ -421,26 +666,32 @@ describe("temporary playlist workflow", () => {
     expect(playerMeta()).toContain("本项第 2 / 2 次");
 
     await act(async () => {
-      findButton(container, "模拟当前歌曲播放结束")?.click();
+      audioElement?.dispatchEvent(new Event("ended", { bubbles: true }));
     });
 
     expect(playerTitle()).toBe("示例歌曲二");
     expect(playerMeta()).toContain("播放序列 3 / 3");
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "已绑定：sample-two.ogg"
+    );
+    expect(mediaMocks.createObjectURL).toHaveBeenLastCalledWith(secondFile);
 
     await act(async () => {
       findButton(container, "上一首")?.click();
     });
     expect(playerTitle()).toBe("示例歌曲一");
     expect(playerMeta()).toContain("播放序列 2 / 3");
+    expect(mediaMocks.createObjectURL).toHaveBeenLastCalledWith(firstFile);
 
     await act(async () => {
       findButton(container, "从头播放")?.click();
       findButton(container, "下一首")?.click();
     });
     expect(playerTitle()).toBe("示例歌曲二");
+    expect(mediaMocks.createObjectURL).toHaveBeenLastCalledWith(secondFile);
 
     await act(async () => {
-      findButton(container, "模拟当前歌曲播放结束")?.click();
+      audioElement?.dispatchEvent(new Event("ended", { bubbles: true }));
     });
     expect(playerStatus()).toContain("播放队列已结束");
     expect(findButton(container, "重新播放")).not.toBeUndefined();

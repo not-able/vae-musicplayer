@@ -1,13 +1,28 @@
-import { useState, type DragEvent } from "react";
+import { useState, type ChangeEvent, type DragEvent } from "react";
 
-import type { Album, AlbumType, CatalogData, EntityId, Track } from "../../types";
+import type {
+  Album,
+  AlbumType,
+  CatalogData,
+  EntityId,
+  LocalAudioFileRecord,
+  Track
+} from "../../types";
+import { LOCAL_AUDIO_FILE_ACCEPT } from "../local-library/localAudioFile";
+import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import { writeAlbumDragData, writeTrackDragData } from "../../utils/albumDrag";
 import { getAlbumTracks, getReleaseYear, getSortedAlbums } from "./catalog";
 
 interface CatalogOverviewProps {
   catalog: CatalogData;
+  audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
+  pendingAudioTrackIds: ReadonlySet<EntityId>;
+  audioLibraryStatus: LocalAudioLibraryStatus;
+  audioLibraryError?: string;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
+  onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
+  onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
 }
 
 const albumTypeLabels: Record<AlbumType, string> = {
@@ -19,8 +34,14 @@ const albumTypeLabels: Record<AlbumType, string> = {
 
 export function CatalogOverview({
   catalog,
+  audioBindings,
+  pendingAudioTrackIds,
+  audioLibraryStatus,
+  audioLibraryError,
   onAddTrack,
-  onAddAlbum
+  onAddAlbum,
+  onBindAudio,
+  onUnbindAudio
 }: CatalogOverviewProps) {
   const albums = getSortedAlbums(catalog);
   const [selectedAlbumId, setSelectedAlbumId] = useState(() => albums[0]?.id);
@@ -57,6 +78,15 @@ export function CatalogOverview({
           <h2 id="catalog-heading">专辑目录</h2>
         </div>
         <span className="pill">{catalog.schemaVersion} 版元数据</span>
+      </div>
+
+      <div className="local-audio-notice">
+        <p>音频文件仅保存在当前浏览器的本地存储中，不会上传。</p>
+        {audioLibraryError && (
+          <p className="local-audio-error" role="status">
+            {audioLibraryError}
+          </p>
+        )}
       </div>
 
       <div className="catalog-browser">
@@ -110,9 +140,14 @@ export function CatalogOverview({
         <AlbumDetail
           album={selectedAlbum}
           catalog={catalog}
+          audioBindings={audioBindings}
+          pendingAudioTrackIds={pendingAudioTrackIds}
+          audioLibraryStatus={audioLibraryStatus}
           draggingTrackId={draggingTrackId}
           onAddTrack={onAddTrack}
           onAddAlbum={onAddAlbum}
+          onBindAudio={onBindAudio}
+          onUnbindAudio={onUnbindAudio}
           onTrackDragStart={startTrackDrag}
           onTrackDragEnd={() => setDraggingTrackId(undefined)}
         />
@@ -124,9 +159,14 @@ export function CatalogOverview({
 interface AlbumDetailProps {
   album: Album;
   catalog: CatalogData;
+  audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
+  pendingAudioTrackIds: ReadonlySet<EntityId>;
+  audioLibraryStatus: LocalAudioLibraryStatus;
   draggingTrackId?: EntityId;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
+  onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
+  onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
   onTrackDragStart: (event: DragEvent<HTMLDivElement>, trackId: EntityId) => void;
   onTrackDragEnd: () => void;
 }
@@ -134,9 +174,14 @@ interface AlbumDetailProps {
 function AlbumDetail({
   album,
   catalog,
+  audioBindings,
+  pendingAudioTrackIds,
+  audioLibraryStatus,
   draggingTrackId,
   onAddTrack,
   onAddAlbum,
+  onBindAudio,
+  onUnbindAudio,
   onTrackDragStart,
   onTrackDragEnd
 }: AlbumDetailProps) {
@@ -175,8 +220,13 @@ function AlbumDetail({
               key={track.id}
               track={track}
               album={album}
+              audioBinding={audioBindings.get(track.id)}
+              audioLibraryStatus={audioLibraryStatus}
+              isAudioPending={pendingAudioTrackIds.has(track.id)}
               isDragging={track.id === draggingTrackId}
               onAdd={() => onAddTrack(track.id)}
+              onBindAudio={(file) => onBindAudio(track.id, file)}
+              onUnbindAudio={() => onUnbindAudio(track.id)}
               onDragStart={(event) => onTrackDragStart(event, track.id)}
               onDragEnd={onTrackDragEnd}
             />
@@ -192,8 +242,13 @@ function AlbumDetail({
 interface TrackRowProps {
   track: Track;
   album: Album;
+  audioBinding?: LocalAudioFileRecord;
+  audioLibraryStatus: LocalAudioLibraryStatus;
+  isAudioPending: boolean;
   isDragging: boolean;
   onAdd: () => void;
+  onBindAudio: (file: File) => Promise<boolean>;
+  onUnbindAudio: () => Promise<boolean>;
   onDragStart: (event: DragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
 }
@@ -201,12 +256,28 @@ interface TrackRowProps {
 function TrackRow({
   track,
   album,
+  audioBinding,
+  audioLibraryStatus,
+  isAudioPending,
   isDragging,
   onAdd,
+  onBindAudio,
+  onUnbindAudio,
   onDragStart,
   onDragEnd
 }: TrackRowProps) {
   const hasTrackNumber = Number.isInteger(track.trackNumber);
+  const isAudioLibraryReady = audioLibraryStatus === "ready";
+  const bindingStatusLabel = getBindingStatusLabel(audioLibraryStatus, audioBinding);
+
+  function handleAudioFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (file) {
+      void onBindAudio(file);
+    }
+  }
 
   return (
     <li className={isDragging ? "is-dragging" : undefined}>
@@ -234,7 +305,38 @@ function TrackRow({
         </div>
       </div>
       <div className="track-actions">
-        <span className="binding-status">未绑定音频</span>
+        <span
+          className={`binding-status ${audioBinding ? "is-bound" : "is-unbound"}`}
+          title={bindingStatusLabel}
+        >
+          {bindingStatusLabel}
+        </span>
+        <label
+          className={`audio-file-picker ${
+            !isAudioLibraryReady || isAudioPending ? "is-disabled" : ""
+          }`}
+        >
+          <span>{isAudioPending ? "处理中…" : audioBinding ? "更换" : "绑定音频"}</span>
+          <input
+            className="visually-hidden"
+            type="file"
+            accept={LOCAL_AUDIO_FILE_ACCEPT}
+            disabled={!isAudioLibraryReady || isAudioPending}
+            aria-label={`为${track.title}选择本地音频文件`}
+            onChange={handleAudioFileChange}
+          />
+        </label>
+        {audioBinding && (
+          <button
+            className="text-button unbind-audio-button"
+            type="button"
+            disabled={isAudioPending}
+            aria-label={`解除${track.title}的本地音频绑定`}
+            onClick={() => void onUnbindAudio()}
+          >
+            解绑
+          </button>
+        )}
         <button
           className="icon-button add-track-button"
           type="button"
@@ -247,4 +349,23 @@ function TrackRow({
       </div>
     </li>
   );
+}
+
+function getBindingStatusLabel(
+  status: LocalAudioLibraryStatus,
+  binding: LocalAudioFileRecord | undefined
+): string {
+  if (status === "loading") {
+    return "正在读取音频映射";
+  }
+
+  if (status === "error") {
+    return "本地音频映射不可用";
+  }
+
+  if (binding) {
+    return `已绑定：${binding.fileName}`;
+  }
+
+  return "未绑定音频文件";
 }

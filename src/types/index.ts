@@ -18,6 +18,7 @@ export type {
 export type {
   AudioMappingStatus,
   LocalAudioFileMapping,
+  LocalAudioFileRecord,
   PlaybackProviderDescriptor,
   PlaybackProviderType
 } from "./audio";

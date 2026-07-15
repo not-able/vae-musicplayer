@@ -88,13 +88,20 @@ describe("catalog browsing", () => {
     const root = createRoot(container);
     const onAddTrack = vi.fn();
     const onAddAlbum = vi.fn();
+    const onBindAudio = vi.fn().mockResolvedValue(true);
+    const onUnbindAudio = vi.fn().mockResolvedValue(true);
 
     await act(async () => {
       root.render(
         createElement(CatalogOverview, {
           catalog: mockCatalog,
+          audioBindings: new Map(),
+          pendingAudioTrackIds: new Set<string>(),
+          audioLibraryStatus: "ready",
           onAddTrack,
-          onAddAlbum
+          onAddAlbum,
+          onBindAudio,
+          onUnbindAudio
         })
       );
     });

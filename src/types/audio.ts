@@ -16,6 +16,10 @@ export interface LocalAudioFileMapping {
   updatedAt: ISODateString;
 }
 
+export interface LocalAudioFileRecord extends LocalAudioFileMapping {
+  file: File;
+}
+
 export interface PlaybackProviderDescriptor {
   id: EntityId;
   type: PlaybackProviderType;
