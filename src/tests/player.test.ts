@@ -193,15 +193,7 @@ describe("player reducer", () => {
     expect(reorderedState.status).toBe("playing");
     expect(reorderedState.playbackRevision).toBe(secondState.playbackRevision);
 
-    const removedState = syncPlayerSequence(reorderedState, [
-      createEntry("item_002", "track_002"),
-      createEntry("item_001", "track_001", 1, 1)
-    ]);
-    expect(removedState.currentIndex).toBe(1);
-    expect(removedState.currentEntry?.repeatIndex).toBe(1);
-    expect(removedState.playbackRevision).toBe(reorderedState.playbackRevision + 1);
-
-    const emptyState = syncPlayerSequence(removedState, []);
+    const emptyState = syncPlayerSequence(reorderedState, []);
     expect(emptyState.status).toBe("empty");
     expect(emptyState.currentIndex).toBeNull();
     expect(emptyState.currentEntry).toBeNull();
@@ -277,5 +269,232 @@ describe("app player integration", () => {
     });
     expect(clearedState.player.status).toBe("empty");
     expect(clearedState.player.playSequence).toEqual([]);
+  });
+
+  it("continues with the first surviving occurrence after repeatCount shrinks", () => {
+    let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    playlist = updatePlaylistItemRepeatCount(playlist, "item_a", 3, updatedAt);
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_c",
+      itemId: "item_c",
+      addedAt: updatedAt
+    });
+
+    let state = createAppState(playlist);
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "play" }
+    });
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "playback-ended" }
+    });
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "playback-ended" }
+    });
+
+    expect(state.player.currentEntry).toMatchObject({
+      queueItemId: "item_a",
+      repeatIndex: 3
+    });
+
+    const syncedState = appReducer(state, {
+      type: "playlist",
+      action: {
+        type: "set-repeat-count",
+        itemId: "item_a",
+        repeatCount: 1,
+        updatedAt
+      }
+    });
+
+    expect(syncedState.player.currentEntry).toMatchObject({
+      queueItemId: "item_b",
+      trackId: "track_b"
+    });
+    expect(syncedState.player.currentIndex).toBe(1);
+    expect(syncedState.player.status).toBe("playing");
+    expect(syncedState.player.playbackRevision).toBe(state.player.playbackRevision + 1);
+  });
+
+  it("continues after a removed middle item without skipping a survivor", () => {
+    let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+    playlist = updatePlaylistItemRepeatCount(playlist, "item_b", 2, updatedAt);
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_c",
+      itemId: "item_c",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_d",
+      itemId: "item_d",
+      addedAt: updatedAt
+    });
+
+    let state = createAppState(playlist);
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "play" }
+    });
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "playback-ended" }
+    });
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "playback-ended" }
+    });
+
+    expect(state.player.currentEntry).toMatchObject({
+      queueItemId: "item_b",
+      repeatIndex: 2
+    });
+
+    const syncedState = appReducer(state, {
+      type: "playlist",
+      action: { type: "remove-item", itemId: "item_b", updatedAt }
+    });
+
+    expect(syncedState.player.currentEntry).toMatchObject({
+      queueItemId: "item_c",
+      trackId: "track_c"
+    });
+    expect(syncedState.player.currentIndex).toBe(1);
+    expect(syncedState.player.status).toBe("playing");
+  });
+
+  it("ends when the removed current item has no surviving successor", () => {
+    let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+
+    let state = createAppState(playlist);
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "play" }
+    });
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "playback-ended" }
+    });
+
+    expect(state.player.currentEntry?.queueItemId).toBe("item_b");
+
+    const syncedState = appReducer(state, {
+      type: "playlist",
+      action: { type: "remove-item", itemId: "item_b", updatedAt }
+    });
+
+    expect(syncedState.player.status).toBe("ended");
+    expect(syncedState.player.currentIndex).toBe(0);
+    expect(syncedState.player.currentEntry?.queueItemId).toBe("item_a");
+    expect(syncedState.player.playbackRevision).toBe(state.player.playbackRevision + 1);
+  });
+
+  it("keeps the current occurrence through a real move-item action", () => {
+    let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_c",
+      itemId: "item_c",
+      addedAt: updatedAt
+    });
+
+    let state = createAppState(playlist);
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "next" }
+    });
+    const revisionBeforeMove = state.player.playbackRevision;
+
+    const movedState = appReducer(state, {
+      type: "playlist",
+      action: { type: "move-item", itemId: "item_b", toIndex: 0, updatedAt }
+    });
+
+    expect(movedState.playlist.itemIds).toEqual(["item_b", "item_a", "item_c"]);
+    expect(movedState.player.currentIndex).toBe(0);
+    expect(movedState.player.currentEntry?.queueItemId).toBe("item_b");
+    expect(movedState.player.status).toBe("paused");
+    expect(movedState.player.playbackRevision).toBe(revisionBeforeMove);
+  });
+
+  it("continues playing in the reordered sequence after move-item", () => {
+    let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_c",
+      itemId: "item_c",
+      addedAt: updatedAt
+    });
+
+    let state = createAppState(playlist);
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "play" }
+    });
+    state = appReducer(state, {
+      type: "player",
+      action: { type: "playback-ended" }
+    });
+
+    const movedState = appReducer(state, {
+      type: "playlist",
+      action: { type: "move-item", itemId: "item_a", toIndex: 2, updatedAt }
+    });
+
+    expect(movedState.playlist.itemIds).toEqual(["item_b", "item_c", "item_a"]);
+    expect(movedState.player.currentEntry?.queueItemId).toBe("item_b");
+    expect(movedState.player.status).toBe("playing");
+
+    const advancedState = appReducer(movedState, {
+      type: "player",
+      action: { type: "playback-ended" }
+    });
+
+    expect(advancedState.player.currentEntry?.queueItemId).toBe("item_c");
+    expect(advancedState.player.status).toBe("playing");
   });
 });

@@ -87,8 +87,25 @@ export function syncPlayerSequence(
   );
   const nextIndex =
     matchingIndex === -1
-      ? Math.min(currentIndex, nextSequence.length - 1)
+      ? findFirstSurvivingOccurrenceIndex(
+          state.playSequence,
+          currentIndex,
+          nextSequence
+        )
       : matchingIndex;
+
+  if (nextIndex === -1) {
+    const finalIndex = nextSequence.length - 1;
+
+    return {
+      playSequence: nextSequence,
+      currentIndex: finalIndex,
+      currentEntry: nextSequence[finalIndex],
+      status: "ended",
+      playbackRevision: state.playbackRevision + 1
+    };
+  }
+
   const nextEntry = nextSequence[nextIndex];
   const currentEntryChanged = !isSamePlaybackOccurrence(nextEntry, currentEntry);
   const status = reconcileStatusAfterSequenceChange(
@@ -225,6 +242,25 @@ function isSamePlaybackOccurrence(
     first.trackId === second.trackId &&
     first.repeatIndex === second.repeatIndex
   );
+}
+
+function findFirstSurvivingOccurrenceIndex(
+  previousSequence: readonly PlaySequenceEntry[],
+  currentIndex: number,
+  nextSequence: readonly PlaySequenceEntry[]
+): number {
+  for (let index = currentIndex + 1; index < previousSequence.length; index += 1) {
+    const previousEntry = previousSequence[index];
+    const survivingIndex = nextSequence.findIndex((nextEntry) =>
+      isSamePlaybackOccurrence(nextEntry, previousEntry)
+    );
+
+    if (survivingIndex !== -1) {
+      return survivingIndex;
+    }
+  }
+
+  return -1;
 }
 
 function reconcileStatusAfterSequenceChange(
