@@ -1,11 +1,16 @@
+export { USER_CATALOG_CHANGES_SCHEMA_VERSION } from "./catalog";
+
 export type {
   Album,
+  AlbumFieldOverrides,
   AlbumType,
   Artist,
   CatalogData,
   EntityId,
   ISODateString,
-  Track
+  Track,
+  TrackFieldOverrides,
+  UserCatalogChanges
 } from "./catalog";
 
 export type {

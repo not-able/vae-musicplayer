@@ -9,7 +9,45 @@ import {
   getReleaseYear,
   getSortedAlbums
 } from "../features/catalog/catalog";
-import type { Album, CatalogData } from "../types";
+import { mergeCatalogChanges } from "../features/catalog/catalogMerge";
+import {
+  addAlbumToUserCatalog,
+  addTrackToUserCatalog,
+  createEmptyUserCatalogChanges
+} from "../features/catalog/catalogMutations";
+import type { Album, CatalogData, UserCatalogChanges } from "../types";
+
+function expectCatalogIntegrity(catalog: CatalogData): void {
+  const artistIds = catalog.artists.map((artist) => artist.id);
+  const albumIds = catalog.albums.map((album) => album.id);
+  const trackIds = catalog.tracks.map((track) => track.id);
+  const allIds = [...artistIds, ...albumIds, ...trackIds];
+  const artistIdSet = new Set(artistIds);
+  const albumIdSet = new Set(albumIds);
+  const trackIdSet = new Set(trackIds);
+
+  expect(new Set(allIds).size).toBe(allIds.length);
+
+  for (const album of catalog.albums) {
+    expect(artistIdSet.has(album.artistId)).toBe(true);
+    expect(new Set(album.trackIds).size).toBe(album.trackIds.length);
+
+    for (const trackId of album.trackIds) {
+      const track = catalog.tracks.find((item) => item.id === trackId);
+
+      expect(trackIdSet.has(trackId)).toBe(true);
+      expect(track?.albumId).toBe(album.id);
+    }
+  }
+
+  for (const track of catalog.tracks) {
+    const album = catalog.albums.find((item) => item.id === track.albumId);
+
+    expect(artistIdSet.has(track.artistId)).toBe(true);
+    expect(albumIdSet.has(track.albumId)).toBe(true);
+    expect(album?.trackIds.filter((trackId) => trackId === track.id)).toHaveLength(1);
+  }
+}
 
 describe("catalog helpers", () => {
   it("sorts albums by their maintained sort order without mutating catalog data", () => {
@@ -53,32 +91,440 @@ describe("catalog helpers", () => {
 
 describe("mock catalog integrity", () => {
   it("uses unique IDs and valid artist, album, and track references", () => {
-    const artistIds = mockCatalog.artists.map((artist) => artist.id);
-    const albumIds = mockCatalog.albums.map((album) => album.id);
-    const trackIds = mockCatalog.tracks.map((track) => track.id);
-    const artistIdSet = new Set(artistIds);
-    const albumIdSet = new Set(albumIds);
-    const trackIdSet = new Set(trackIds);
+    expectCatalogIntegrity(mockCatalog);
+  });
+});
 
-    expect(artistIdSet.size).toBe(artistIds.length);
-    expect(albumIdSet.size).toBe(albumIds.length);
-    expect(trackIdSet.size).toBe(trackIds.length);
+describe("user catalog mutations", () => {
+  it("creates a versioned empty change set and adds an album with an injected ID", () => {
+    const changes = createEmptyUserCatalogChanges();
+    const changesSnapshot = structuredClone(changes);
+    const idFactory = vi.fn(() => "album_user_001");
 
-    for (const album of mockCatalog.albums) {
-      expect(artistIdSet.has(album.artistId)).toBe(true);
+    const nextChanges = addAlbumToUserCatalog(
+      mockCatalog,
+      changes,
+      {
+        artistId: "artist_vae",
+        title: "示例专辑 A",
+        type: "album",
+        sortOrder: 3
+      },
+      idFactory
+    );
 
-      for (const trackId of album.trackIds) {
-        const track = mockCatalog.tracks.find((item) => item.id === trackId);
-
-        expect(trackIdSet.has(trackId)).toBe(true);
-        expect(track?.albumId).toBe(album.id);
+    expect(changes).toEqual(changesSnapshot);
+    expect(changes).toEqual({
+      schemaVersion: 1,
+      addedAlbums: [],
+      addedTracks: [],
+      albumOverrides: {},
+      trackOverrides: {},
+      albumTrackIdAdditions: {}
+    });
+    expect(nextChanges.addedAlbums).toEqual([
+      {
+        id: "album_user_001",
+        artistId: "artist_vae",
+        title: "示例专辑 A",
+        type: "album",
+        sortOrder: 3,
+        trackIds: []
       }
-    }
+    ]);
+    expect(idFactory).toHaveBeenCalledOnce();
+  });
 
-    for (const track of mockCatalog.tracks) {
-      expect(artistIdSet.has(track.artistId)).toBe(true);
-      expect(albumIdSet.has(track.albumId)).toBe(true);
-    }
+  it("adds a track to a user album while updating both sides of the relation", () => {
+    const albumChanges = addAlbumToUserCatalog(
+      mockCatalog,
+      createEmptyUserCatalogChanges(),
+      {
+        artistId: "artist_vae",
+        title: "用户专辑",
+        type: "other",
+        sortOrder: 3
+      },
+      () => "album_user_001"
+    );
+    const albumChangesSnapshot = structuredClone(albumChanges);
+
+    const trackChanges = addTrackToUserCatalog(
+      mockCatalog,
+      albumChanges,
+      {
+        artistId: "artist_vae",
+        albumId: "album_user_001",
+        title: "示例歌曲一",
+        discNumber: 1,
+        trackNumber: 1
+      },
+      () => "track_user_001"
+    );
+    const mergedCatalog = mergeCatalogChanges(mockCatalog, trackChanges);
+    const addedAlbum = trackChanges.addedAlbums[0];
+    const addedTrack = trackChanges.addedTracks[0];
+
+    expect(albumChanges).toEqual(albumChangesSnapshot);
+    expect(addedAlbum.trackIds).toEqual(["track_user_001"]);
+    expect(addedTrack).toMatchObject({
+      id: "track_user_001",
+      albumId: "album_user_001",
+      artistId: "artist_vae",
+      title: "示例歌曲一"
+    });
+    expect(
+      mergedCatalog.albums.find((album) => album.id === addedTrack.albumId)?.trackIds
+    ).toContain(addedTrack.id);
+    expectCatalogIntegrity(mergedCatalog);
+  });
+
+  it("adds a track to a built-in album without mutating the built-in catalog", () => {
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const changes = createEmptyUserCatalogChanges();
+    const changesSnapshot = structuredClone(changes);
+
+    const nextChanges = addTrackToUserCatalog(
+      mockCatalog,
+      changes,
+      {
+        artistId: "artist_vae",
+        albumId: "album_sample_001",
+        title: "用户示例歌曲",
+        trackNumber: 3
+      },
+      () => "track_user_001"
+    );
+    const mergedCatalog = mergeCatalogChanges(mockCatalog, nextChanges);
+
+    expect(nextChanges.albumTrackIdAdditions.album_sample_001).toEqual([
+      "track_user_001"
+    ]);
+    expect(
+      mergedCatalog.albums.find((album) => album.id === "album_sample_001")?.trackIds
+    ).toEqual(["track_sample_001", "track_sample_002", "track_user_001"]);
+    expect(mockCatalog).toEqual(catalogSnapshot);
+    expect(changes).toEqual(changesSnapshot);
+    expectCatalogIntegrity(mergedCatalog);
+  });
+
+  it("rejects blank titles and unknown artist or album references before using an ID", () => {
+    const changes = createEmptyUserCatalogChanges();
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const changesSnapshot = structuredClone(changes);
+    const idFactory = vi.fn(() => "unused_id");
+
+    expect(() =>
+      addAlbumToUserCatalog(
+        mockCatalog,
+        changes,
+        {
+          artistId: "artist_vae",
+          title: "   ",
+          type: "album",
+          sortOrder: 3
+        },
+        idFactory
+      )
+    ).toThrow("title");
+    expect(() =>
+      addAlbumToUserCatalog(
+        mockCatalog,
+        changes,
+        {
+          artistId: "artist_unknown",
+          title: "用户专辑",
+          type: "album",
+          sortOrder: 3
+        },
+        idFactory
+      )
+    ).toThrow("Unknown artist");
+    expect(() =>
+      addTrackToUserCatalog(
+        mockCatalog,
+        changes,
+        {
+          artistId: "artist_vae",
+          albumId: "album_unknown",
+          title: "用户歌曲"
+        },
+        idFactory
+      )
+    ).toThrow("Unknown album");
+    expect(() =>
+      addTrackToUserCatalog(
+        mockCatalog,
+        changes,
+        {
+          artistId: "artist_vae",
+          albumId: "album_sample_001",
+          title: "   "
+        },
+        idFactory
+      )
+    ).toThrow("title");
+    expect(() =>
+      addTrackToUserCatalog(
+        mockCatalog,
+        changes,
+        {
+          artistId: "artist_unknown",
+          albumId: "album_sample_001",
+          title: "用户歌曲"
+        },
+        idFactory
+      )
+    ).toThrow("Unknown artist");
+    expect(idFactory).not.toHaveBeenCalled();
+    expect(mockCatalog).toEqual(catalogSnapshot);
+    expect(changes).toEqual(changesSnapshot);
+  });
+
+  it("rejects empty generated IDs without changing either input", () => {
+    const changes = createEmptyUserCatalogChanges();
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const changesSnapshot = structuredClone(changes);
+
+    expect(() =>
+      addTrackToUserCatalog(
+        mockCatalog,
+        changes,
+        {
+          artistId: "artist_vae",
+          albumId: "album_sample_001",
+          title: "用户歌曲"
+        },
+        () => "   "
+      )
+    ).toThrow("must not be empty");
+    expect(mockCatalog).toEqual(catalogSnapshot);
+    expect(changes).toEqual(changesSnapshot);
+  });
+
+  it("allows duplicate titles but rejects IDs already used by any catalog entity", () => {
+    const firstChanges = addAlbumToUserCatalog(
+      mockCatalog,
+      createEmptyUserCatalogChanges(),
+      {
+        artistId: "artist_vae",
+        title: "示例专辑 A",
+        type: "album",
+        sortOrder: 3
+      },
+      () => "album_user_001"
+    );
+    const secondChanges = addAlbumToUserCatalog(
+      mockCatalog,
+      firstChanges,
+      {
+        artistId: "artist_vae",
+        title: "示例专辑 A",
+        type: "album",
+        sortOrder: 4
+      },
+      () => "album_user_002"
+    );
+
+    expect(secondChanges.addedAlbums.map((album) => album.title)).toEqual([
+      "示例专辑 A",
+      "示例专辑 A"
+    ]);
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const changesSnapshot = structuredClone(secondChanges);
+
+    expect(() =>
+      addAlbumToUserCatalog(
+        mockCatalog,
+        secondChanges,
+        {
+          artistId: "artist_vae",
+          title: "另一个专辑",
+          type: "album",
+          sortOrder: 5
+        },
+        () => "track_sample_001"
+      )
+    ).toThrow("unique");
+    expect(() =>
+      addAlbumToUserCatalog(
+        mockCatalog,
+        secondChanges,
+        {
+          artistId: "artist_vae",
+          title: "另一个专辑",
+          type: "album",
+          sortOrder: 5
+        },
+        () => "album_user_001"
+      )
+    ).toThrow("unique");
+    expect(mockCatalog).toEqual(catalogSnapshot);
+    expect(secondChanges).toEqual(changesSnapshot);
+  });
+});
+
+describe("catalog change merging", () => {
+  it("merges additions and allowed field overrides without changing stable IDs", () => {
+    const defaultCatalogSnapshot = structuredClone(mockCatalog);
+    const changes: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_sample_001: {
+          title: "用户专辑标题",
+          sortOrder: 20
+        }
+      },
+      trackOverrides: {
+        track_sample_001: {
+          title: "用户歌曲标题",
+          discNumber: 2,
+          trackNumber: 8,
+          note: null
+        }
+      }
+    };
+    const changesSnapshot = structuredClone(changes);
+
+    const mergedCatalog = mergeCatalogChanges(mockCatalog, changes);
+    const album = mergedCatalog.albums.find((item) => item.id === "album_sample_001");
+    const track = mergedCatalog.tracks.find((item) => item.id === "track_sample_001");
+
+    expect(album).toMatchObject({
+      id: "album_sample_001",
+      artistId: "artist_vae",
+      title: "用户专辑标题",
+      sortOrder: 20
+    });
+    expect(track).toMatchObject({
+      id: "track_sample_001",
+      artistId: "artist_vae",
+      albumId: "album_sample_001",
+      title: "用户歌曲标题",
+      discNumber: 2,
+      trackNumber: 8
+    });
+    expect(track?.note).toBeUndefined();
+    expect(mockCatalog).toEqual(defaultCatalogSnapshot);
+    expect(changes).toEqual(changesSnapshot);
+    expect(mergedCatalog.albums[0].trackIds).not.toBe(mockCatalog.albums[0].trackIds);
+    expectCatalogIntegrity(mergedCatalog);
+  });
+
+  it("preserves later built-in tracks when replaying user track additions", () => {
+    const changes = addTrackToUserCatalog(
+      mockCatalog,
+      createEmptyUserCatalogChanges(),
+      {
+        artistId: "artist_vae",
+        albumId: "album_sample_001",
+        title: "用户示例歌曲"
+      },
+      () => "track_user_001"
+    );
+    const updatedDefaultCatalog: CatalogData = {
+      ...mockCatalog,
+      albums: mockCatalog.albums.map((album) =>
+        album.id === "album_sample_001"
+          ? {
+              ...album,
+              trackIds: [...album.trackIds, "track_sample_004"]
+            }
+          : { ...album, trackIds: [...album.trackIds] }
+      ),
+      tracks: [
+        ...mockCatalog.tracks,
+        {
+          id: "track_sample_004",
+          artistId: "artist_vae",
+          albumId: "album_sample_001",
+          title: "后续内置占位歌曲"
+        }
+      ]
+    };
+
+    const mergedCatalog = mergeCatalogChanges(updatedDefaultCatalog, changes);
+
+    expect(
+      mergedCatalog.albums.find((album) => album.id === "album_sample_001")?.trackIds
+    ).toEqual([
+      "track_sample_001",
+      "track_sample_002",
+      "track_sample_004",
+      "track_user_001"
+    ]);
+    expectCatalogIntegrity(mergedCatalog);
+  });
+
+  it("rejects unknown override targets and incomplete bidirectional references", () => {
+    const unknownOverrideChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_unknown: { title: "未知专辑" }
+      }
+    };
+    const oneSidedTrackChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      addedTracks: [
+        {
+          id: "track_user_001",
+          artistId: "artist_vae",
+          albumId: "album_sample_001",
+          title: "孤立歌曲"
+        }
+      ]
+    };
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const unknownOverrideSnapshot = structuredClone(unknownOverrideChanges);
+    const oneSidedTrackSnapshot = structuredClone(oneSidedTrackChanges);
+
+    expect(() => mergeCatalogChanges(mockCatalog, unknownOverrideChanges)).toThrow(
+      "Unknown album override"
+    );
+    expect(() => mergeCatalogChanges(mockCatalog, oneSidedTrackChanges)).toThrow(
+      "referenced once"
+    );
+    expect(mockCatalog).toEqual(catalogSnapshot);
+    expect(unknownOverrideChanges).toEqual(unknownOverrideSnapshot);
+    expect(oneSidedTrackChanges).toEqual(oneSidedTrackSnapshot);
+  });
+
+  it("rejects unknown track overrides and unsupported change schemas", () => {
+    const unknownTrackOverride: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      trackOverrides: {
+        track_unknown: { title: "未知歌曲" }
+      }
+    };
+    const unsupportedSchema = {
+      ...createEmptyUserCatalogChanges(),
+      schemaVersion: 2
+    } as unknown as UserCatalogChanges;
+
+    expect(() => mergeCatalogChanges(mockCatalog, unknownTrackOverride)).toThrow(
+      "Unknown track override"
+    );
+    expect(() => mergeCatalogChanges(mockCatalog, unsupportedSchema)).toThrow(
+      "Unsupported user catalog schema"
+    );
+  });
+
+  it("rejects duplicate IDs in manually constructed changes", () => {
+    const changes: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      addedAlbums: [
+        {
+          id: "album_sample_001",
+          artistId: "artist_vae",
+          title: "重复 ID 专辑",
+          type: "other",
+          sortOrder: 3,
+          trackIds: []
+        }
+      ]
+    };
+
+    expect(() => mergeCatalogChanges(mockCatalog, changes)).toThrow("unique");
   });
 });
 

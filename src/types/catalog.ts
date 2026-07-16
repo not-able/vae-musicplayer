@@ -40,3 +40,32 @@ export interface CatalogData {
   albums: Album[];
   tracks: Track[];
 }
+
+export const USER_CATALOG_CHANGES_SCHEMA_VERSION = 1 as const;
+
+export interface AlbumFieldOverrides {
+  title?: string;
+  type?: AlbumType;
+  releaseDate?: ISODateString | null;
+  sortOrder?: number;
+  note?: string | null;
+}
+
+export interface TrackFieldOverrides {
+  title?: string;
+  discNumber?: number | null;
+  trackNumber?: number | null;
+  durationSeconds?: number | null;
+  version?: string | null;
+  releaseDate?: ISODateString | null;
+  note?: string | null;
+}
+
+export interface UserCatalogChanges {
+  schemaVersion: typeof USER_CATALOG_CHANGES_SCHEMA_VERSION;
+  addedAlbums: Album[];
+  addedTracks: Track[];
+  albumOverrides: Partial<Record<EntityId, AlbumFieldOverrides>>;
+  trackOverrides: Partial<Record<EntityId, TrackFieldOverrides>>;
+  albumTrackIdAdditions: Partial<Record<EntityId, EntityId[]>>;
+}
