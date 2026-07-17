@@ -29,6 +29,11 @@ import { findQueueInsertionIndex } from "./queueDrag";
 interface TemporaryPlaylistPanelProps {
   playlist: TemporaryPlaylist;
   tracks: Track[];
+  canMutate: boolean;
+  persistenceStatus: "loading" | "ready" | "error";
+  persistenceLoadingMessage?: string;
+  persistenceNotice?: string;
+  persistenceError?: string;
   onRepeatCountChange: (itemId: EntityId, repeatCount: number) => void;
   onRemove: (itemId: EntityId) => void;
   onClear: () => void;
@@ -42,6 +47,11 @@ type CatalogDragKind = "album" | "track";
 export function TemporaryPlaylistPanel({
   playlist,
   tracks,
+  canMutate,
+  persistenceStatus,
+  persistenceLoadingMessage,
+  persistenceNotice,
+  persistenceError,
   onRepeatCountChange,
   onRemove,
   onClear,
@@ -93,7 +103,7 @@ export function TemporaryPlaylistPanel({
     function handleDocumentDragOver(event: globalThis.DragEvent) {
       const { dataTransfer } = event;
 
-      if (!dataTransfer || !hasPlaylistItemDragData(dataTransfer)) {
+      if (!canMutate || !dataTransfer || !hasPlaylistItemDragData(dataTransfer)) {
         return;
       }
 
@@ -112,6 +122,7 @@ export function TemporaryPlaylistPanel({
       const { dataTransfer } = event;
 
       if (
+        !canMutate ||
         !dataTransfer ||
         !hasPlaylistItemDragData(dataTransfer) ||
         isInsidePlaylist(event.target)
@@ -141,7 +152,7 @@ export function TemporaryPlaylistPanel({
       document.removeEventListener("dragover", handleDocumentDragOver, true);
       document.removeEventListener("drop", handleDocumentDrop);
     };
-  }, [onRemove, playlist.itemsById]);
+  }, [canMutate, onRemove, playlist.itemsById]);
 
   useEffect(() => {
     if (playlist.itemIds.length > previousItemCount.current) {
@@ -168,6 +179,10 @@ export function TemporaryPlaylistPanel({
   }
 
   function handleDragEnter(event: ReactDragEvent<HTMLDivElement>) {
+    if (!canMutate) {
+      return;
+    }
+
     const dragKind = getCatalogDragKind(event.dataTransfer);
 
     if (!dragKind) {
@@ -180,6 +195,10 @@ export function TemporaryPlaylistPanel({
   }
 
   function handleDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (!canMutate) {
+      return;
+    }
+
     const dragKind = getCatalogDragKind(event.dataTransfer);
 
     if (dragKind) {
@@ -205,6 +224,10 @@ export function TemporaryPlaylistPanel({
   }
 
   function handleDragLeave(event: ReactDragEvent<HTMLDivElement>) {
+    if (!canMutate) {
+      return;
+    }
+
     if (!getCatalogDragKind(event.dataTransfer)) {
       return;
     }
@@ -217,6 +240,10 @@ export function TemporaryPlaylistPanel({
   }
 
   function handleDrop(event: ReactDragEvent<HTMLDivElement>) {
+    if (!canMutate) {
+      return;
+    }
+
     const dragKind = getCatalogDragKind(event.dataTransfer);
 
     if (dragKind) {
@@ -258,6 +285,11 @@ export function TemporaryPlaylistPanel({
     event: ReactDragEvent<HTMLDivElement>,
     itemId: EntityId
   ) {
+    if (!canMutate) {
+      event.preventDefault();
+      return;
+    }
+
     writePlaylistItemDragData(event.dataTransfer, itemId);
     setOpenQueueMenuItemId(undefined);
     draggingQueueItemIdRef.current = itemId;
@@ -302,6 +334,7 @@ export function TemporaryPlaylistPanel({
       className={panelClassName}
       ref={panelRef}
       aria-label="临时歌单放置区域"
+      aria-busy={persistenceStatus === "loading" || undefined}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -330,6 +363,21 @@ export function TemporaryPlaylistPanel({
           <p className="playlist-drag-help" id="playlist-drag-help">
             拖动歌曲可排序，拖到歌单外可移除
           </p>
+          {persistenceStatus === "loading" && persistenceLoadingMessage && (
+            <p className="playlist-persistence-message is-loading" role="status">
+              {persistenceLoadingMessage}
+            </p>
+          )}
+          {persistenceNotice && (
+            <p className="playlist-persistence-message is-notice" role="status">
+              {persistenceNotice}
+            </p>
+          )}
+          {persistenceError && (
+            <p className="playlist-persistence-message is-error" role="status">
+              {persistenceError}
+            </p>
+          )}
         </div>
         <div className="playlist-heading-actions">
           <span className="pill" aria-live="polite">
@@ -338,7 +386,7 @@ export function TemporaryPlaylistPanel({
           <button
             className="text-button danger-button"
             type="button"
-            disabled={playlist.itemIds.length === 0}
+            disabled={!canMutate || playlist.itemIds.length === 0}
             onClick={onClear}
           >
             清空
@@ -389,7 +437,7 @@ export function TemporaryPlaylistPanel({
                 <div className="queue-item-main">
                   <div
                     className="queue-item-copy"
-                    draggable
+                    draggable={canMutate}
                     title={`拖动${track?.title ?? "歌曲"}调整顺序或移出歌单`}
                     onDragStart={(event) => handleQueueItemDragStart(event, itemId)}
                     onDragEnd={resetQueueDragState}
@@ -411,7 +459,8 @@ export function TemporaryPlaylistPanel({
                     itemId={itemId}
                     trackTitle={track?.title ?? "歌曲"}
                     repeatCount={item.repeatCount}
-                    isOpen={openQueueMenuItemId === itemId}
+                    isOpen={canMutate && openQueueMenuItemId === itemId}
+                    isDisabled={!canMutate}
                     isFirst={index === 0}
                     isLast={index === playlist.itemIds.length - 1}
                     onOpenChange={(isOpen) =>
@@ -471,6 +520,7 @@ interface RepeatCountControlProps {
 
 interface QueueItemActionsMenuProps extends RepeatCountControlProps {
   isOpen: boolean;
+  isDisabled: boolean;
   isFirst: boolean;
   isLast: boolean;
   onOpenChange: (isOpen: boolean) => void;
@@ -491,6 +541,7 @@ function QueueItemActionsMenu({
   trackTitle,
   repeatCount,
   isOpen,
+  isDisabled,
   isFirst,
   isLast,
   onOpenChange,
@@ -571,6 +622,7 @@ function QueueItemActionsMenu({
         className="icon-button queue-menu-trigger"
         ref={triggerRef}
         type="button"
+        disabled={isDisabled}
         aria-label={`打开${trackTitle}的更多操作`}
         aria-controls={popoverId}
         aria-expanded={isOpen}

@@ -14,9 +14,13 @@ import { PlayerBar } from "../features/player/PlayerBar";
 import type { PlayerAction } from "../features/player/playerReducer";
 import { useLocalAudioPlayback } from "../features/player/useLocalAudioPlayback";
 import { TemporaryPlaylistPanel } from "../features/playlist/TemporaryPlaylistPanel";
+import type { TemporaryPlaylistAction } from "../features/playlist/playlistReducer";
+import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
+import { usePersistedPlaylist } from "../features/playlist/usePersistedPlaylist";
 import { indexedDbLocalAudioRepository } from "../infra/storage/indexedDbLocalAudioRepository";
 import { localStorageCatalogRepository } from "../infra/storage/localStorageCatalogRepository";
-import type { EntityId, PlaySequenceEntry } from "../types";
+import { localStoragePlaylistRepository } from "../infra/storage/localStoragePlaylistRepository";
+import type { EntityId, PlaySequenceEntry, TemporaryPlaylist } from "../types";
 import { createTemporaryPlaylist } from "../utils/playlist";
 
 function createInitialState() {
@@ -57,6 +61,7 @@ interface AppProps {
   catalogRepository?: LocalCatalogRepository;
   catalogEntityIdFactory?: CatalogEntityIdFactory;
   localAudioRepository?: LocalAudioFileRepository;
+  playlistRepository?: TemporaryPlaylistRepository;
   playlistItemIdFactory?: () => EntityId;
 }
 
@@ -64,6 +69,7 @@ export function App({
   catalogRepository = localStorageCatalogRepository,
   catalogEntityIdFactory,
   localAudioRepository = indexedDbLocalAudioRepository,
+  playlistRepository = localStoragePlaylistRepository,
   playlistItemIdFactory = createPlaylistItemId
 }: AppProps) {
   const [{ playlist, player }, dispatch] = useReducer(
@@ -78,6 +84,18 @@ export function App({
     catalogEntityIdFactory
   );
   const catalog = catalogLibrary.catalog;
+  const hydratePlaylist = useCallback(
+    (restoredPlaylist: TemporaryPlaylist) =>
+      dispatch({ type: "hydrate-playlist", playlist: restoredPlaylist }),
+    []
+  );
+  const playlistPersistence = usePersistedPlaylist({
+    playlist,
+    tracks: catalog.tracks,
+    catalogStatus: catalogLibrary.status,
+    repository: playlistRepository,
+    onHydrate: hydratePlaylist
+  });
   const localAudioLibrary = useLocalAudioLibrary(localAudioRepository);
   const dispatchPlayer = useCallback(
     (action: PlayerAction) => dispatch({ type: "player", action }),
@@ -111,25 +129,38 @@ export function App({
     localAudioLibrary.bindingsByTrackId.has(playTargetEntry.trackId)
   );
 
+  function dispatchPlaylist(action: TemporaryPlaylistAction) {
+    if (!playlistPersistence.canMutate) {
+      return;
+    }
+
+    dispatch({ type: "playlist", action });
+  }
+
   function addTrack(trackId: EntityId) {
+    if (!playlistPersistence.canMutate) {
+      return;
+    }
+
     const trackExists = catalog.tracks.some((track) => track.id === trackId);
 
     if (!trackExists) {
       return;
     }
 
-    dispatch({
-      type: "playlist",
-      action: {
-        type: "add-track",
-        trackId,
-        itemId: playlistItemIdFactory(),
-        addedAt: new Date().toISOString()
-      }
+    dispatchPlaylist({
+      type: "add-track",
+      trackId,
+      itemId: playlistItemIdFactory(),
+      addedAt: new Date().toISOString()
     });
   }
 
   function addAlbum(albumId: EntityId) {
+    if (!playlistPersistence.canMutate) {
+      return;
+    }
+
     const album = catalog.albums.find((item) => item.id === albumId);
 
     if (!album) {
@@ -138,17 +169,14 @@ export function App({
 
     const trackIds = getAlbumTracks(catalog, album).map((track) => track.id);
 
-    dispatch({
-      type: "playlist",
-      action: {
-        type: "add-album",
-        album: {
-          ...album,
-          trackIds
-        },
-        itemIds: trackIds.map(() => playlistItemIdFactory()),
-        addedAt: new Date().toISOString()
-      }
+    dispatchPlaylist({
+      type: "add-album",
+      album: {
+        ...album,
+        trackIds
+      },
+      itemIds: trackIds.map(() => playlistItemIdFactory()),
+      addedAt: new Date().toISOString()
     });
   }
 
@@ -185,45 +213,38 @@ export function App({
           <TemporaryPlaylistPanel
             playlist={playlist}
             tracks={catalog.tracks}
+            canMutate={playlistPersistence.canMutate}
+            persistenceStatus={playlistPersistence.status}
+            persistenceLoadingMessage={playlistPersistence.loadingMessage}
+            persistenceNotice={playlistPersistence.noticeMessage}
+            persistenceError={playlistPersistence.errorMessage}
             onRepeatCountChange={(itemId, repeatCount) =>
-              dispatch({
-                type: "playlist",
-                action: {
-                  type: "set-repeat-count",
-                  itemId,
-                  repeatCount,
-                  updatedAt: new Date().toISOString()
-                }
+              dispatchPlaylist({
+                type: "set-repeat-count",
+                itemId,
+                repeatCount,
+                updatedAt: new Date().toISOString()
               })
             }
             onRemove={(itemId) =>
-              dispatch({
-                type: "playlist",
-                action: {
-                  type: "remove-item",
-                  itemId,
-                  updatedAt: new Date().toISOString()
-                }
+              dispatchPlaylist({
+                type: "remove-item",
+                itemId,
+                updatedAt: new Date().toISOString()
               })
             }
             onClear={() =>
-              dispatch({
-                type: "playlist",
-                action: {
-                  type: "clear",
-                  updatedAt: new Date().toISOString()
-                }
+              dispatchPlaylist({
+                type: "clear",
+                updatedAt: new Date().toISOString()
               })
             }
             onMove={(itemId, toIndex) =>
-              dispatch({
-                type: "playlist",
-                action: {
-                  type: "move-item",
-                  itemId,
-                  toIndex,
-                  updatedAt: new Date().toISOString()
-                }
+              dispatchPlaylist({
+                type: "move-item",
+                itemId,
+                toIndex,
+                updatedAt: new Date().toISOString()
               })
             }
             onAddTrack={addTrack}

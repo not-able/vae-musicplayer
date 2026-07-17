@@ -12,12 +12,23 @@ import {
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import { createLocalAudioFileRecord } from "../features/local-library/localAudioFile";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
-import type { LocalAudioFileRecord, UserCatalogChanges } from "../types";
+import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
+import { LOCAL_TEMPORARY_PLAYLIST_STORAGE_KEY } from "../infra/storage/localStoragePlaylistRepository";
+import type {
+  LocalAudioFileRecord,
+  TemporaryPlaylist,
+  UserCatalogChanges
+} from "../types";
 import {
   ALBUM_DRAG_MIME_TYPE,
   PLAYLIST_ITEM_DRAG_MIME_TYPE,
   TRACK_DRAG_MIME_TYPE
 } from "../utils/albumDrag";
+import {
+  addTrackToPlaylist,
+  createTemporaryPlaylist,
+  updatePlaylistItemRepeatCount
+} from "../utils/playlist";
 
 function findButton(container: HTMLElement, ariaLabel: string) {
   return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
@@ -121,6 +132,7 @@ let restoreObjectUrlMocks: (() => void) | undefined;
 afterEach(() => {
   restoreObjectUrlMocks?.();
   restoreObjectUrlMocks = undefined;
+  localStorage.removeItem(LOCAL_TEMPORARY_PLAYLIST_STORAGE_KEY);
   vi.restoreAllMocks();
 });
 
@@ -178,6 +190,69 @@ function createDeferred<T>() {
   });
 
   return { promise, reject, resolve };
+}
+
+function createStoredTemporaryPlaylist(
+  entries: readonly {
+    itemId: string;
+    trackId: string;
+    repeatCount?: number;
+  }[]
+): TemporaryPlaylist {
+  const createdAt = "2026-07-17T01:00:00.000Z";
+  let playlist = createTemporaryPlaylist({
+    id: "playlist_temp_current",
+    name: "临时歌单",
+    createdAt
+  });
+
+  for (const [index, entry] of entries.entries()) {
+    const updatedAt = `2026-07-17T01:00:${String(index).padStart(2, "0")}.000Z`;
+
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: entry.trackId,
+      itemId: entry.itemId,
+      addedAt: updatedAt
+    });
+
+    if (entry.repeatCount !== undefined) {
+      playlist = updatePlaylistItemRepeatCount(
+        playlist,
+        entry.itemId,
+        entry.repeatCount,
+        updatedAt
+      );
+    }
+  }
+
+  return playlist;
+}
+
+function createStatefulTemporaryPlaylistRepository(
+  initialPlaylist: TemporaryPlaylist | null
+): {
+  repository: TemporaryPlaylistRepository;
+  getStoredPlaylist: () => TemporaryPlaylist | null;
+} {
+  let storedPlaylist =
+    initialPlaylist === null ? null : structuredClone(initialPlaylist);
+  const repository = {
+    load: vi.fn(async () =>
+      storedPlaylist === null ? null : structuredClone(storedPlaylist)
+    ),
+    save: vi.fn(async (playlist: TemporaryPlaylist) => {
+      storedPlaylist = structuredClone(playlist);
+    }),
+    clear: vi.fn(async () => {
+      storedPlaylist = null;
+    })
+  } satisfies TemporaryPlaylistRepository;
+
+  return {
+    repository,
+    getStoredPlaylist: () =>
+      storedPlaylist === null ? null : structuredClone(storedPlaylist)
+  };
 }
 
 function createUserCatalogChanges(): UserCatalogChanges {
@@ -426,6 +501,753 @@ function invokeEndedListener(record: EndedListenerRecord) {
     record.listener.handleEvent(event);
   }
 }
+
+describe("persistent temporary playlist integration", () => {
+  it("restores order, duplicate instances, repeat counts, and a paused derived sequence", async () => {
+    const storedPlaylist = createStoredTemporaryPlaylist([
+      {
+        itemId: "item_second",
+        trackId: "track_sample_002",
+        repeatCount: 2
+      },
+      {
+        itemId: "item_first",
+        trackId: "track_sample_001"
+      },
+      {
+        itemId: "item_second_duplicate",
+        trackId: "track_sample_002",
+        repeatCount: 3
+      }
+    ]);
+    const { repository } = createStatefulTemporaryPlaylistRepository(storedPlaylist);
+    const localFile = new File(["self-created test bytes"], "sample-two.mp3", {
+      type: "audio/mpeg"
+    });
+    const localAudioRepository = createMemoryLocalAudioRepository([
+      createLocalAudioFileRecord(
+        "track_sample_002",
+        localFile,
+        "2026-07-17T01:10:00.000Z"
+      )
+    ]);
+    const mediaMocks = installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository,
+          playlistRepository: repository
+        })
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲二", "示例歌曲一", "示例歌曲二"]);
+    expect(
+      Array.from(container.querySelectorAll(".queue-repeat-count"), (count) =>
+        count.textContent?.trim()
+      )
+    ).toEqual(["×2", "×1", "×3"]);
+    expect(container.querySelector(".playlist-heading-actions")?.textContent).toContain(
+      "3 首 · 6 次"
+    );
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲二"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "播放序列 1 / 6 · 本项第 1 / 2 次"
+    );
+    expect(container.querySelector(".player-status")?.textContent).toContain("已暂停");
+    expect(mediaMocks.play).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("never saves the default empty playlist while stored data is still loading", async () => {
+    const loadDeferred = createDeferred<TemporaryPlaylist | null>();
+    const storedPlaylist = createStoredTemporaryPlaylist([
+      {
+        itemId: "item_loaded_late",
+        trackId: "track_sample_003",
+        repeatCount: 2
+      }
+    ]);
+    const repository = {
+      load: vi.fn(() => loadDeferred.promise),
+      save: vi.fn(async () => undefined),
+      clear: vi.fn(async () => undefined)
+    } satisfies TemporaryPlaylistRepository;
+    const playlistItemIdFactory = vi.fn(() => "item_while_loading");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository,
+          playlistItemIdFactory
+        })
+      );
+    });
+
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(playlistItemIdFactory).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      loadDeferred.resolve(storedPlaylist);
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲三");
+    expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×2");
+    expect(repository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("starts empty when switching from a restored repository to a new empty source", async () => {
+    const restoredPlaylist = createStoredTemporaryPlaylist([
+      {
+        itemId: "item_from_first_repository",
+        trackId: "track_sample_001",
+        repeatCount: 2
+      }
+    ]);
+    const { repository: firstRepository } =
+      createStatefulTemporaryPlaylistRepository(restoredPlaylist);
+    const {
+      repository: emptyRepository,
+      getStoredPlaylist: getEmptyRepositoryPlaylist
+    } = createStatefulTemporaryPlaylistRepository(null);
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository,
+          playlistRepository: firstRepository
+        })
+      );
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository,
+          playlistRepository: emptyRepository,
+          playlistItemIdFactory: () => "item_from_second_repository"
+        })
+      );
+    });
+
+    expect(container.querySelector(".queue-empty")).not.toBeNull();
+    expect(emptyRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(container, "将示例歌曲二加入临时歌单")?.click();
+    });
+
+    expect(getEmptyRepositoryPlaylist()?.itemIds).toEqual([
+      "item_from_second_repository"
+    ]);
+    expect(
+      Object.values(getEmptyRepositoryPlaylist()?.itemsById ?? {}).map(
+        (item) => item.trackId
+      )
+    ).toEqual(["track_sample_002"]);
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("does not carry memory changes from a failed source into a new empty repository", async () => {
+    const failedRepository = {
+      load: vi.fn(async () => {
+        throw new Error("unreadable source");
+      }),
+      save: vi.fn(async () => undefined),
+      clear: vi.fn(async () => undefined)
+    } satisfies TemporaryPlaylistRepository;
+    const {
+      repository: emptyRepository,
+      getStoredPlaylist: getEmptyRepositoryPlaylist
+    } = createStatefulTemporaryPlaylistRepository(null);
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository,
+          playlistRepository: failedRepository,
+          playlistItemIdFactory: () => "item_from_failed_source"
+        })
+      );
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
+    expect(failedRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository,
+          playlistRepository: emptyRepository,
+          playlistItemIdFactory: () => "item_from_empty_source"
+        })
+      );
+    });
+
+    expect(container.querySelector(".queue-empty")).not.toBeNull();
+    expect(emptyRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(container, "将示例歌曲二加入临时歌单")?.click();
+    });
+
+    expect(getEmptyRepositoryPlaylist()?.itemIds).toEqual(["item_from_empty_source"]);
+    expect(
+      Object.values(getEmptyRepositoryPlaylist()?.itemsById ?? {}).map(
+        (item) => item.trackId
+      )
+    ).toEqual(["track_sample_002"]);
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("waits for the final user catalog before validating and hydrating stored tracks", async () => {
+    const catalogDeferred = createDeferred<UserCatalogChanges>();
+    const catalogRepository = createMemoryLocalCatalogRepository(
+      () => catalogDeferred.promise
+    );
+    const storedPlaylist = createStoredTemporaryPlaylist([
+      {
+        itemId: "item_user_track",
+        trackId: "track_user_001",
+        repeatCount: 2
+      }
+    ]);
+    const { repository } = createStatefulTemporaryPlaylistRepository(storedPlaylist);
+    const playlistItemIdFactory = vi.fn(() => "item_should_not_be_created");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository,
+          playlistItemIdFactory
+        })
+      );
+    });
+
+    expect(container.querySelectorAll(".queue-item")).toHaveLength(0);
+    expect(container.querySelector(".playlist-panel")?.getAttribute("aria-busy")).toBe(
+      "true"
+    );
+    expect(repository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(playlistItemIdFactory).not.toHaveBeenCalled();
+    expect(container.querySelectorAll(".queue-item")).toHaveLength(0);
+
+    await act(async () => {
+      catalogDeferred.resolve(createUserCatalogChanges());
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户歌曲");
+    expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×2");
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "播放序列 1 / 2"
+    );
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("removes invalid track references once and persists the reconciled playlist", async () => {
+    const storedPlaylist = createStoredTemporaryPlaylist([
+      {
+        itemId: "item_valid_first",
+        trackId: "track_sample_001",
+        repeatCount: 2
+      },
+      {
+        itemId: "item_missing",
+        trackId: "track_removed_from_catalog",
+        repeatCount: 3
+      },
+      {
+        itemId: "item_valid_duplicate",
+        trackId: "track_sample_001"
+      }
+    ]);
+    const { repository, getStoredPlaylist } =
+      createStatefulTemporaryPlaylistRepository(storedPlaylist);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository
+        })
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲一", "示例歌曲一"]);
+    expect(container.textContent).not.toContain("未知歌曲");
+    expect(
+      container.querySelectorAll(".playlist-persistence-message.is-notice")
+    ).toHaveLength(1);
+    expect(container.textContent).toContain(
+      "已从临时歌单移除 1 个目录中已不存在的歌曲项。"
+    );
+    expect(repository.save).toHaveBeenCalledOnce();
+    expect(repository.clear).not.toHaveBeenCalled();
+    expect(getStoredPlaylist()?.itemIds).toEqual([
+      "item_valid_first",
+      "item_valid_duplicate"
+    ]);
+    expect(Object.keys(getStoredPlaylist()?.itemsById ?? {})).toEqual([
+      "item_valid_first",
+      "item_valid_duplicate"
+    ]);
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const restoredRoot = createRoot(container);
+
+    await act(async () => {
+      restoredRoot.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository
+        })
+      );
+    });
+
+    expect(
+      container.querySelector(".playlist-persistence-message.is-notice")
+    ).toBeNull();
+    expect(repository.save).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      restoredRoot.unmount();
+    });
+    container.remove();
+  });
+
+  it("automatically saves every queue mutation and restores an explicit clear", async () => {
+    const { repository, getStoredPlaylist } =
+      createStatefulTemporaryPlaylistRepository(null);
+    let itemSequence = 0;
+    const playlistItemIdFactory = vi.fn(() => {
+      itemSequence += 1;
+      return `item_auto_${itemSequence}`;
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository,
+          playlistItemIdFactory
+        })
+      );
+    });
+
+    expect(repository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+    expect(repository.save).toHaveBeenCalledTimes(1);
+    expect(getStoredPlaylist()?.itemIds).toEqual(["item_auto_1"]);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+    expect(repository.save).toHaveBeenCalledTimes(2);
+    expect(getStoredPlaylist()?.itemIds).toEqual([
+      "item_auto_1",
+      "item_auto_2",
+      "item_auto_3"
+    ]);
+
+    await act(async () => {
+      findButton(container, "打开示例歌曲一的更多操作")?.click();
+    });
+    await act(async () => {
+      findButton(document.body, "增加示例歌曲一的播放次数")?.click();
+    });
+    expect(repository.save).toHaveBeenCalledTimes(3);
+    expect(getStoredPlaylist()?.itemsById.item_auto_1.repeatCount).toBe(2);
+
+    await act(async () => {
+      findButton(document.body, "下移示例歌曲一")?.click();
+    });
+    expect(repository.save).toHaveBeenCalledTimes(4);
+    expect(getStoredPlaylist()?.itemIds).toEqual([
+      "item_auto_2",
+      "item_auto_1",
+      "item_auto_3"
+    ]);
+
+    await act(async () => {
+      findButton(container, "打开示例歌曲二的更多操作")?.click();
+    });
+    await act(async () => {
+      findButton(document.body, "删除示例歌曲二")?.click();
+    });
+    expect(repository.save).toHaveBeenCalledTimes(5);
+    expect(getStoredPlaylist()?.itemIds).toEqual(["item_auto_2", "item_auto_1"]);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".danger-button")?.click();
+    });
+    expect(repository.save).toHaveBeenCalledTimes(6);
+    expect(getStoredPlaylist()?.itemIds).toEqual([]);
+    expect(getStoredPlaylist()?.itemsById).toEqual({});
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const restoredRoot = createRoot(container);
+
+    await act(async () => {
+      restoredRoot.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository,
+          playlistItemIdFactory
+        })
+      );
+    });
+
+    expect(container.querySelector(".queue-empty")).not.toBeNull();
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "播放队列为空"
+    );
+    expect(repository.save).toHaveBeenCalledTimes(6);
+
+    await act(async () => {
+      restoredRoot.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps memory state after load or save failures without overwriting blindly", async () => {
+    const loadFailureRepository = {
+      load: vi.fn(async () => {
+        throw new Error("damaged snapshot");
+      }),
+      save: vi.fn(async () => undefined),
+      clear: vi.fn(async () => undefined)
+    } satisfies TemporaryPlaylistRepository;
+    const firstContainer = document.createElement("div");
+    document.body.append(firstContainer);
+    const firstRoot = createRoot(firstContainer);
+
+    await act(async () => {
+      firstRoot.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: loadFailureRepository,
+          playlistItemIdFactory: () => "item_after_load_failure"
+        })
+      );
+    });
+
+    expect(firstContainer.textContent).toContain("无法恢复临时歌单");
+    expect(loadFailureRepository.save).not.toHaveBeenCalled();
+    expect(loadFailureRepository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(firstContainer, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(firstContainer.querySelector(".queue-item h3")?.textContent).toBe(
+      "示例歌曲一"
+    );
+    expect(loadFailureRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      firstRoot.unmount();
+    });
+    firstContainer.remove();
+
+    let shouldFailSave = true;
+    let storedPlaylist: TemporaryPlaylist | null = null;
+    const saveFailureRepository = {
+      load: vi.fn(async () => null),
+      save: vi.fn(async (playlist: TemporaryPlaylist) => {
+        if (shouldFailSave) {
+          throw new Error("write denied");
+        }
+
+        storedPlaylist = structuredClone(playlist);
+      }),
+      clear: vi.fn(async () => undefined)
+    } satisfies TemporaryPlaylistRepository;
+    let itemSequence = 0;
+    const secondContainer = document.createElement("div");
+    document.body.append(secondContainer);
+    const secondRoot = createRoot(secondContainer);
+
+    await act(async () => {
+      secondRoot.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: saveFailureRepository,
+          playlistItemIdFactory: () => {
+            itemSequence += 1;
+            return `item_save_failure_${itemSequence}`;
+          }
+        })
+      );
+    });
+    await act(async () => {
+      findButton(secondContainer, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(secondContainer.querySelector(".queue-item h3")?.textContent).toBe(
+      "示例歌曲一"
+    );
+    expect(secondContainer.textContent).toContain(
+      "临时歌单保存失败，本次页面中的更改仍然保留。"
+    );
+
+    shouldFailSave = false;
+
+    await act(async () => {
+      findButton(secondContainer, "将示例歌曲二加入临时歌单")?.click();
+    });
+
+    expect(
+      Array.from(secondContainer.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲一", "示例歌曲二"]);
+    expect(secondContainer.textContent).not.toContain("临时歌单保存失败");
+    expect((storedPlaylist as TemporaryPlaylist | null)?.itemIds).toEqual([
+      "item_save_failure_1",
+      "item_save_failure_2"
+    ]);
+
+    await act(async () => {
+      secondRoot.unmount();
+    });
+    secondContainer.remove();
+  });
+
+  it("serializes delayed saves so the newest complete playlist wins", async () => {
+    const firstSaveDeferred = createDeferred<void>();
+    let saveCallCount = 0;
+    let storedPlaylist: TemporaryPlaylist | null = null;
+    const repository = {
+      load: vi.fn(async () => null),
+      save: vi.fn(async (playlist: TemporaryPlaylist) => {
+        saveCallCount += 1;
+        const snapshot = structuredClone(playlist);
+
+        if (saveCallCount === 1) {
+          await firstSaveDeferred.promise;
+        }
+
+        storedPlaylist = snapshot;
+      }),
+      clear: vi.fn(async () => undefined)
+    } satisfies TemporaryPlaylistRepository;
+    let itemSequence = 0;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository,
+          playlistItemIdFactory: () => {
+            itemSequence += 1;
+            return `item_race_${itemSequence}`;
+          }
+        })
+      );
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲二加入临时歌单")?.click();
+    });
+
+    expect(repository.save).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      firstSaveDeferred.resolve();
+      await firstSaveDeferred.promise;
+    });
+
+    expect(repository.save).toHaveBeenCalledTimes(2);
+    expect((storedPlaylist as TemporaryPlaylist | null)?.itemIds).toEqual([
+      "item_race_1",
+      "item_race_2"
+    ]);
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("waits for an old session's final queued save before remounting", async () => {
+    const firstSaveDeferred = createDeferred<void>();
+    let storedPlaylist: TemporaryPlaylist | null = null;
+    let saveCallCount = 0;
+    const repository = {
+      load: vi.fn(async () =>
+        storedPlaylist === null ? null : structuredClone(storedPlaylist)
+      ),
+      save: vi.fn(async (playlist: TemporaryPlaylist) => {
+        saveCallCount += 1;
+        const snapshot = structuredClone(playlist);
+
+        if (saveCallCount === 1) {
+          await firstSaveDeferred.promise;
+        }
+
+        storedPlaylist = snapshot;
+      }),
+      clear: vi.fn(async () => undefined)
+    } satisfies TemporaryPlaylistRepository;
+    let itemSequence = 0;
+    const playlistItemIdFactory = () => {
+      itemSequence += 1;
+      return `item_remount_${itemSequence}`;
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository,
+          playlistItemIdFactory
+        })
+      );
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲二加入临时歌单")?.click();
+    });
+
+    expect(repository.save).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const restoredRoot = createRoot(container);
+
+    await act(async () => {
+      restoredRoot.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistRepository: repository,
+          playlistItemIdFactory
+        })
+      );
+    });
+
+    expect(repository.load).toHaveBeenCalledOnce();
+    expect(container.querySelectorAll(".queue-item")).toHaveLength(0);
+
+    await act(async () => {
+      firstSaveDeferred.resolve();
+      await firstSaveDeferred.promise;
+    });
+
+    expect(repository.save).toHaveBeenCalledTimes(2);
+    expect(repository.load).toHaveBeenCalledTimes(2);
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲一", "示例歌曲二"]);
+
+    await act(async () => {
+      restoredRoot.unmount();
+    });
+    container.remove();
+  });
+});
 
 describe("persistent catalog integration", () => {
   it("shows the built-in catalog immediately and keeps existing behavior for empty changes", async () => {
@@ -1432,13 +2254,6 @@ describe("catalog metadata editing workflow", () => {
 
     expect(findButton(container, "编辑本地修订歌曲的元数据")).toBeDefined();
     expect(container.textContent).toContain("已绑定：sample-one.mp3");
-
-    await act(async () => {
-      findButton(container, "将本地修订歌曲加入临时歌单")?.click();
-    });
-    await act(async () => {
-      findButton(container, "将示例歌曲二加入临时歌单")?.click();
-    });
     await act(async () => {
       findButton(container, "播放")?.click();
     });

@@ -18,6 +18,7 @@ export interface AppState {
 }
 
 export type AppAction =
+  | { type: "hydrate-playlist"; playlist: TemporaryPlaylist }
   | { type: "playlist"; action: TemporaryPlaylistAction }
   | { type: "player"; action: PlayerAction };
 
@@ -30,6 +31,8 @@ export function createAppState(playlist: TemporaryPlaylist): AppState {
 
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
+    case "hydrate-playlist":
+      return createAppState(action.playlist);
     case "playlist": {
       const playlist = temporaryPlaylistReducer(state.playlist, action.action);
 

@@ -724,6 +724,22 @@ button:disabled {
   line-height: 1.4;
 }
 
+.playlist-persistence-message {
+  max-width: 360px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.playlist-persistence-message.is-notice {
+  color: var(--accent-strong);
+}
+
+.playlist-persistence-message.is-error {
+  color: var(--warning);
+}
+
 .playlist-heading-actions {
   display: flex;
   flex-wrap: wrap;

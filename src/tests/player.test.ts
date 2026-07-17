@@ -282,6 +282,55 @@ describe("player reducer", () => {
 });
 
 describe("app player integration", () => {
+  it("hydrates playlist and player atomically at the first paused occurrence", () => {
+    const previousPlaylist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_previous",
+      itemId: "item_previous",
+      addedAt: updatedAt
+    });
+    const previousState = appReducer(createAppState(previousPlaylist), {
+      type: "player",
+      action: { type: "play" }
+    });
+    let restoredPlaylist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_restored_a",
+      itemId: "item_restored_a",
+      addedAt: updatedAt
+    });
+    restoredPlaylist = updatePlaylistItemRepeatCount(
+      restoredPlaylist,
+      "item_restored_a",
+      3,
+      updatedAt
+    );
+    restoredPlaylist = addTrackToPlaylist(restoredPlaylist, {
+      trackId: "track_restored_b",
+      itemId: "item_restored_b",
+      addedAt: updatedAt
+    });
+
+    const hydratedState = appReducer(previousState, {
+      type: "hydrate-playlist",
+      playlist: restoredPlaylist
+    });
+
+    expect(previousState.player.status).toBe("playing");
+    expect(hydratedState.playlist).toBe(restoredPlaylist);
+    expect(hydratedState.player.playSequence).toEqual(
+      expandPlaylistToPlaySequence(restoredPlaylist)
+    );
+    expect(hydratedState.player.playSequence).toHaveLength(4);
+    expect(hydratedState.player.currentIndex).toBe(0);
+    expect(hydratedState.player.currentEntry).toMatchObject({
+      queueItemId: "item_restored_a",
+      trackId: "track_restored_a",
+      repeatIndex: 1,
+      repeatTotal: 3
+    });
+    expect(hydratedState.player.status).toBe("paused");
+    expect(hydratedState.player.playbackRevision).toBe(0);
+  });
+
   it("updates the player sequence atomically with playlist repeatCount", () => {
     const initialState = createAppState(createEmptyPlaylist());
     const addedState = appReducer(initialState, {
