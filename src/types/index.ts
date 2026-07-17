@@ -17,8 +17,12 @@ export type {
   PlaySequenceEntry,
   PlaylistItem,
   PlaylistItemSource,
+  StoredTemporaryPlaylist,
+  StoredTemporaryPlaylistItem,
   TemporaryPlaylist
 } from "./playlist";
+
+export { TEMPORARY_PLAYLIST_SCHEMA_VERSION } from "./playlist";
 
 export type {
   AudioMappingStatus,
