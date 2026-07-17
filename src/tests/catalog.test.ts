@@ -1,4 +1,4 @@
-import { act, createElement } from "react";
+import { act, createElement, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
@@ -91,6 +91,33 @@ function findButtonByText(
   );
 }
 
+function createCatalogOverviewProps(
+  overrides: Partial<ComponentProps<typeof CatalogOverview>> = {}
+): ComponentProps<typeof CatalogOverview> {
+  return {
+    catalog: mockCatalog,
+    catalogLibraryStatus: "ready",
+    isSavingAlbum: false,
+    isSavingTrack: false,
+    audioBindings: new Map(),
+    pendingAudioTrackIds: new Set<string>(),
+    audioLibraryStatus: "ready",
+    onAddTrack: vi.fn(),
+    onAddAlbum: vi.fn(),
+    onCreateAlbum: vi.fn(async () => ({
+      ok: true as const,
+      albumId: "album_user_test"
+    })),
+    onCreateTrack: vi.fn(async () => ({
+      ok: true as const,
+      trackId: "track_user_test"
+    })),
+    onBindAudio: vi.fn().mockResolvedValue(true),
+    onUnbindAudio: vi.fn().mockResolvedValue(true),
+    ...overrides
+  };
+}
+
 function createMemoryCatalogRepository(load: () => Promise<UserCatalogChanges>) {
   return {
     load: vi.fn(load),
@@ -100,17 +127,23 @@ function createMemoryCatalogRepository(load: () => Promise<UserCatalogChanges>) 
 }
 
 interface CatalogLibraryProbeProps {
+  catalog?: CatalogData;
   repository: LocalCatalogRepository;
   createAlbumTitle?: string;
+  createTrackTitle?: string;
+  trackAlbumId?: string;
   idFactory?: () => string;
 }
 
 function CatalogLibraryProbe({
+  catalog = mockCatalog,
   repository,
   createAlbumTitle,
+  createTrackTitle,
+  trackAlbumId = "album_sample_001",
   idFactory
 }: CatalogLibraryProbeProps) {
-  const library = useCatalogLibrary(mockCatalog, repository, idFactory);
+  const library = useCatalogLibrary(catalog, repository, idFactory);
 
   return createElement(
     "div",
@@ -121,7 +154,10 @@ function CatalogLibraryProbe({
         "data-error": library.errorMessage ?? "",
         "data-status": library.status
       },
-      library.catalog.albums.map((album) => album.title).join("|")
+      [
+        ...library.catalog.albums.map((album) => album.title),
+        ...library.catalog.tracks.map((track) => track.title)
+      ].join("|")
     ),
     createAlbumTitle
       ? createElement(
@@ -137,6 +173,23 @@ function CatalogLibraryProbe({
             type: "button"
           },
           "创建测试专辑"
+        )
+      : null,
+    createTrackTitle
+      ? createElement(
+          "button",
+          {
+            disabled: library.status !== "ready",
+            onClick: () => {
+              void library.createTrack(trackAlbumId, {
+                title: createTrackTitle,
+                discNumber: 1,
+                trackNumber: 3
+              });
+            },
+            type: "button"
+          },
+          "创建测试歌曲"
         )
       : null
   );
@@ -171,6 +224,69 @@ describe("catalog helpers", () => {
     expect(getAlbumTracks(mockCatalog, album).map((track) => track.id)).toEqual([
       "track_sample_001",
       "track_sample_002"
+    ]);
+  });
+
+  it("sorts tracks by disc and track number with stable relation-order ties", () => {
+    const album: Album = {
+      id: "album_sort_test",
+      artistId: "artist_vae",
+      title: "排序测试专辑",
+      type: "album",
+      sortOrder: 1,
+      trackIds: ["track_disc_2", "track_ten", "track_two_first", "track_two_second"]
+    };
+    const catalog: CatalogData = {
+      schemaVersion: 1,
+      artists: structuredClone(mockCatalog.artists),
+      albums: [album],
+      tracks: [
+        {
+          id: "track_disc_2",
+          artistId: "artist_vae",
+          albumId: album.id,
+          title: "第二碟",
+          discNumber: 2,
+          trackNumber: 1
+        },
+        {
+          id: "track_ten",
+          artistId: "artist_vae",
+          albumId: album.id,
+          title: "第十首",
+          discNumber: 1,
+          trackNumber: 10
+        },
+        {
+          id: "track_two_first",
+          artistId: "artist_vae",
+          albumId: album.id,
+          title: "第二首甲",
+          discNumber: 1,
+          trackNumber: 2
+        },
+        {
+          id: "track_two_second",
+          artistId: "artist_vae",
+          albumId: album.id,
+          title: "第二首乙",
+          discNumber: 1,
+          trackNumber: 2
+        }
+      ]
+    };
+
+    expect(getAlbumTracks(catalog, album).map((track) => track.id)).toEqual([
+      "track_two_first",
+      "track_two_second",
+      "track_ten",
+      "track_disc_2"
+    ]);
+    expect(album.trackIds).toEqual([
+      "track_disc_2",
+      "track_ten",
+      "track_two_first",
+      "track_two_second"
     ]);
   });
 
@@ -393,6 +509,35 @@ describe("user catalog mutations", () => {
     ).toThrow("must not be empty");
     expect(mockCatalog).toEqual(catalogSnapshot);
     expect(changes).toEqual(changesSnapshot);
+  });
+
+  it.each([
+    ["zero disc number", { discNumber: 0, trackNumber: 1 }],
+    ["negative disc number", { discNumber: -1, trackNumber: 1 }],
+    ["decimal track number", { discNumber: 1, trackNumber: 1.5 }],
+    ["unsafe track number", { discNumber: 1, trackNumber: Number.MAX_SAFE_INTEGER + 1 }]
+  ])("rejects an invalid provided track position: %s", (_label, position) => {
+    const changes = createEmptyUserCatalogChanges();
+    const changesSnapshot = structuredClone(changes);
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const idFactory = vi.fn(() => "track_user_invalid_position");
+
+    expect(() =>
+      addTrackToUserCatalog(
+        mockCatalog,
+        changes,
+        {
+          artistId: "artist_vae",
+          albumId: "album_sample_001",
+          title: "无效曲序歌曲",
+          ...position
+        },
+        idFactory
+      )
+    ).toThrow("positive integer");
+    expect(idFactory).not.toHaveBeenCalled();
+    expect(changes).toEqual(changesSnapshot);
+    expect(mockCatalog).toEqual(catalogSnapshot);
   });
 
   it("allows duplicate titles but rejects IDs already used by any catalog entity", () => {
@@ -815,6 +960,222 @@ describe("catalog library loading", () => {
       root.unmount();
     });
   });
+
+  it("does not publish a pending track save after the repository source changes", async () => {
+    const saveDeferred = createDeferred<void>();
+    const firstRepository = {
+      load: vi.fn(async () => createEmptyUserCatalogChanges()),
+      save: vi.fn(async () => saveDeferred.promise),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const secondChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_sample_001: { title: "当前歌曲仓储目录" }
+      }
+    };
+    const secondRepository = createMemoryCatalogRepository(async () => secondChanges);
+    const idFactory = vi.fn(() => "track_user_stale");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository: firstRepository,
+          createTrackTitle: "迟到的新歌曲",
+          idFactory
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "创建测试歌曲")?.click();
+    });
+
+    expect(firstRepository.save).toHaveBeenCalledOnce();
+    expect(idFactory).toHaveBeenCalledOnce();
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "迟到的新歌曲"
+    );
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository: secondRepository,
+          createTrackTitle: "迟到的新歌曲",
+          idFactory
+        })
+      );
+    });
+
+    expect(container.querySelector("output")?.textContent).toContain(
+      "当前歌曲仓储目录"
+    );
+
+    await act(async () => {
+      saveDeferred.resolve(undefined);
+      await saveDeferred.promise;
+    });
+
+    expect(container.querySelector("output")?.textContent).toContain(
+      "当前歌曲仓储目录"
+    );
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "迟到的新歌曲"
+    );
+    expect(secondRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("uses one synchronous write lock for album and track creation", async () => {
+    const saveDeferred = createDeferred<void>();
+    const repository = {
+      load: vi.fn(async () => createEmptyUserCatalogChanges()),
+      save: vi.fn(async () => saveDeferred.promise),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const idFactory = vi.fn(() => "album_user_locked");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository,
+          createAlbumTitle: "锁定中的专辑",
+          createTrackTitle: "不应同时保存的歌曲",
+          idFactory
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "创建测试专辑")?.click();
+      findButtonByText(container, "创建测试歌曲")?.click();
+    });
+
+    expect(repository.save).toHaveBeenCalledOnce();
+    expect(idFactory).toHaveBeenCalledOnce();
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "不应同时保存的歌曲"
+    );
+
+    await act(async () => {
+      saveDeferred.resolve(undefined);
+      await saveDeferred.promise;
+    });
+
+    expect(container.querySelector("output")?.textContent).toContain("锁定中的专辑");
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "不应同时保存的歌曲"
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("derives the track artist from the target album instead of the first artist", async () => {
+    const catalog: CatalogData = {
+      ...mockCatalog,
+      artists: [
+        ...structuredClone(mockCatalog.artists),
+        {
+          id: "artist_second",
+          name: "第二位占位艺人"
+        }
+      ],
+      albums: [
+        ...structuredClone(mockCatalog.albums),
+        {
+          id: "album_second_artist",
+          artistId: "artist_second",
+          title: "第二位艺人专辑",
+          type: "other",
+          sortOrder: 3,
+          trackIds: []
+        }
+      ],
+      tracks: structuredClone(mockCatalog.tracks)
+    };
+    const repository = createMemoryCatalogRepository(async () =>
+      createEmptyUserCatalogChanges()
+    );
+    const idFactory = vi.fn(() => "track_user_second_artist");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          catalog,
+          repository,
+          createTrackTitle: "第二位艺人的歌曲",
+          trackAlbumId: "album_second_artist",
+          idFactory
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "创建测试歌曲")?.click();
+    });
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addedTracks: [
+          expect.objectContaining({
+            id: "track_user_second_artist",
+            artistId: "artist_second",
+            albumId: "album_second_artist"
+          })
+        ],
+        albumTrackIdAdditions: {
+          album_second_artist: ["track_user_second_artist"]
+        }
+      })
+    );
+    expect(idFactory).toHaveBeenCalledOnce();
+    expect(container.querySelector("output")?.textContent).toContain(
+      "第二位艺人的歌曲"
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("rejects a missing target album before generating an ID or saving", async () => {
+    const repository = createMemoryCatalogRepository(async () =>
+      createEmptyUserCatalogChanges()
+    );
+    const idFactory = vi.fn(() => "track_user_unknown_album");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository,
+          createTrackTitle: "无目标歌曲",
+          trackAlbumId: "album_missing",
+          idFactory
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "创建测试歌曲")?.click();
+    });
+
+    expect(idFactory).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(container.querySelector("output")?.textContent).not.toContain("无目标歌曲");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });
 
 describe("catalog browsing", () => {
@@ -832,6 +1193,7 @@ describe("catalog browsing", () => {
           catalog: mockCatalog,
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
+          isSavingTrack: false,
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
@@ -840,6 +1202,10 @@ describe("catalog browsing", () => {
           onCreateAlbum: vi.fn(async () => ({
             ok: true as const,
             albumId: "album_user_unused"
+          })),
+          onCreateTrack: vi.fn(async () => ({
+            ok: true as const,
+            trackId: "track_user_unused"
           })),
           onBindAudio,
           onUnbindAudio
@@ -886,6 +1252,7 @@ describe("catalog browsing", () => {
     const commonProps = {
       catalogLibraryStatus: "ready" as const,
       isSavingAlbum: false,
+      isSavingTrack: false,
       audioBindings: new Map(),
       pendingAudioTrackIds: new Set<string>(),
       audioLibraryStatus: "ready" as const,
@@ -894,6 +1261,10 @@ describe("catalog browsing", () => {
       onCreateAlbum: vi.fn(async () => ({
         ok: true as const,
         albumId: "album_user_unused"
+      })),
+      onCreateTrack: vi.fn(async () => ({
+        ok: true as const,
+        trackId: "track_user_unused"
       })),
       onBindAudio: vi.fn().mockResolvedValue(true),
       onUnbindAudio: vi.fn().mockResolvedValue(true)
@@ -979,12 +1350,17 @@ describe("catalog album editor", () => {
           catalog: mockCatalog,
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
+          isSavingTrack: false,
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
           onAddTrack: vi.fn(),
           onAddAlbum: vi.fn(),
           onCreateAlbum,
+          onCreateTrack: vi.fn(async () => ({
+            ok: true as const,
+            trackId: "track_user_unused"
+          })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1036,12 +1412,17 @@ describe("catalog album editor", () => {
           catalog: mockCatalog,
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
+          isSavingTrack: false,
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
           onAddTrack: vi.fn(),
           onAddAlbum: vi.fn(),
           onCreateAlbum,
+          onCreateTrack: vi.fn(async () => ({
+            ok: true as const,
+            trackId: "track_user_unused"
+          })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1087,12 +1468,17 @@ describe("catalog album editor", () => {
           catalog: mockCatalog,
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
+          isSavingTrack: false,
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
           onAddTrack: vi.fn(),
           onAddAlbum: vi.fn(),
           onCreateAlbum,
+          onCreateTrack: vi.fn(async () => ({
+            ok: true as const,
+            trackId: "track_user_unused"
+          })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1150,12 +1536,17 @@ describe("catalog album editor", () => {
           catalog: mockCatalog,
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
+          isSavingTrack: false,
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
           onAddTrack: vi.fn(),
           onAddAlbum: vi.fn(),
           onCreateAlbum,
+          onCreateTrack: vi.fn(async () => ({
+            ok: true as const,
+            trackId: "track_user_unused"
+          })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1181,6 +1572,317 @@ describe("catalog album editor", () => {
       type: "album"
     });
     expect(container.querySelector(".catalog-editor")).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
+
+describe("catalog track editor", () => {
+  it("binds the form to the selected album, cancels cleanly, and closes on album switch", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onCreateTrack = vi.fn(async () => ({
+      ok: true as const,
+      trackId: "track_user_context"
+    }));
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, createCatalogOverviewProps({ onCreateTrack }))
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "添加歌曲")?.click();
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-artist"]')?.value
+    ).toBe("许嵩");
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-album"]')?.value
+    ).toBe("示例专辑 A");
+
+    await act(async () => {
+      const titleInput = container.querySelector<HTMLInputElement>(
+        'input[name="track-title"]'
+      );
+      if (titleInput) {
+        changeInputValue(titleInput, "不会保存的歌曲");
+      }
+      findButtonByText(container, "取消")?.click();
+    });
+
+    expect(container.querySelector(".catalog-track-editor")).toBeNull();
+    expect(onCreateTrack).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButtonByText(container, "添加歌曲")?.click();
+      const titleInput = container.querySelector<HTMLInputElement>(
+        'input[name="track-title"]'
+      );
+      if (titleInput) {
+        changeInputValue(titleInput, "不应带到另一张专辑");
+      }
+    });
+
+    const secondAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("示例专辑 B"));
+
+    await act(async () => {
+      secondAlbumButton?.click();
+    });
+
+    expect(container.querySelector(".catalog-track-editor")).toBeNull();
+
+    await act(async () => {
+      findButtonByText(container, "添加歌曲")?.click();
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-album"]')?.value
+    ).toBe("示例专辑 B");
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-title"]')?.value
+    ).toBe("");
+    expect(onCreateTrack).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("blocks blank metadata, invalid positions, and invalid calendar dates", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onCreateTrack = vi.fn(async () => ({
+      ok: true as const,
+      trackId: "track_user_invalid"
+    }));
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, createCatalogOverviewProps({ onCreateTrack }))
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "添加歌曲")?.click();
+    });
+
+    const titleInput = container.querySelector<HTMLInputElement>(
+      'input[name="track-title"]'
+    );
+    const discInput = container.querySelector<HTMLInputElement>(
+      'input[name="track-disc-number"]'
+    );
+    const trackInput = container.querySelector<HTMLInputElement>(
+      'input[name="track-number"]'
+    );
+    const dateInput = container.querySelector<HTMLInputElement>(
+      'input[name="track-release-date"]'
+    );
+
+    await act(async () => {
+      changeInputValue(titleInput as HTMLInputElement, "　 ");
+      changeInputValue(discInput as HTMLInputElement, "0");
+      changeInputValue(trackInput as HTMLInputElement, "1.5");
+      changeInputValue(dateInput as HTMLInputElement, "2023-02-29");
+      findButtonByText(container, "保存歌曲")?.click();
+    });
+
+    expect(container.textContent).toContain("请输入歌曲名。");
+    expect(container.textContent).toContain("碟号必须是正整数。");
+    expect(container.textContent).toContain("曲序必须是正整数。");
+    expect(container.textContent).toContain("请输入有效日期，格式为 YYYY-MM-DD。");
+    expect(onCreateTrack).not.toHaveBeenCalled();
+
+    await act(async () => {
+      changeInputValue(titleInput as HTMLInputElement, "有效歌曲名");
+      changeInputValue(discInput as HTMLInputElement, "1");
+      changeInputValue(dateInput as HTMLInputElement, "");
+    });
+
+    for (const invalidTrackNumber of [
+      "",
+      "0",
+      "-1",
+      "1.5",
+      "1e2",
+      "9007199254740992"
+    ]) {
+      await act(async () => {
+        changeInputValue(trackInput as HTMLInputElement, invalidTrackNumber);
+        findButtonByText(container, "保存歌曲")?.click();
+      });
+
+      expect(container.textContent).toContain("曲序必须是正整数。");
+      expect(onCreateTrack).not.toHaveBeenCalled();
+    }
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("normalizes valid positions and omits blank optional fields on success", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onCreateTrack = vi.fn(async () => ({
+      ok: true as const,
+      trackId: "track_user_success"
+    }));
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, createCatalogOverviewProps({ onCreateTrack }))
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "添加歌曲")?.click();
+    });
+
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-title"]'
+        ) as HTMLInputElement,
+        "  成功歌曲  "
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-disc-number"]'
+        ) as HTMLInputElement,
+        "01"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-number"]'
+        ) as HTMLInputElement,
+        "002"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-version"]'
+        ) as HTMLInputElement,
+        "   "
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-release-date"]'
+        ) as HTMLInputElement,
+        "   "
+      );
+      findButtonByText(container, "保存歌曲")?.click();
+    });
+
+    expect(onCreateTrack).toHaveBeenCalledWith("album_sample_001", {
+      title: "成功歌曲",
+      discNumber: 1,
+      trackNumber: 2
+    });
+    expect(container.querySelector(".catalog-track-editor")).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("retains every raw field and shows a safe error when saving fails", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onCreateTrack = vi.fn(async () => ({
+      ok: false as const,
+      code: "save_failed" as const,
+      errorMessage: "测试歌曲保存失败，请重试。"
+    }));
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, createCatalogOverviewProps({ onCreateTrack }))
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "添加歌曲")?.click();
+    });
+
+    const rawValues = {
+      title: "  失败歌曲  ",
+      discNumber: " 2 ",
+      trackNumber: " 3 ",
+      version: "  现场版  ",
+      releaseDate: " 2024-02-29 "
+    };
+
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-title"]'
+        ) as HTMLInputElement,
+        rawValues.title
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-disc-number"]'
+        ) as HTMLInputElement,
+        rawValues.discNumber
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-number"]'
+        ) as HTMLInputElement,
+        rawValues.trackNumber
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-version"]'
+        ) as HTMLInputElement,
+        rawValues.version
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-release-date"]'
+        ) as HTMLInputElement,
+        rawValues.releaseDate
+      );
+      findButtonByText(container, "保存歌曲")?.click();
+    });
+
+    expect(onCreateTrack).toHaveBeenCalledWith("album_sample_001", {
+      title: "失败歌曲",
+      discNumber: 2,
+      trackNumber: 3,
+      version: "现场版",
+      releaseDate: "2024-02-29"
+    });
+    expect(container.textContent).toContain("测试歌曲保存失败，请重试。");
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-title"]')?.value
+    ).toBe(rawValues.title);
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-disc-number"]')
+        ?.value
+    ).toBe(rawValues.discNumber);
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-number"]')?.value
+    ).toBe(rawValues.trackNumber);
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-version"]')?.value
+    ).toBe(rawValues.version);
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-release-date"]')
+        ?.value
+    ).toBe(rawValues.releaseDate);
+    expect(container.querySelector(".catalog-track-editor")).not.toBeNull();
 
     await act(async () => {
       root.unmount();

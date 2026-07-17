@@ -401,6 +401,17 @@ button:disabled {
   align-items: center;
 }
 
+.album-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.album-detail .catalog-track-editor {
+  margin: 20px 0 0;
+}
+
 .album-detail-monogram {
   width: 72px;
   font-size: 30px;
@@ -1188,7 +1199,7 @@ button:disabled {
     gap: 12px;
   }
 
-  .add-album-button {
+  .album-detail-actions {
     grid-column: 2;
     justify-self: start;
   }

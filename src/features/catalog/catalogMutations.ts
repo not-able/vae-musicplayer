@@ -19,6 +19,15 @@ function assertNonBlankTitle(title: string, entityName: string): void {
   }
 }
 
+function assertOptionalPositiveInteger(
+  value: number | undefined,
+  fieldName: string
+): void {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
+    throw new Error(`${fieldName} must be a positive integer.`);
+  }
+}
+
 function createUniqueEntityId(
   catalog: CatalogData,
   idFactory: CatalogEntityIdFactory
@@ -94,6 +103,8 @@ export function addTrackToUserCatalog(
 ): UserCatalogChanges {
   const currentCatalog = mergeCatalogChanges(defaultCatalog, changes);
   assertNonBlankTitle(input.title, "Track");
+  assertOptionalPositiveInteger(input.discNumber, "Track disc number");
+  assertOptionalPositiveInteger(input.trackNumber, "Track number");
 
   const targetAlbum = currentCatalog.albums.find((album) => album.id === input.albumId);
   if (targetAlbum === undefined) {

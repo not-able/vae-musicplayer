@@ -1,9 +1,11 @@
 import { useRef, useState, type FormEvent } from "react";
 
-import type { AlbumType, ISODateString } from "../../types";
+import type { AlbumType, EntityId, ISODateString } from "../../types";
 import type {
   CatalogAlbumCreationResult,
-  CatalogAlbumDraft
+  CatalogAlbumDraft,
+  CatalogTrackCreationResult,
+  CatalogTrackDraft
 } from "./useCatalogLibrary";
 
 interface CatalogEditorProps {
@@ -11,7 +13,7 @@ interface CatalogEditorProps {
   isSaving: boolean;
   onCancel: () => void;
   onSubmit: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
-  onCreated: (albumId: string) => void;
+  onCreated: (albumId: EntityId) => void;
 }
 
 interface CatalogEditorErrors {
@@ -187,6 +189,265 @@ export function CatalogEditor({
       </form>
     </section>
   );
+}
+
+interface CatalogTrackEditorProps {
+  albumTitle: string;
+  artistName: string;
+  isSaving: boolean;
+  onCancel: () => void;
+  onSubmit: (draft: CatalogTrackDraft) => Promise<CatalogTrackCreationResult>;
+  onCreated: (trackId: EntityId) => void;
+}
+
+interface CatalogTrackEditorErrors {
+  title?: string;
+  discNumber?: string;
+  trackNumber?: string;
+  releaseDate?: string;
+}
+
+export function CatalogTrackEditor({
+  albumTitle,
+  artistName,
+  isSaving,
+  onCancel,
+  onSubmit,
+  onCreated
+}: CatalogTrackEditorProps) {
+  const [title, setTitle] = useState("");
+  const [discNumber, setDiscNumber] = useState("1");
+  const [trackNumber, setTrackNumber] = useState("");
+  const [version, setVersion] = useState("");
+  const [releaseDate, setReleaseDate] = useState("");
+  const [errors, setErrors] = useState<CatalogTrackEditorErrors>({});
+  const [saveError, setSaveError] = useState<string>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInProgress = useRef(false);
+  const isPending = isSaving || isSubmitting;
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    if (submitInProgress.current || isSaving) {
+      return;
+    }
+
+    const trimmedTitle = title.trim();
+    const trimmedVersion = version.trim();
+    const trimmedReleaseDate = releaseDate.trim();
+    const parsedDiscNumber = parsePositiveInteger(discNumber);
+    const parsedTrackNumber = parsePositiveInteger(trackNumber);
+    const nextErrors: CatalogTrackEditorErrors = {};
+
+    if (trimmedTitle.length === 0) {
+      nextErrors.title = "请输入歌曲名。";
+    }
+    if (parsedDiscNumber === undefined) {
+      nextErrors.discNumber = "碟号必须是正整数。";
+    }
+    if (parsedTrackNumber === undefined) {
+      nextErrors.trackNumber = "曲序必须是正整数。";
+    }
+    if (trimmedReleaseDate && !isValidCalendarDate(trimmedReleaseDate)) {
+      nextErrors.releaseDate = "请输入有效日期，格式为 YYYY-MM-DD。";
+    }
+
+    setErrors(nextErrors);
+    setSaveError(undefined);
+
+    if (
+      Object.keys(nextErrors).length > 0 ||
+      parsedDiscNumber === undefined ||
+      parsedTrackNumber === undefined
+    ) {
+      return;
+    }
+
+    submitInProgress.current = true;
+    setIsSubmitting(true);
+
+    try {
+      const result = await onSubmit({
+        title: trimmedTitle,
+        discNumber: parsedDiscNumber,
+        trackNumber: parsedTrackNumber,
+        ...(trimmedVersion ? { version: trimmedVersion } : {}),
+        ...(trimmedReleaseDate
+          ? { releaseDate: trimmedReleaseDate as ISODateString }
+          : {})
+      });
+
+      if (result.ok) {
+        onCreated(result.trackId);
+      } else {
+        setSaveError(result.errorMessage);
+      }
+    } finally {
+      submitInProgress.current = false;
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <section
+      className="catalog-editor catalog-track-editor"
+      aria-labelledby="catalog-track-editor-heading"
+    >
+      <div>
+        <p className="eyebrow">New track</p>
+        <h3 id="catalog-track-editor-heading">新增歌曲</h3>
+        <p className="helper-text">歌曲会保存到当前专辑，并按碟号和曲序展示。</p>
+      </div>
+
+      <form className="catalog-editor-form" noValidate onSubmit={handleSubmit}>
+        <label className="catalog-editor-field">
+          <span>艺人</span>
+          <input name="track-artist" type="text" value={artistName} readOnly />
+        </label>
+
+        <label className="catalog-editor-field">
+          <span>专辑</span>
+          <input name="track-album" type="text" value={albumTitle} readOnly />
+        </label>
+
+        <label className="catalog-editor-field">
+          <span>歌曲名</span>
+          <input
+            name="track-title"
+            type="text"
+            value={title}
+            autoFocus
+            disabled={isPending}
+            aria-invalid={errors.title ? "true" : undefined}
+            aria-describedby={errors.title ? "catalog-track-title-error" : undefined}
+            onChange={(event) => setTitle(event.currentTarget.value)}
+          />
+          {errors.title && (
+            <span className="catalog-editor-field-error" id="catalog-track-title-error">
+              {errors.title}
+            </span>
+          )}
+        </label>
+
+        <label className="catalog-editor-field">
+          <span>碟号</span>
+          <input
+            name="track-disc-number"
+            type="text"
+            inputMode="numeric"
+            value={discNumber}
+            disabled={isPending}
+            aria-invalid={errors.discNumber ? "true" : undefined}
+            aria-describedby={
+              errors.discNumber ? "catalog-track-disc-number-error" : undefined
+            }
+            onChange={(event) => setDiscNumber(event.currentTarget.value)}
+          />
+          {errors.discNumber && (
+            <span
+              className="catalog-editor-field-error"
+              id="catalog-track-disc-number-error"
+            >
+              {errors.discNumber}
+            </span>
+          )}
+        </label>
+
+        <label className="catalog-editor-field">
+          <span>曲序</span>
+          <input
+            name="track-number"
+            type="text"
+            inputMode="numeric"
+            value={trackNumber}
+            disabled={isPending}
+            aria-invalid={errors.trackNumber ? "true" : undefined}
+            aria-describedby={
+              errors.trackNumber ? "catalog-track-number-error" : undefined
+            }
+            onChange={(event) => setTrackNumber(event.currentTarget.value)}
+          />
+          {errors.trackNumber && (
+            <span
+              className="catalog-editor-field-error"
+              id="catalog-track-number-error"
+            >
+              {errors.trackNumber}
+            </span>
+          )}
+        </label>
+
+        <label className="catalog-editor-field">
+          <span>版本（可选）</span>
+          <input
+            name="track-version"
+            type="text"
+            value={version}
+            disabled={isPending}
+            onChange={(event) => setVersion(event.currentTarget.value)}
+          />
+        </label>
+
+        <label className="catalog-editor-field">
+          <span>发行日期（可选）</span>
+          <input
+            name="track-release-date"
+            type="text"
+            inputMode="numeric"
+            placeholder="YYYY-MM-DD"
+            value={releaseDate}
+            disabled={isPending}
+            aria-invalid={errors.releaseDate ? "true" : undefined}
+            aria-describedby={
+              errors.releaseDate ? "catalog-track-release-date-error" : undefined
+            }
+            onChange={(event) => setReleaseDate(event.currentTarget.value)}
+          />
+          {errors.releaseDate && (
+            <span
+              className="catalog-editor-field-error"
+              id="catalog-track-release-date-error"
+            >
+              {errors.releaseDate}
+            </span>
+          )}
+        </label>
+
+        {saveError && (
+          <p className="catalog-editor-save-error" role="alert">
+            {saveError}
+          </p>
+        )}
+
+        <div className="catalog-editor-actions">
+          <button
+            className="text-button"
+            type="button"
+            disabled={isPending}
+            onClick={onCancel}
+          >
+            取消
+          </button>
+          <button className="secondary-button" type="submit" disabled={isPending}>
+            {isPending ? "正在保存…" : "保存歌曲"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function parsePositiveInteger(value: string): number | undefined {
+  const trimmedValue = value.trim();
+
+  if (!/^\d+$/.test(trimmedValue)) {
+    return undefined;
+  }
+
+  const parsedValue = Number(trimmedValue);
+
+  return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : undefined;
 }
 
 function isValidCalendarDate(value: string): boolean {

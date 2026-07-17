@@ -12,11 +12,13 @@ import { LOCAL_AUDIO_FILE_ACCEPT } from "../local-library/localAudioFile";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import { writeAlbumDragData, writeTrackDragData } from "../../utils/albumDrag";
 import { getAlbumTracks, getReleaseYear, getSortedAlbums } from "./catalog";
-import { CatalogEditor } from "./CatalogEditor";
+import { CatalogEditor, CatalogTrackEditor } from "./CatalogEditor";
 import type {
   CatalogAlbumCreationResult,
   CatalogAlbumDraft,
-  CatalogLibraryStatus
+  CatalogLibraryStatus,
+  CatalogTrackCreationResult,
+  CatalogTrackDraft
 } from "./useCatalogLibrary";
 
 interface CatalogOverviewProps {
@@ -24,6 +26,7 @@ interface CatalogOverviewProps {
   catalogLibraryStatus: CatalogLibraryStatus;
   catalogLibraryError?: string;
   isSavingAlbum: boolean;
+  isSavingTrack: boolean;
   audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
   pendingAudioTrackIds: ReadonlySet<EntityId>;
   audioLibraryStatus: LocalAudioLibraryStatus;
@@ -31,6 +34,10 @@ interface CatalogOverviewProps {
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
   onCreateAlbum: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
+  onCreateTrack: (
+    albumId: EntityId,
+    draft: CatalogTrackDraft
+  ) => Promise<CatalogTrackCreationResult>;
   onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
   onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
 }
@@ -42,11 +49,14 @@ const albumTypeLabels: Record<AlbumType, string> = {
   other: "其他发行"
 };
 
+type CatalogEditorTarget = { kind: "album" } | { kind: "track"; albumId: EntityId };
+
 export function CatalogOverview({
   catalog,
   catalogLibraryStatus,
   catalogLibraryError,
   isSavingAlbum,
+  isSavingTrack,
   audioBindings,
   pendingAudioTrackIds,
   audioLibraryStatus,
@@ -54,6 +64,7 @@ export function CatalogOverview({
   onAddTrack,
   onAddAlbum,
   onCreateAlbum,
+  onCreateTrack,
   onBindAudio,
   onUnbindAudio
 }: CatalogOverviewProps) {
@@ -64,7 +75,7 @@ export function CatalogOverview({
   }));
   const [draggingAlbumId, setDraggingAlbumId] = useState<EntityId>();
   const [draggingTrackId, setDraggingTrackId] = useState<EntityId>();
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editorTarget, setEditorTarget] = useState<CatalogEditorTarget>();
   const selectedAlbumId =
     albumSelection.catalog === catalog ||
     albums.some((album) => album.id === albumSelection.albumId)
@@ -78,6 +89,10 @@ export function CatalogOverview({
       catalog,
       albumId: selectedAlbum?.id
     });
+
+    if (editorTarget?.kind === "track" && editorTarget.albumId !== selectedAlbum?.id) {
+      setEditorTarget(undefined);
+    }
   }
 
   function startAlbumDrag(event: DragEvent<HTMLButtonElement>, albumId: EntityId) {
@@ -95,7 +110,17 @@ export function CatalogOverview({
       catalog,
       albumId
     });
-    setIsEditorOpen(false);
+    setEditorTarget(undefined);
+  }
+
+  function selectAlbum(albumId: EntityId): void {
+    setAlbumSelection({
+      catalog,
+      albumId
+    });
+    setEditorTarget((currentTarget) =>
+      currentTarget?.kind === "track" ? undefined : currentTarget
+    );
   }
 
   return (
@@ -109,14 +134,15 @@ export function CatalogOverview({
           <button
             className="secondary-button"
             type="button"
-            aria-expanded={isEditorOpen}
+            aria-expanded={editorTarget?.kind === "album"}
             disabled={
-              isEditorOpen ||
+              editorTarget !== undefined ||
               isSavingAlbum ||
+              isSavingTrack ||
               catalogLibraryStatus !== "ready" ||
               catalog.artists.length === 0
             }
-            onClick={() => setIsEditorOpen(true)}
+            onClick={() => setEditorTarget({ kind: "album" })}
           >
             新增专辑
           </button>
@@ -124,11 +150,11 @@ export function CatalogOverview({
         </div>
       </div>
 
-      {isEditorOpen && (
+      {editorTarget?.kind === "album" && (
         <CatalogEditor
           artistName={catalog.artists[0]?.name ?? "项目艺人不可用"}
           isSaving={isSavingAlbum}
-          onCancel={() => setIsEditorOpen(false)}
+          onCancel={() => setEditorTarget(undefined)}
           onSubmit={onCreateAlbum}
           onCreated={handleAlbumCreated}
         />
@@ -173,13 +199,9 @@ export function CatalogOverview({
                       className="album-list-button"
                       type="button"
                       draggable
+                      disabled={isSavingTrack}
                       aria-current={isSelected ? "true" : undefined}
-                      onClick={() =>
-                        setAlbumSelection({
-                          catalog,
-                          albumId: album.id
-                        })
-                      }
+                      onClick={() => selectAlbum(album.id)}
                       onDragStart={(event) => startAlbumDrag(event, album.id)}
                       onDragEnd={() => setDraggingAlbumId(undefined)}
                     >
@@ -208,8 +230,30 @@ export function CatalogOverview({
             pendingAudioTrackIds={pendingAudioTrackIds}
             audioLibraryStatus={audioLibraryStatus}
             draggingTrackId={draggingTrackId}
+            catalogLibraryStatus={catalogLibraryStatus}
+            isSavingTrack={isSavingTrack}
+            isTrackEditorOpen={
+              editorTarget?.kind === "track" &&
+              editorTarget.albumId === selectedAlbum.id
+            }
+            canOpenTrackEditor={
+              editorTarget === undefined &&
+              !isSavingAlbum &&
+              !isSavingTrack &&
+              catalogLibraryStatus === "ready" &&
+              catalog.artists.some((artist) => artist.id === selectedAlbum.artistId)
+            }
             onAddTrack={onAddTrack}
             onAddAlbum={onAddAlbum}
+            onOpenTrackEditor={() =>
+              setEditorTarget({
+                kind: "track",
+                albumId: selectedAlbum.id
+              })
+            }
+            onCancelTrackEditor={() => setEditorTarget(undefined)}
+            onCreateTrack={(draft) => onCreateTrack(selectedAlbum.id, draft)}
+            onTrackCreated={() => setEditorTarget(undefined)}
             onBindAudio={onBindAudio}
             onUnbindAudio={onUnbindAudio}
             onTrackDragStart={startTrackDrag}
@@ -257,8 +301,16 @@ interface AlbumDetailProps {
   pendingAudioTrackIds: ReadonlySet<EntityId>;
   audioLibraryStatus: LocalAudioLibraryStatus;
   draggingTrackId?: EntityId;
+  catalogLibraryStatus: CatalogLibraryStatus;
+  isSavingTrack: boolean;
+  isTrackEditorOpen: boolean;
+  canOpenTrackEditor: boolean;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
+  onOpenTrackEditor: () => void;
+  onCancelTrackEditor: () => void;
+  onCreateTrack: (draft: CatalogTrackDraft) => Promise<CatalogTrackCreationResult>;
+  onTrackCreated: () => void;
   onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
   onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
   onTrackDragStart: (event: DragEvent<HTMLDivElement>, trackId: EntityId) => void;
@@ -272,8 +324,16 @@ function AlbumDetail({
   pendingAudioTrackIds,
   audioLibraryStatus,
   draggingTrackId,
+  catalogLibraryStatus,
+  isSavingTrack,
+  isTrackEditorOpen,
+  canOpenTrackEditor,
   onAddTrack,
   onAddAlbum,
+  onOpenTrackEditor,
+  onCancelTrackEditor,
+  onCreateTrack,
+  onTrackCreated,
   onBindAudio,
   onUnbindAudio,
   onTrackDragStart,
@@ -281,6 +341,7 @@ function AlbumDetail({
 }: AlbumDetailProps) {
   const tracks = getAlbumTracks(catalog, album);
   const releaseYear = getReleaseYear(album.releaseDate);
+  const artist = catalog.artists.find((item) => item.id === album.artistId);
 
   return (
     <section className="album-detail" aria-labelledby="album-detail-heading">
@@ -296,14 +357,36 @@ function AlbumDetail({
             <span>{tracks.length} 首歌曲</span>
           </p>
         </div>
-        <button
-          className="secondary-button add-album-button"
-          type="button"
-          onClick={() => onAddAlbum(album.id)}
-        >
-          整张加入
-        </button>
+        <div className="album-detail-actions">
+          <button
+            className="secondary-button add-track-metadata-button"
+            type="button"
+            aria-expanded={isTrackEditorOpen}
+            disabled={!canOpenTrackEditor || catalogLibraryStatus !== "ready"}
+            onClick={onOpenTrackEditor}
+          >
+            添加歌曲
+          </button>
+          <button
+            className="secondary-button add-album-button"
+            type="button"
+            onClick={() => onAddAlbum(album.id)}
+          >
+            整张加入
+          </button>
+        </div>
       </header>
+
+      {isTrackEditorOpen && artist && (
+        <CatalogTrackEditor
+          albumTitle={album.title}
+          artistName={artist.name}
+          isSaving={isSavingTrack}
+          onCancel={onCancelTrackEditor}
+          onSubmit={onCreateTrack}
+          onCreated={onTrackCreated}
+        />
+      )}
 
       {album.note && <p className="album-note">{album.note}</p>}
 

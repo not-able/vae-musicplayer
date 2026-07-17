@@ -4,6 +4,7 @@ import { appReducer, createAppState } from "./appReducer";
 import { PageShell } from "../components/PageShell";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
+import { getAlbumTracks } from "../features/catalog/catalog";
 import type { CatalogEntityIdFactory } from "../features/catalog/catalogMutations";
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
@@ -109,7 +110,10 @@ export function App({
       type: "playlist",
       action: {
         type: "add-album",
-        album,
+        album: {
+          ...album,
+          trackIds: getAlbumTracks(catalog, album).map((track) => track.id)
+        },
         itemIds: album.trackIds.map(() => createPlaylistItemId()),
         addedAt: new Date().toISOString()
       }
@@ -125,6 +129,7 @@ export function App({
             catalogLibraryStatus={catalogLibrary.status}
             catalogLibraryError={catalogLibrary.errorMessage}
             isSavingAlbum={catalogLibrary.isSavingAlbum}
+            isSavingTrack={catalogLibrary.isSavingTrack}
             audioBindings={localAudioLibrary.bindingsByTrackId}
             pendingAudioTrackIds={localAudioLibrary.pendingTrackIds}
             audioLibraryStatus={localAudioLibrary.status}
@@ -132,6 +137,7 @@ export function App({
             onAddTrack={addTrack}
             onAddAlbum={addAlbum}
             onCreateAlbum={catalogLibrary.createAlbum}
+            onCreateTrack={catalogLibrary.createTrack}
             onBindAudio={localAudioLibrary.bindAudioFile}
             onUnbindAudio={localAudioLibrary.unbindAudioFile}
           />
