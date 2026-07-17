@@ -4,11 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
-import {
-  getAlbumTracks,
-  getReleaseYear,
-  getSortedAlbums
-} from "../features/catalog/catalog";
+import { getAlbumTracks, getSortedAlbums } from "../features/catalog/catalog";
 import { mergeCatalogChanges } from "../features/catalog/catalogMerge";
 import {
   addAlbumToUserCatalog,
@@ -165,7 +161,6 @@ function createUserCatalogForResetTest(): UserCatalogChanges {
       artistId: "artist_vae",
       albumId: "album_user_reset",
       title: "用户重置测试歌曲",
-      discNumber: 1,
       trackNumber: 1
     },
     () => "track_user_reset"
@@ -243,7 +238,6 @@ function CatalogLibraryProbe({
             onClick: () => {
               void library.createTrack(trackAlbumId, {
                 title: createTrackTitle,
-                discNumber: 1,
                 trackNumber: 3
               });
             },
@@ -265,8 +259,7 @@ function CatalogLibraryProbe({
               if (album) {
                 void library.updateAlbum(album.id, {
                   title: updateAlbumTitle,
-                  type: album.type,
-                  releaseDate: album.releaseDate ?? null
+                  type: album.type
                 });
               }
             },
@@ -288,10 +281,7 @@ function CatalogLibraryProbe({
               if (track) {
                 void library.updateTrack(track.id, {
                   title: updateTrackTitle,
-                  discNumber: track.discNumber ?? null,
-                  trackNumber: track.trackNumber ?? null,
-                  version: track.version ?? null,
-                  releaseDate: track.releaseDate ?? null
+                  trackNumber: track.trackNumber ?? null
                 });
               }
             },
@@ -344,7 +334,7 @@ describe("catalog helpers", () => {
     expect(reversedCatalog.albums.map((album) => album.id)).toEqual(originalIds);
   });
 
-  it("returns only referenced tracks for the selected album in disc and track order", () => {
+  it("returns only referenced tracks for the selected album in track order", () => {
     const album: Album = {
       ...mockCatalog.albums[0],
       trackIds: [
@@ -361,14 +351,19 @@ describe("catalog helpers", () => {
     ]);
   });
 
-  it("sorts tracks by disc and track number with stable relation-order ties", () => {
+  it("sorts tracks by track number with stable relation-order ties", () => {
     const album: Album = {
       id: "album_sort_test",
       artistId: "artist_vae",
       title: "排序测试专辑",
       type: "album",
       sortOrder: 1,
-      trackIds: ["track_disc_2", "track_ten", "track_two_first", "track_two_second"]
+      trackIds: [
+        "track_missing_number",
+        "track_ten",
+        "track_two_first",
+        "track_two_second"
+      ]
     };
     const catalog: CatalogData = {
       schemaVersion: 1,
@@ -376,19 +371,16 @@ describe("catalog helpers", () => {
       albums: [album],
       tracks: [
         {
-          id: "track_disc_2",
+          id: "track_missing_number",
           artistId: "artist_vae",
           albumId: album.id,
-          title: "第二碟",
-          discNumber: 2,
-          trackNumber: 1
+          title: "曲序待维护"
         },
         {
           id: "track_ten",
           artistId: "artist_vae",
           albumId: album.id,
           title: "第十首",
-          discNumber: 1,
           trackNumber: 10
         },
         {
@@ -396,7 +388,6 @@ describe("catalog helpers", () => {
           artistId: "artist_vae",
           albumId: album.id,
           title: "第二首甲",
-          discNumber: 1,
           trackNumber: 2
         },
         {
@@ -404,7 +395,6 @@ describe("catalog helpers", () => {
           artistId: "artist_vae",
           albumId: album.id,
           title: "第二首乙",
-          discNumber: 1,
           trackNumber: 2
         }
       ]
@@ -414,21 +404,14 @@ describe("catalog helpers", () => {
       "track_two_first",
       "track_two_second",
       "track_ten",
-      "track_disc_2"
+      "track_missing_number"
     ]);
     expect(album.trackIds).toEqual([
-      "track_disc_2",
+      "track_missing_number",
       "track_ten",
       "track_two_first",
       "track_two_second"
     ]);
-  });
-
-  it("reads a release year only from a supported date value", () => {
-    expect(getReleaseYear("2000-01-01")).toBe("2000");
-    expect(getReleaseYear("2000")).toBe("2000");
-    expect(getReleaseYear("待核对")).toBeUndefined();
-    expect(getReleaseYear()).toBeUndefined();
   });
 });
 
@@ -499,7 +482,6 @@ describe("user catalog mutations", () => {
         artistId: "artist_vae",
         albumId: "album_user_001",
         title: "示例歌曲一",
-        discNumber: 1,
         trackNumber: 1
       },
       () => "track_user_001"
@@ -646,10 +628,10 @@ describe("user catalog mutations", () => {
   });
 
   it.each([
-    ["zero disc number", { discNumber: 0, trackNumber: 1 }],
-    ["negative disc number", { discNumber: -1, trackNumber: 1 }],
-    ["decimal track number", { discNumber: 1, trackNumber: 1.5 }],
-    ["unsafe track number", { discNumber: 1, trackNumber: Number.MAX_SAFE_INTEGER + 1 }]
+    ["zero track number", { trackNumber: 0 }],
+    ["negative track number", { trackNumber: -1 }],
+    ["decimal track number", { trackNumber: 1.5 }],
+    ["unsafe track number", { trackNumber: Number.MAX_SAFE_INTEGER + 1 }]
   ])("rejects an invalid provided track position: %s", (_label, position) => {
     const changes = createEmptyUserCatalogChanges();
     const changesSnapshot = structuredClone(changes);
@@ -747,13 +729,10 @@ describe("user catalog mutations", () => {
     };
     const catalogSnapshot = structuredClone(mockCatalog);
     const changesSnapshot = structuredClone(changes);
-    const albumPatch = { type: "ep" as const, releaseDate: null };
+    const albumPatch = { type: "ep" as const };
     const trackPatch = {
       title: "修正后的歌曲",
-      discNumber: 2,
-      trackNumber: 4,
-      version: "本地版本",
-      releaseDate: null
+      trackNumber: 4
     };
     const albumPatchSnapshot = structuredClone(albumPatch);
     const trackPatchSnapshot = structuredClone(trackPatch);
@@ -776,15 +755,12 @@ describe("user catalog mutations", () => {
 
     expect(trackChanges.albumOverrides.album_sample_001).toEqual({
       title: "已有专辑标题",
-      type: "ep",
-      releaseDate: null
+      type: "ep"
     });
     expect(trackChanges.trackOverrides.track_sample_001).toEqual({
       note: "已有歌曲说明",
       title: "修正后的歌曲",
-      discNumber: 2,
-      trackNumber: 4,
-      version: "本地版本"
+      trackNumber: 4
     });
     expect(album).toMatchObject({
       id: "album_sample_001",
@@ -793,17 +769,13 @@ describe("user catalog mutations", () => {
       type: "ep",
       trackIds: ["track_sample_001", "track_sample_002"]
     });
-    expect(album?.releaseDate).toBeUndefined();
     expect(track).toMatchObject({
       id: "track_sample_001",
       artistId: "artist_vae",
       albumId: "album_sample_001",
       title: "修正后的歌曲",
-      discNumber: 2,
-      trackNumber: 4,
-      version: "本地版本"
+      trackNumber: 4
     });
-    expect(track?.releaseDate).toBeUndefined();
     expect(mockCatalog).toEqual(catalogSnapshot);
     expect(changes).toEqual(changesSnapshot);
     expect(albumPatch).toEqual(albumPatchSnapshot);
@@ -819,7 +791,6 @@ describe("user catalog mutations", () => {
         artistId: "artist_vae",
         title: "用户专辑",
         type: "other",
-        releaseDate: "2024-01-01",
         sortOrder: 3,
         note: "用户专辑说明"
       },
@@ -832,10 +803,7 @@ describe("user catalog mutations", () => {
         artistId: "artist_vae",
         albumId: "album_user_patch",
         title: "用户歌曲",
-        discNumber: 1,
         trackNumber: 1,
-        version: "初始版本",
-        releaseDate: "2024-01-01",
         note: "用户歌曲说明"
       },
       () => "track_user_patch"
@@ -846,7 +814,7 @@ describe("user catalog mutations", () => {
         album_user_patch: { title: "旧覆盖标题" }
       },
       trackOverrides: {
-        track_user_patch: { version: "旧覆盖版本" }
+        track_user_patch: { note: "旧覆盖说明" }
       }
     };
     const changesSnapshot = structuredClone(changes);
@@ -856,8 +824,7 @@ describe("user catalog mutations", () => {
       changes,
       "album_user_patch",
       {
-        title: "直接更新专辑",
-        releaseDate: null
+        title: "直接更新专辑"
       }
     );
     const trackChanges = patchTrackInUserCatalog(
@@ -866,10 +833,7 @@ describe("user catalog mutations", () => {
       "track_user_patch",
       {
         title: "直接更新歌曲",
-        discNumber: 2,
-        trackNumber: 3,
-        version: null,
-        releaseDate: null
+        trackNumber: 3
       }
     );
     const album = trackChanges.addedAlbums[0];
@@ -889,9 +853,8 @@ describe("user catalog mutations", () => {
       artistId: "artist_vae",
       albumId: "album_user_patch",
       title: "直接更新歌曲",
-      discNumber: 2,
       trackNumber: 3,
-      note: "用户歌曲说明"
+      note: "旧覆盖说明"
     });
     expect(trackChanges.albumOverrides).toEqual({});
     expect(trackChanges.trackOverrides).toEqual({});
@@ -907,7 +870,8 @@ describe("user catalog mutations", () => {
     for (const forbiddenPatch of [
       { id: "album_changed" },
       { artistId: "artist_changed" },
-      { trackIds: [] }
+      { trackIds: [] },
+      { releaseDate: "2024-01-01" }
     ]) {
       expect(() =>
         patchAlbumInUserCatalog(
@@ -922,7 +886,10 @@ describe("user catalog mutations", () => {
     for (const forbiddenPatch of [
       { id: "track_changed" },
       { artistId: "artist_changed" },
-      { albumId: "album_sample_002" }
+      { albumId: "album_sample_002" },
+      { discNumber: 1 },
+      { version: "旧版本" },
+      { releaseDate: "2024-01-01" }
     ]) {
       expect(() =>
         patchTrackInUserCatalog(
@@ -950,18 +917,13 @@ describe("user catalog mutations", () => {
       })
     ).toThrow("title");
     expect(() =>
-      patchAlbumInUserCatalog(mockCatalog, changes, "album_sample_001", {
-        releaseDate: "2023-02-29"
-      })
-    ).toThrow("valid YYYY-MM-DD");
-    expect(() =>
       patchTrackInUserCatalog(mockCatalog, changes, "track_sample_001", {
         trackNumber: 0
       })
     ).toThrow("positive integer");
     expect(() =>
       patchTrackInUserCatalog(mockCatalog, changes, "track_sample_001", {
-        discNumber: Number.MAX_SAFE_INTEGER + 1
+        trackNumber: Number.MAX_SAFE_INTEGER + 1
       })
     ).toThrow("positive integer");
     expect(() =>
@@ -986,7 +948,6 @@ describe("user catalog mutations", () => {
         artistId: "artist_vae",
         albumId: "album_sample_001",
         title: "保留的用户歌曲",
-        discNumber: 1,
         trackNumber: 3
       },
       () => "track_user_reset_preserved"
@@ -1068,7 +1029,6 @@ describe("catalog change merging", () => {
       trackOverrides: {
         track_sample_001: {
           title: "用户歌曲标题",
-          discNumber: 2,
           trackNumber: 8,
           note: null
         }
@@ -1091,7 +1051,6 @@ describe("catalog change merging", () => {
       artistId: "artist_vae",
       albumId: "album_sample_001",
       title: "用户歌曲标题",
-      discNumber: 2,
       trackNumber: 8
     });
     expect(track?.note).toBeUndefined();
@@ -1160,7 +1119,6 @@ describe("catalog change merging", () => {
           ? {
               ...album,
               type: "other",
-              releaseDate: "2025-05-01",
               note: "更新后的内置说明",
               trackIds: [...album.trackIds]
             }
@@ -1179,7 +1137,6 @@ describe("catalog change merging", () => {
     expect(overriddenAlbum).toMatchObject({
       title: "仅覆盖标题",
       type: "other",
-      releaseDate: "2025-05-01",
       note: "更新后的内置说明"
     });
 
@@ -1197,7 +1154,6 @@ describe("catalog change merging", () => {
     expect(resetAlbum).toMatchObject({
       title: "示例专辑 A",
       type: "other",
-      releaseDate: "2025-05-01",
       note: "更新后的内置说明"
     });
   });
@@ -1216,8 +1172,7 @@ describe("catalog change merging", () => {
           ? {
               ...track,
               trackNumber: 7,
-              version: "更新后的内置版本",
-              releaseDate: "2025-06-01",
+              durationSeconds: 240,
               note: "更新后的内置歌曲说明"
             }
           : { ...track }
@@ -1235,8 +1190,7 @@ describe("catalog change merging", () => {
     expect(overriddenTrack).toMatchObject({
       title: "仅覆盖歌曲标题",
       trackNumber: 7,
-      version: "更新后的内置版本",
-      releaseDate: "2025-06-01",
+      durationSeconds: 240,
       note: "更新后的内置歌曲说明"
     });
 
@@ -1254,8 +1208,7 @@ describe("catalog change merging", () => {
     expect(resetTrack).toMatchObject({
       title: "示例歌曲一",
       trackNumber: 7,
-      version: "更新后的内置版本",
-      releaseDate: "2025-06-01",
+      durationSeconds: 240,
       note: "更新后的内置歌曲说明"
     });
   });
@@ -2149,6 +2102,7 @@ describe("catalog album editor", () => {
       container.querySelector<HTMLInputElement>(".catalog-editor input[readonly]")
         ?.value
     ).toBe("许嵩");
+    expect(container.querySelector('input[name="album-release-date"]')).toBeNull();
 
     await act(async () => {
       if (titleInput) {
@@ -2166,7 +2120,7 @@ describe("catalog album editor", () => {
     container.remove();
   });
 
-  it("blocks blank titles and invalid calendar dates with Chinese messages", async () => {
+  it("blocks blank titles with a Chinese message", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -2207,18 +2161,16 @@ describe("catalog album editor", () => {
       findButtonByText(container, "新增专辑")?.click();
     });
 
-    const editableInputs = container.querySelectorAll<HTMLInputElement>(
+    const titleInput = container.querySelector<HTMLInputElement>(
       ".catalog-editor input:not([readonly])"
     );
 
     await act(async () => {
-      changeInputValue(editableInputs[0], "　 ");
-      changeInputValue(editableInputs[1], "2023-02-29");
+      changeInputValue(titleInput as HTMLInputElement, "　 ");
       findButtonByText(container, "保存专辑")?.click();
     });
 
     expect(container.textContent).toContain("请输入专辑名。");
-    expect(container.textContent).toContain("请输入有效日期，格式为 YYYY-MM-DD。");
     expect(onCreateAlbum).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -2227,7 +2179,7 @@ describe("catalog album editor", () => {
     container.remove();
   });
 
-  it("trims valid input and retains every field when saving fails", async () => {
+  it("trims valid input and retains the raw title and type when saving fails", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -2269,7 +2221,7 @@ describe("catalog album editor", () => {
       findButtonByText(container, "新增专辑")?.click();
     });
 
-    const editableInputs = container.querySelectorAll<HTMLInputElement>(
+    const titleInput = container.querySelector<HTMLInputElement>(
       ".catalog-editor input:not([readonly])"
     );
     const typeSelect = container.querySelector<HTMLSelectElement>(
@@ -2277,8 +2229,7 @@ describe("catalog album editor", () => {
     );
 
     await act(async () => {
-      changeInputValue(editableInputs[0], "  保存失败专辑  ");
-      changeInputValue(editableInputs[1], " 2024-02-29 ");
+      changeInputValue(titleInput as HTMLInputElement, "  保存失败专辑  ");
       if (typeSelect) {
         changeSelectValue(typeSelect, "ep");
       }
@@ -2287,12 +2238,10 @@ describe("catalog album editor", () => {
 
     expect(onCreateAlbum).toHaveBeenCalledWith({
       title: "保存失败专辑",
-      type: "ep",
-      releaseDate: "2024-02-29"
+      type: "ep"
     });
     expect(container.textContent).toContain("测试保存失败，请重试。");
-    expect(editableInputs[0].value).toBe("  保存失败专辑  ");
-    expect(editableInputs[1].value).toBe(" 2024-02-29 ");
+    expect(titleInput?.value).toBe("  保存失败专辑  ");
     expect(typeSelect?.value).toBe("ep");
     expect(container.querySelector(".catalog-editor")).not.toBeNull();
 
@@ -2392,6 +2341,9 @@ describe("catalog track editor", () => {
     expect(
       container.querySelector<HTMLInputElement>('input[name="track-album"]')?.value
     ).toBe("示例专辑 A");
+    expect(container.querySelector('input[name="track-disc-number"]')).toBeNull();
+    expect(container.querySelector('input[name="track-version"]')).toBeNull();
+    expect(container.querySelector('input[name="track-release-date"]')).toBeNull();
 
     await act(async () => {
       const titleInput = container.querySelector<HTMLInputElement>(
@@ -2444,7 +2396,7 @@ describe("catalog track editor", () => {
     container.remove();
   });
 
-  it("blocks blank metadata, invalid positions, and invalid calendar dates", async () => {
+  it("blocks blank titles and invalid track positions", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -2465,34 +2417,22 @@ describe("catalog track editor", () => {
     const titleInput = container.querySelector<HTMLInputElement>(
       'input[name="track-title"]'
     );
-    const discInput = container.querySelector<HTMLInputElement>(
-      'input[name="track-disc-number"]'
-    );
     const trackInput = container.querySelector<HTMLInputElement>(
       'input[name="track-number"]'
-    );
-    const dateInput = container.querySelector<HTMLInputElement>(
-      'input[name="track-release-date"]'
     );
 
     await act(async () => {
       changeInputValue(titleInput as HTMLInputElement, "　 ");
-      changeInputValue(discInput as HTMLInputElement, "0");
       changeInputValue(trackInput as HTMLInputElement, "1.5");
-      changeInputValue(dateInput as HTMLInputElement, "2023-02-29");
       findButtonByText(container, "保存歌曲")?.click();
     });
 
     expect(container.textContent).toContain("请输入歌曲名。");
-    expect(container.textContent).toContain("碟号必须是正整数。");
     expect(container.textContent).toContain("曲序必须是正整数。");
-    expect(container.textContent).toContain("请输入有效日期，格式为 YYYY-MM-DD。");
     expect(onCreateTrack).not.toHaveBeenCalled();
 
     await act(async () => {
       changeInputValue(titleInput as HTMLInputElement, "有效歌曲名");
-      changeInputValue(discInput as HTMLInputElement, "1");
-      changeInputValue(dateInput as HTMLInputElement, "");
     });
 
     for (const invalidTrackNumber of [
@@ -2518,7 +2458,7 @@ describe("catalog track editor", () => {
     container.remove();
   });
 
-  it("normalizes valid positions and omits blank optional fields on success", async () => {
+  it("normalizes a valid track position on success", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -2545,34 +2485,15 @@ describe("catalog track editor", () => {
       );
       changeInputValue(
         container.querySelector<HTMLInputElement>(
-          'input[name="track-disc-number"]'
-        ) as HTMLInputElement,
-        "01"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
           'input[name="track-number"]'
         ) as HTMLInputElement,
         "002"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-version"]'
-        ) as HTMLInputElement,
-        "   "
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-release-date"]'
-        ) as HTMLInputElement,
-        "   "
       );
       findButtonByText(container, "保存歌曲")?.click();
     });
 
     expect(onCreateTrack).toHaveBeenCalledWith("album_sample_001", {
       title: "成功歌曲",
-      discNumber: 1,
       trackNumber: 2
     });
     expect(container.querySelector(".catalog-track-editor")).toBeNull();
@@ -2583,7 +2504,7 @@ describe("catalog track editor", () => {
     container.remove();
   });
 
-  it("retains every raw field and shows a safe error when saving fails", async () => {
+  it("retains raw input and shows a safe error when saving fails", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -2604,10 +2525,7 @@ describe("catalog track editor", () => {
 
     const rawValues = {
       title: "  失败歌曲  ",
-      discNumber: " 2 ",
-      trackNumber: " 3 ",
-      version: "  现场版  ",
-      releaseDate: " 2024-02-29 "
+      trackNumber: " 3 "
     };
 
     await act(async () => {
@@ -2619,56 +2537,24 @@ describe("catalog track editor", () => {
       );
       changeInputValue(
         container.querySelector<HTMLInputElement>(
-          'input[name="track-disc-number"]'
-        ) as HTMLInputElement,
-        rawValues.discNumber
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
           'input[name="track-number"]'
         ) as HTMLInputElement,
         rawValues.trackNumber
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-version"]'
-        ) as HTMLInputElement,
-        rawValues.version
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-release-date"]'
-        ) as HTMLInputElement,
-        rawValues.releaseDate
       );
       findButtonByText(container, "保存歌曲")?.click();
     });
 
     expect(onCreateTrack).toHaveBeenCalledWith("album_sample_001", {
       title: "失败歌曲",
-      discNumber: 2,
-      trackNumber: 3,
-      version: "现场版",
-      releaseDate: "2024-02-29"
+      trackNumber: 3
     });
     expect(container.textContent).toContain("测试歌曲保存失败，请重试。");
     expect(
       container.querySelector<HTMLInputElement>('input[name="track-title"]')?.value
     ).toBe(rawValues.title);
     expect(
-      container.querySelector<HTMLInputElement>('input[name="track-disc-number"]')
-        ?.value
-    ).toBe(rawValues.discNumber);
-    expect(
       container.querySelector<HTMLInputElement>('input[name="track-number"]')?.value
     ).toBe(rawValues.trackNumber);
-    expect(
-      container.querySelector<HTMLInputElement>('input[name="track-version"]')?.value
-    ).toBe(rawValues.version);
-    expect(
-      container.querySelector<HTMLInputElement>('input[name="track-release-date"]')
-        ?.value
-    ).toBe(rawValues.releaseDate);
     expect(container.querySelector(".catalog-track-editor")).not.toBeNull();
 
     await act(async () => {
@@ -2679,7 +2565,7 @@ describe("catalog track editor", () => {
 });
 
 describe("catalog metadata editing", () => {
-  it("prefills and submits an album edit while using null to clear the date", async () => {
+  it("prefills and submits an album edit without retired fields", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -2712,10 +2598,7 @@ describe("catalog metadata editing", () => {
     expect(
       container.querySelector<HTMLSelectElement>('select[name="album-type"]')?.value
     ).toBe("album");
-    expect(
-      container.querySelector<HTMLInputElement>('input[name="album-release-date"]')
-        ?.value
-    ).toBe("2000-01-01");
+    expect(container.querySelector('input[name="album-release-date"]')).toBeNull();
     expect(findButtonByText(container, "恢复默认")).toBeDefined();
 
     await act(async () => {
@@ -2731,19 +2614,12 @@ describe("catalog metadata editing", () => {
         ) as HTMLSelectElement,
         "ep"
       );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="album-release-date"]'
-        ) as HTMLInputElement,
-        "   "
-      );
       findButtonByText(container, "保存修改")?.click();
     });
 
     expect(onUpdateAlbum).toHaveBeenCalledWith("album_sample_001", {
       title: "修改后的专辑",
-      type: "ep",
-      releaseDate: null
+      type: "ep"
     });
     expect(container.querySelector("#catalog-editor-heading")).toBeNull();
 
@@ -2835,6 +2711,9 @@ describe("catalog metadata editing", () => {
         .querySelector<HTMLInputElement>('input[name="track-title"]')
         ?.form?.querySelector('input[name="track-id"]')
     ).toBeNull();
+    expect(container.querySelector('input[name="track-disc-number"]')).toBeNull();
+    expect(container.querySelector('input[name="track-version"]')).toBeNull();
+    expect(container.querySelector('input[name="track-release-date"]')).toBeNull();
     expect(findButtonByText(container, "恢复默认")).toBeDefined();
 
     await act(async () => {
@@ -2846,37 +2725,16 @@ describe("catalog metadata editing", () => {
       );
       changeInputValue(
         container.querySelector<HTMLInputElement>(
-          'input[name="track-disc-number"]'
-        ) as HTMLInputElement,
-        "02"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
           'input[name="track-number"]'
         ) as HTMLInputElement,
         "03"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-version"]'
-        ) as HTMLInputElement,
-        "  本地修订版  "
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-release-date"]'
-        ) as HTMLInputElement,
-        ""
       );
       findButtonByText(container, "保存修改")?.click();
     });
 
     expect(onUpdateTrack).toHaveBeenCalledWith("track_sample_001", {
       title: "修改后的歌曲",
-      discNumber: 2,
-      trackNumber: 3,
-      version: "本地修订版",
-      releaseDate: null
+      trackNumber: 3
     });
     expect(container.querySelector(".catalog-track-editor")).toBeNull();
 

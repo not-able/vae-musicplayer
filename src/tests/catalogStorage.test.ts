@@ -49,7 +49,6 @@ function createCompleteChanges(): UserCatalogChanges {
         artistId: "artist_vae",
         title: "用户专辑",
         type: "other",
-        releaseDate: "2026-07-17",
         sortOrder: 3,
         trackIds: ["track_user_001"],
         note: "用户维护的占位元数据"
@@ -61,11 +60,8 @@ function createCompleteChanges(): UserCatalogChanges {
         artistId: "artist_vae",
         albumId: "album_user_001",
         title: "用户歌曲一",
-        discNumber: 1,
         trackNumber: 1,
         durationSeconds: 180,
-        version: "演示版本",
-        releaseDate: "2026-07-17",
         note: "仅保存元数据"
       },
       {
@@ -79,7 +75,6 @@ function createCompleteChanges(): UserCatalogChanges {
       album_sample_001: {
         title: "用户专辑标题",
         type: "album",
-        releaseDate: null,
         sortOrder: 20,
         note: null
       }
@@ -87,11 +82,8 @@ function createCompleteChanges(): UserCatalogChanges {
     trackOverrides: {
       track_sample_001: {
         title: "用户歌曲标题",
-        discNumber: null,
         trackNumber: 8,
         durationSeconds: null,
-        version: null,
-        releaseDate: null,
         note: null
       }
     },
@@ -145,6 +137,50 @@ describe("localStorage catalog repository", () => {
     firstLoad.addedAlbums[0].title = "只修改加载结果";
 
     expect(await secondRepository.load()).toEqual(changes);
+  });
+
+  it("loads legacy fields once and removes them from the next saved value", async () => {
+    const storage = new MemoryStorage();
+    const currentChanges = createCompleteChanges();
+    const legacyChanges = {
+      ...currentChanges,
+      addedAlbums: currentChanges.addedAlbums.map((album) => ({
+        ...album,
+        releaseDate: "2026-07-17"
+      })),
+      addedTracks: currentChanges.addedTracks.map((track) => ({
+        ...track,
+        discNumber: 1,
+        version: "旧版本",
+        releaseDate: "2026-07-17"
+      })),
+      albumOverrides: {
+        ...currentChanges.albumOverrides,
+        album_sample_001: {
+          ...currentChanges.albumOverrides.album_sample_001,
+          releaseDate: null
+        }
+      },
+      trackOverrides: {
+        ...currentChanges.trackOverrides,
+        track_sample_001: {
+          ...currentChanges.trackOverrides.track_sample_001,
+          discNumber: null,
+          version: null,
+          releaseDate: null
+        }
+      }
+    } as unknown as UserCatalogChanges;
+    storage.setItem(LOCAL_CATALOG_STORAGE_KEY, JSON.stringify(legacyChanges));
+    const repository = createLocalStorageCatalogRepository(storage);
+
+    expect(await repository.load()).toEqual(currentChanges);
+
+    await repository.save(legacyChanges);
+
+    expect(JSON.parse(storage.peek(LOCAL_CATALOG_STORAGE_KEY) ?? "null")).toEqual(
+      currentChanges
+    );
   });
 
   it("clears only the catalog key and then loads an empty change set", async () => {

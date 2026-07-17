@@ -68,19 +68,6 @@ function applyAlbumOverrides(
     }
   }
 
-  if (hasOwn(overrides, "releaseDate")) {
-    if (
-      overrides.releaseDate !== undefined &&
-      overrides.releaseDate !== null &&
-      typeof overrides.releaseDate !== "string"
-    ) {
-      throw new Error("Album release date overrides must be strings.");
-    }
-    if (overrides.releaseDate !== undefined) {
-      nextAlbum.releaseDate = overrides.releaseDate ?? undefined;
-    }
-  }
-
   if (hasOwn(overrides, "sortOrder")) {
     if (overrides.sortOrder !== undefined && typeof overrides.sortOrder !== "number") {
       throw new Error("Album sort order overrides must be numbers.");
@@ -109,7 +96,7 @@ function applyAlbumOverrides(
 function applyOptionalNumberOverride(
   track: Track,
   overrides: TrackFieldOverrides,
-  field: "discNumber" | "trackNumber" | "durationSeconds"
+  field: "trackNumber" | "durationSeconds"
 ): void {
   if (!hasOwn(overrides, field)) {
     return;
@@ -127,7 +114,7 @@ function applyOptionalNumberOverride(
 function applyOptionalStringOverride(
   track: Track,
   overrides: TrackFieldOverrides,
-  field: "version" | "releaseDate" | "note"
+  field: "note"
 ): void {
   if (!hasOwn(overrides, field)) {
     return;
@@ -161,11 +148,8 @@ function applyTrackOverrides(
     }
   }
 
-  applyOptionalNumberOverride(nextTrack, overrides, "discNumber");
   applyOptionalNumberOverride(nextTrack, overrides, "trackNumber");
   applyOptionalNumberOverride(nextTrack, overrides, "durationSeconds");
-  applyOptionalStringOverride(nextTrack, overrides, "version");
-  applyOptionalStringOverride(nextTrack, overrides, "releaseDate");
   applyOptionalStringOverride(nextTrack, overrides, "note");
 
   return nextTrack;
@@ -235,7 +219,6 @@ function assertCatalogIntegrity(catalog: CatalogData): void {
 
   for (const track of catalog.tracks) {
     assertNonBlank(track.title, "Track");
-    assertOptionalPositiveInteger(track.discNumber, "Track disc number");
     assertOptionalPositiveInteger(track.trackNumber, "Track number");
 
     if (!artistIds.has(track.artistId)) {

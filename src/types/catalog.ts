@@ -15,7 +15,6 @@ export interface Album {
   artistId: EntityId;
   title: string;
   type: AlbumType;
-  releaseDate?: ISODateString;
   sortOrder: number;
   trackIds: EntityId[];
   note?: string;
@@ -26,11 +25,8 @@ export interface Track {
   artistId: EntityId;
   albumId: EntityId;
   title: string;
-  discNumber?: number;
   trackNumber?: number;
   durationSeconds?: number;
-  version?: string;
-  releaseDate?: ISODateString;
   note?: string;
 }
 
@@ -46,18 +42,14 @@ export const USER_CATALOG_CHANGES_SCHEMA_VERSION = 1 as const;
 export interface AlbumFieldOverrides {
   title?: string;
   type?: AlbumType;
-  releaseDate?: ISODateString | null;
   sortOrder?: number;
   note?: string | null;
 }
 
 export interface TrackFieldOverrides {
   title?: string;
-  discNumber?: number | null;
   trackNumber?: number | null;
   durationSeconds?: number | null;
-  version?: string | null;
-  releaseDate?: ISODateString | null;
   note?: string | null;
 }
 

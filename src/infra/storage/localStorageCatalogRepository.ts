@@ -30,12 +30,17 @@ const userCatalogChangeKeys = [
   "albumTrackIdAdditions"
 ] as const;
 
+// v1 once persisted these fields. They remain accepted only so old records can
+// be normalized without discarding unrelated catalog changes.
+const legacyAlbumKeys = ["releaseDate"] as const;
+const legacyTrackKeys = ["discNumber", "version", "releaseDate"] as const;
+
 const albumKeys = [
   "id",
   "artistId",
   "title",
   "type",
-  "releaseDate",
+  ...legacyAlbumKeys,
   "sortOrder",
   "trackIds",
   "note"
@@ -46,29 +51,25 @@ const trackKeys = [
   "artistId",
   "albumId",
   "title",
-  "discNumber",
+  ...legacyTrackKeys,
   "trackNumber",
   "durationSeconds",
-  "version",
-  "releaseDate",
   "note"
 ] as const;
 
 const albumOverrideKeys = [
   "title",
   "type",
-  "releaseDate",
+  ...legacyAlbumKeys,
   "sortOrder",
   "note"
 ] as const;
 
 const trackOverrideKeys = [
   "title",
-  "discNumber",
+  ...legacyTrackKeys,
   "trackNumber",
   "durationSeconds",
-  "version",
-  "releaseDate",
   "note"
 ] as const;
 
@@ -267,9 +268,6 @@ function decodeAlbum(value: unknown, path: string): Album {
     )
   };
 
-  if (hasOwn(record, "releaseDate")) {
-    album.releaseDate = decodeString(record.releaseDate, `${path}.releaseDate`);
-  }
   if (hasOwn(record, "note")) {
     album.note = decodeString(record.note, `${path}.note`);
   }
@@ -288,11 +286,8 @@ function decodeTrack(value: unknown, path: string): Track {
     title: decodeString(readRequired(record, "title", path), `${path}.title`)
   };
 
-  assignOptionalNumber(record, track, "discNumber", path);
   assignOptionalNumber(record, track, "trackNumber", path);
   assignOptionalNumber(record, track, "durationSeconds", path);
-  assignOptionalString(record, track, "version", path);
-  assignOptionalString(record, track, "releaseDate", path);
   assignOptionalString(record, track, "note", path);
 
   return track;
@@ -308,12 +303,6 @@ function decodeAlbumOverrides(value: unknown, path: string): AlbumFieldOverrides
   }
   if (hasOwn(record, "type")) {
     overrides.type = decodeAlbumType(record.type, `${path}.type`);
-  }
-  if (hasOwn(record, "releaseDate")) {
-    overrides.releaseDate = decodeNullableString(
-      record.releaseDate,
-      `${path}.releaseDate`
-    );
   }
   if (hasOwn(record, "sortOrder")) {
     overrides.sortOrder = decodeNumber(record.sortOrder, `${path}.sortOrder`);
@@ -333,12 +322,6 @@ function decodeTrackOverrides(value: unknown, path: string): TrackFieldOverrides
   if (hasOwn(record, "title")) {
     overrides.title = decodeString(record.title, `${path}.title`);
   }
-  if (hasOwn(record, "discNumber")) {
-    overrides.discNumber = decodeNullableNumber(
-      record.discNumber,
-      `${path}.discNumber`
-    );
-  }
   if (hasOwn(record, "trackNumber")) {
     overrides.trackNumber = decodeNullableNumber(
       record.trackNumber,
@@ -351,15 +334,6 @@ function decodeTrackOverrides(value: unknown, path: string): TrackFieldOverrides
       `${path}.durationSeconds`
     );
   }
-  if (hasOwn(record, "version")) {
-    overrides.version = decodeNullableString(record.version, `${path}.version`);
-  }
-  if (hasOwn(record, "releaseDate")) {
-    overrides.releaseDate = decodeNullableString(
-      record.releaseDate,
-      `${path}.releaseDate`
-    );
-  }
   if (hasOwn(record, "note")) {
     overrides.note = decodeNullableString(record.note, `${path}.note`);
   }
@@ -370,7 +344,7 @@ function decodeTrackOverrides(value: unknown, path: string): TrackFieldOverrides
 function assignOptionalNumber(
   record: Record<string, unknown>,
   track: Track,
-  key: "discNumber" | "trackNumber" | "durationSeconds",
+  key: "trackNumber" | "durationSeconds",
   path: string
 ): void {
   if (hasOwn(record, key)) {
@@ -381,7 +355,7 @@ function assignOptionalNumber(
 function assignOptionalString(
   record: Record<string, unknown>,
   track: Track,
-  key: "version" | "releaseDate" | "note",
+  key: "note",
   path: string
 ): void {
   if (hasOwn(record, key)) {

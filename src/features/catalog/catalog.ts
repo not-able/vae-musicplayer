@@ -17,23 +17,13 @@ export function getAlbumTracks(catalog: CatalogData, album: Album): Track[] {
       (track): track is Track => track !== undefined && track.albumId === album.id
     )
     .sort((left, right) => {
-      const discDifference =
-        (left.discNumber ?? Number.MAX_SAFE_INTEGER) -
-        (right.discNumber ?? Number.MAX_SAFE_INTEGER);
       const trackDifference =
         (left.trackNumber ?? Number.MAX_SAFE_INTEGER) -
         (right.trackNumber ?? Number.MAX_SAFE_INTEGER);
 
       return (
-        discDifference ||
         trackDifference ||
         (albumOrder.get(left.id) ?? 0) - (albumOrder.get(right.id) ?? 0)
       );
     });
-}
-
-export function getReleaseYear(releaseDate?: string): string | undefined {
-  const match = /^(\d{4})(?:-|$)/.exec(releaseDate ?? "");
-
-  return match?.[1];
 }

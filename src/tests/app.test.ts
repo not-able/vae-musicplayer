@@ -226,7 +226,6 @@ function createOrderedUserCatalogChanges(): UserCatalogChanges {
       artistId: "artist_vae",
       albumId: "album_user_order",
       title: "第二首",
-      discNumber: 1,
       trackNumber: 2
     },
     () => "track_user_order_2"
@@ -237,11 +236,10 @@ function createOrderedUserCatalogChanges(): UserCatalogChanges {
     {
       artistId: "artist_vae",
       albumId: "album_user_order",
-      title: "第二碟第一首",
-      discNumber: 2,
-      trackNumber: 1
+      title: "同曲序第二首",
+      trackNumber: 2
     },
-    () => "track_user_order_disc_2"
+    () => "track_user_order_same_2"
   );
 
   return addTrackToUserCatalog(
@@ -251,7 +249,6 @@ function createOrderedUserCatalogChanges(): UserCatalogChanges {
       artistId: "artist_vae",
       albumId: "album_user_order",
       title: "第一首",
-      discNumber: 1,
       trackNumber: 1
     },
     () => "track_user_order_1"
@@ -560,7 +557,6 @@ describe("album creation workflow", () => {
 
     await act(async () => {
       changeInputValue(editableInputs[0], "  同名也使用稳定 ID  ");
-      changeInputValue(editableInputs[1], "2024-02-29");
       if (typeSelect) {
         changeSelectValue(typeSelect, "other");
       }
@@ -591,7 +587,6 @@ describe("album creation workflow", () => {
       artistId: "artist_vae",
       title: "同名也使用稳定 ID",
       type: "other",
-      releaseDate: "2024-02-29",
       sortOrder: 4,
       trackIds: []
     });
@@ -754,27 +749,9 @@ describe("track creation workflow", () => {
       );
       changeInputValue(
         container.querySelector<HTMLInputElement>(
-          'input[name="track-disc-number"]'
-        ) as HTMLInputElement,
-        "1"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
           'input[name="track-number"]'
         ) as HTMLInputElement,
         "2"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-version"]'
-        ) as HTMLInputElement,
-        "  演示版  "
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-release-date"]'
-        ) as HTMLInputElement,
-        "2024-02-29"
       );
     });
 
@@ -806,10 +783,7 @@ describe("track creation workflow", () => {
       artistId: "artist_vae",
       albumId: "album_user_001",
       title: "新增用户歌曲",
-      discNumber: 1,
-      trackNumber: 2,
-      version: "演示版",
-      releaseDate: "2024-02-29"
+      trackNumber: 2
     });
     expect(storedChanges.albumTrackIdAdditions).toEqual(
       initialChanges.albumTrackIdAdditions
@@ -988,7 +962,7 @@ describe("track creation workflow", () => {
         container.querySelectorAll<HTMLElement>(".album-track-list .track-copy strong"),
         (heading) => heading.textContent
       )
-    ).toEqual(["第一首", "第二首", "第二碟第一首"]);
+    ).toEqual(["第一首", "第二首", "同曲序第二首"]);
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
@@ -998,7 +972,7 @@ describe("track creation workflow", () => {
       Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
         heading.textContent?.trim()
       )
-    ).toEqual(["第一首", "第二首", "第二碟第一首"]);
+    ).toEqual(["第一首", "第二首", "同曲序第二首"]);
     expect(catalogRepository.save).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -1064,12 +1038,6 @@ describe("catalog metadata editing workflow", () => {
           'input[name="track-title"]'
         ) as HTMLInputElement,
         "  本地修订歌曲  "
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-disc-number"]'
-        ) as HTMLInputElement,
-        "1"
       );
       changeInputValue(
         container.querySelector<HTMLInputElement>(
@@ -1254,20 +1222,13 @@ describe("catalog metadata editing workflow", () => {
         ) as HTMLSelectElement,
         "ep"
       );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="album-release-date"]'
-        ) as HTMLInputElement,
-        "2024-02-29"
-      );
       findButtonByText(container, "保存修改")?.click();
     });
 
     expect(getStoredChanges().addedAlbums[0]).toEqual({
       ...initialChanges.addedAlbums[0],
       title: "用户修订专辑",
-      type: "ep",
-      releaseDate: "2024-02-29"
+      type: "ep"
     });
     expect(getStoredChanges().albumOverrides).toEqual({});
     expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
@@ -1289,27 +1250,9 @@ describe("catalog metadata editing workflow", () => {
       );
       changeInputValue(
         container.querySelector<HTMLInputElement>(
-          'input[name="track-disc-number"]'
-        ) as HTMLInputElement,
-        "2"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
           'input[name="track-number"]'
         ) as HTMLInputElement,
         "3"
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-version"]'
-        ) as HTMLInputElement,
-        "  本地修订版  "
-      );
-      changeInputValue(
-        container.querySelector<HTMLInputElement>(
-          'input[name="track-release-date"]'
-        ) as HTMLInputElement,
-        "2025-01-02"
       );
       findButtonByText(container, "保存修改")?.click();
     });
@@ -1317,10 +1260,7 @@ describe("catalog metadata editing workflow", () => {
     expect(getStoredChanges().addedTracks[0]).toEqual({
       ...initialChanges.addedTracks[0],
       title: "用户修订歌曲",
-      discNumber: 2,
-      trackNumber: 3,
-      version: "本地修订版",
-      releaseDate: "2025-01-02"
+      trackNumber: 3
     });
     expect(getStoredChanges().trackOverrides).toEqual({});
     expect(getStoredChanges().addedAlbums[0].trackIds).toEqual(["track_user_001"]);

@@ -11,7 +11,7 @@ import type {
 import { LOCAL_AUDIO_FILE_ACCEPT } from "../local-library/localAudioFile";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import { writeAlbumDragData, writeTrackDragData } from "../../utils/albumDrag";
-import { getAlbumTracks, getReleaseYear, getSortedAlbums } from "./catalog";
+import { getAlbumTracks, getSortedAlbums } from "./catalog";
 import { CatalogEditor, CatalogTrackEditor } from "./CatalogEditor";
 import type {
   CatalogAlbumCreationResult,
@@ -248,11 +248,7 @@ export function CatalogOverview({
                       </span>
                       <span className="album-list-copy">
                         <strong>{album.title}</strong>
-                        <span>
-                          {getReleaseYear(album.releaseDate) ?? "年份待维护"}
-                          <span aria-hidden="true"> · </span>
-                          {tracks.length} 首
-                        </span>
+                        <span>{tracks.length} 首</span>
                       </span>
                     </button>
                   </li>
@@ -416,7 +412,6 @@ function AlbumDetail({
   onTrackDragEnd
 }: AlbumDetailProps) {
   const tracks = getAlbumTracks(catalog, album);
-  const releaseYear = getReleaseYear(album.releaseDate);
   const artist = catalog.artists.find((item) => item.id === album.artistId);
   const isAlbumEditorOpen =
     editorTarget?.kind === "edit-album" && editorTarget.albumId === album.id;
@@ -437,7 +432,6 @@ function AlbumDetail({
           <p className="eyebrow">{albumTypeLabels[album.type]}</p>
           <h3 id="album-detail-heading">{album.title}</h3>
           <p className="album-meta">
-            {releaseYear && <span>{releaseYear} 年</span>}
             <span>{tracks.length} 首歌曲</span>
           </p>
         </div>

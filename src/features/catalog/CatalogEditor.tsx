@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 
-import type { Album, AlbumType, EntityId, ISODateString, Track } from "../../types";
+import type { Album, AlbumType, EntityId, Track } from "../../types";
 import type {
   CatalogAlbumCreationResult,
   CatalogAlbumDraft,
@@ -10,7 +10,7 @@ import type {
   CatalogTrackDraft,
   CatalogTrackUpdateDraft
 } from "./useCatalogLibrary";
-import { isValidCalendarDate, parsePositiveInteger } from "./catalogValidation";
+import { parsePositiveInteger } from "./catalogValidation";
 
 interface CatalogEditorCommonProps {
   artistName: string;
@@ -34,7 +34,6 @@ type CatalogEditorProps =
 
 interface CatalogEditorErrors {
   title?: string;
-  releaseDate?: string;
 }
 
 const albumTypeOptions: ReadonlyArray<{
@@ -56,9 +55,6 @@ export function CatalogEditor(props: CatalogEditorProps) {
   const [albumType, setAlbumType] = useState<AlbumType>(() =>
     props.mode === "edit" ? props.album.type : "album"
   );
-  const [releaseDate, setReleaseDate] = useState(() =>
-    props.mode === "edit" ? (props.album.releaseDate ?? "") : ""
-  );
   const [errors, setErrors] = useState<CatalogEditorErrors>({});
   const [saveError, setSaveError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,15 +69,10 @@ export function CatalogEditor(props: CatalogEditorProps) {
     }
 
     const trimmedTitle = title.trim();
-    const trimmedReleaseDate = releaseDate.trim();
     const nextErrors: CatalogEditorErrors = {};
 
     if (trimmedTitle.length === 0) {
       nextErrors.title = "请输入专辑名。";
-    }
-
-    if (trimmedReleaseDate.length > 0 && !isValidCalendarDate(trimmedReleaseDate)) {
-      nextErrors.releaseDate = "请输入有效日期，格式为 YYYY-MM-DD。";
     }
 
     setErrors(nextErrors);
@@ -98,8 +89,7 @@ export function CatalogEditor(props: CatalogEditorProps) {
       if (props.mode === "edit") {
         const result = await props.onSubmit({
           title: trimmedTitle,
-          type: albumType,
-          releaseDate: trimmedReleaseDate ? (trimmedReleaseDate as ISODateString) : null
+          type: albumType
         });
 
         if (result.ok) {
@@ -110,10 +100,7 @@ export function CatalogEditor(props: CatalogEditorProps) {
       } else {
         const result = await props.onSubmit({
           title: trimmedTitle,
-          type: albumType,
-          ...(trimmedReleaseDate
-            ? { releaseDate: trimmedReleaseDate as ISODateString }
-            : {})
+          type: albumType
         });
 
         if (result.ok) {
@@ -210,31 +197,6 @@ export function CatalogEditor(props: CatalogEditorProps) {
           </select>
         </label>
 
-        <label className="catalog-editor-field">
-          <span>发行日期（可选）</span>
-          <input
-            name="album-release-date"
-            type="text"
-            inputMode="numeric"
-            placeholder="YYYY-MM-DD"
-            value={releaseDate}
-            disabled={isPending}
-            aria-invalid={errors.releaseDate ? "true" : undefined}
-            aria-describedby={
-              errors.releaseDate ? "catalog-release-date-error" : undefined
-            }
-            onChange={(event) => setReleaseDate(event.currentTarget.value)}
-          />
-          {errors.releaseDate && (
-            <span
-              className="catalog-editor-field-error"
-              id="catalog-release-date-error"
-            >
-              {errors.releaseDate}
-            </span>
-          )}
-        </label>
-
         {saveError && (
           <p className="catalog-editor-save-error" role="alert">
             {saveError}
@@ -292,9 +254,7 @@ type CatalogTrackEditorProps =
 
 interface CatalogTrackEditorErrors {
   title?: string;
-  discNumber?: string;
   trackNumber?: string;
-  releaseDate?: string;
 }
 
 export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
@@ -303,17 +263,8 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
   const [title, setTitle] = useState(() =>
     props.mode === "edit" ? props.track.title : ""
   );
-  const [discNumber, setDiscNumber] = useState(() =>
-    props.mode === "edit" ? String(props.track.discNumber ?? "") : "1"
-  );
   const [trackNumber, setTrackNumber] = useState(() =>
     props.mode === "edit" ? String(props.track.trackNumber ?? "") : ""
-  );
-  const [version, setVersion] = useState(() =>
-    props.mode === "edit" ? (props.track.version ?? "") : ""
-  );
-  const [releaseDate, setReleaseDate] = useState(() =>
-    props.mode === "edit" ? (props.track.releaseDate ?? "") : ""
   );
   const [errors, setErrors] = useState<CatalogTrackEditorErrors>({});
   const [saveError, setSaveError] = useState<string>();
@@ -329,25 +280,15 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
     }
 
     const trimmedTitle = title.trim();
-    const trimmedVersion = version.trim();
-    const trimmedReleaseDate = releaseDate.trim();
-    const parsedDiscNumber = parsePositiveInteger(discNumber);
     const parsedTrackNumber = parsePositiveInteger(trackNumber);
-    const discNumberIsCleared = isEditing && discNumber.trim().length === 0;
     const trackNumberIsCleared = isEditing && trackNumber.trim().length === 0;
     const nextErrors: CatalogTrackEditorErrors = {};
 
     if (trimmedTitle.length === 0) {
       nextErrors.title = "请输入歌曲名。";
     }
-    if (!discNumberIsCleared && parsedDiscNumber === undefined) {
-      nextErrors.discNumber = "碟号必须是正整数。";
-    }
     if (!trackNumberIsCleared && parsedTrackNumber === undefined) {
       nextErrors.trackNumber = "曲序必须是正整数。";
-    }
-    if (trimmedReleaseDate && !isValidCalendarDate(trimmedReleaseDate)) {
-      nextErrors.releaseDate = "请输入有效日期，格式为 YYYY-MM-DD。";
     }
 
     setErrors(nextErrors);
@@ -355,7 +296,6 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
 
     if (
       Object.keys(nextErrors).length > 0 ||
-      (!discNumberIsCleared && parsedDiscNumber === undefined) ||
       (!trackNumberIsCleared && parsedTrackNumber === undefined)
     ) {
       return;
@@ -368,10 +308,7 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
       if (props.mode === "edit") {
         const result = await props.onSubmit({
           title: trimmedTitle,
-          discNumber: discNumberIsCleared ? null : (parsedDiscNumber as number),
-          trackNumber: trackNumberIsCleared ? null : (parsedTrackNumber as number),
-          version: trimmedVersion || null,
-          releaseDate: trimmedReleaseDate ? (trimmedReleaseDate as ISODateString) : null
+          trackNumber: trackNumberIsCleared ? null : (parsedTrackNumber as number)
         });
 
         if (result.ok) {
@@ -382,12 +319,7 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
       } else {
         const result = await props.onSubmit({
           title: trimmedTitle,
-          discNumber: parsedDiscNumber as number,
-          trackNumber: parsedTrackNumber as number,
-          ...(trimmedVersion ? { version: trimmedVersion } : {}),
-          ...(trimmedReleaseDate
-            ? { releaseDate: trimmedReleaseDate as ISODateString }
-            : {})
+          trackNumber: parsedTrackNumber as number
         });
 
         if (result.ok) {
@@ -442,7 +374,7 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
         <p className="helper-text">
           {isEditing
             ? "只修改本地元数据，歌曲 ID、队列和音频绑定保持不变。"
-            : "歌曲会保存到当前专辑，并按碟号和曲序展示。"}
+            : "歌曲会保存到当前专辑，并按曲序展示。"}
         </p>
       </div>
 
@@ -477,30 +409,6 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
         </label>
 
         <label className="catalog-editor-field">
-          <span>碟号</span>
-          <input
-            name="track-disc-number"
-            type="text"
-            inputMode="numeric"
-            value={discNumber}
-            disabled={isPending}
-            aria-invalid={errors.discNumber ? "true" : undefined}
-            aria-describedby={
-              errors.discNumber ? "catalog-track-disc-number-error" : undefined
-            }
-            onChange={(event) => setDiscNumber(event.currentTarget.value)}
-          />
-          {errors.discNumber && (
-            <span
-              className="catalog-editor-field-error"
-              id="catalog-track-disc-number-error"
-            >
-              {errors.discNumber}
-            </span>
-          )}
-        </label>
-
-        <label className="catalog-editor-field">
           <span>曲序</span>
           <input
             name="track-number"
@@ -520,42 +428,6 @@ export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
               id="catalog-track-number-error"
             >
               {errors.trackNumber}
-            </span>
-          )}
-        </label>
-
-        <label className="catalog-editor-field">
-          <span>版本（可选）</span>
-          <input
-            name="track-version"
-            type="text"
-            value={version}
-            disabled={isPending}
-            onChange={(event) => setVersion(event.currentTarget.value)}
-          />
-        </label>
-
-        <label className="catalog-editor-field">
-          <span>发行日期（可选）</span>
-          <input
-            name="track-release-date"
-            type="text"
-            inputMode="numeric"
-            placeholder="YYYY-MM-DD"
-            value={releaseDate}
-            disabled={isPending}
-            aria-invalid={errors.releaseDate ? "true" : undefined}
-            aria-describedby={
-              errors.releaseDate ? "catalog-track-release-date-error" : undefined
-            }
-            onChange={(event) => setReleaseDate(event.currentTarget.value)}
-          />
-          {errors.releaseDate && (
-            <span
-              className="catalog-editor-field-error"
-              id="catalog-track-release-date-error"
-            >
-              {errors.releaseDate}
             </span>
           )}
         </label>

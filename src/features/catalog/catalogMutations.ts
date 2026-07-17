@@ -10,7 +10,7 @@ import {
   type UserCatalogChanges
 } from "../../types";
 import { mergeCatalogChanges } from "./catalogMerge";
-import { isPositiveSafeInteger, isValidCalendarDate } from "./catalogValidation";
+import { isPositiveSafeInteger } from "./catalogValidation";
 
 export type CatalogEntityIdFactory = () => EntityId;
 
@@ -23,17 +23,13 @@ const albumTypes = new Set<AlbumType>(["album", "ep", "single_collection", "othe
 const albumPatchKeys = new Set<keyof AlbumFieldOverrides>([
   "title",
   "type",
-  "releaseDate",
   "sortOrder",
   "note"
 ]);
 const trackPatchKeys = new Set<keyof TrackFieldOverrides>([
   "title",
-  "discNumber",
   "trackNumber",
   "durationSeconds",
-  "version",
-  "releaseDate",
   "note"
 ]);
 
@@ -77,18 +73,6 @@ function assertPatchKeys(
   }
 }
 
-function assertOptionalDatePatch(
-  value: unknown,
-  fieldName: string
-): asserts value is string | null {
-  if (value === null) {
-    return;
-  }
-  if (typeof value !== "string" || !isValidCalendarDate(value)) {
-    throw new Error(`${fieldName} must be null or a valid YYYY-MM-DD date.`);
-  }
-}
-
 function assertOptionalStringPatch(
   value: unknown,
   fieldName: string
@@ -122,9 +106,6 @@ function assertAlbumPatch(patch: CatalogAlbumPatch): void {
   ) {
     throw new Error("Album type patches must use a supported value.");
   }
-  if (hasOwn(patch, "releaseDate")) {
-    assertOptionalDatePatch(patch.releaseDate, "Album release date");
-  }
   if (
     hasOwn(patch, "sortOrder") &&
     (typeof patch.sortOrder !== "number" ||
@@ -147,9 +128,6 @@ function assertTrackPatch(patch: CatalogTrackPatch): void {
     }
     assertNonBlankTitle(patch.title, "Track");
   }
-  if (hasOwn(patch, "discNumber")) {
-    assertOptionalPositiveIntegerPatch(patch.discNumber, "Track disc number");
-  }
   if (hasOwn(patch, "trackNumber")) {
     assertOptionalPositiveIntegerPatch(patch.trackNumber, "Track number");
   }
@@ -162,12 +140,6 @@ function assertTrackPatch(patch: CatalogTrackPatch): void {
       Object.is(patch.durationSeconds, -0))
   ) {
     throw new Error("Track duration patches must be null or non-negative numbers.");
-  }
-  if (hasOwn(patch, "version")) {
-    assertOptionalStringPatch(patch.version, "Track version");
-  }
-  if (hasOwn(patch, "releaseDate")) {
-    assertOptionalDatePatch(patch.releaseDate, "Track release date");
   }
   if (hasOwn(patch, "note")) {
     assertOptionalStringPatch(patch.note, "Track note");
@@ -211,13 +183,6 @@ function applyAlbumPatch(album: Album, patch: CatalogAlbumPatch): Album {
   if (hasOwn(patch, "type")) {
     nextAlbum.type = patch.type as AlbumType;
   }
-  if (hasOwn(patch, "releaseDate")) {
-    if (patch.releaseDate === null) {
-      delete nextAlbum.releaseDate;
-    } else {
-      nextAlbum.releaseDate = patch.releaseDate;
-    }
-  }
   if (hasOwn(patch, "sortOrder")) {
     nextAlbum.sortOrder = patch.sortOrder as number;
   }
@@ -239,7 +204,7 @@ function applyTrackPatch(track: Track, patch: CatalogTrackPatch): Track {
     nextTrack.title = patch.title as string;
   }
 
-  for (const field of ["discNumber", "trackNumber", "durationSeconds"] as const) {
+  for (const field of ["trackNumber", "durationSeconds"] as const) {
     if (hasOwn(patch, field)) {
       if (patch[field] === null) {
         delete nextTrack[field];
@@ -249,7 +214,7 @@ function applyTrackPatch(track: Track, patch: CatalogTrackPatch): Track {
     }
   }
 
-  for (const field of ["version", "releaseDate", "note"] as const) {
+  for (const field of ["note"] as const) {
     if (hasOwn(patch, field)) {
       if (patch[field] === null) {
         delete nextTrack[field];
@@ -347,7 +312,6 @@ export function addAlbumToUserCatalog(
     artistId: input.artistId,
     title: input.title,
     type: input.type,
-    ...optionalValue("releaseDate", input.releaseDate),
     sortOrder: input.sortOrder,
     trackIds: [],
     ...optionalValue("note", input.note)
@@ -367,7 +331,6 @@ export function addTrackToUserCatalog(
 ): UserCatalogChanges {
   const currentCatalog = mergeCatalogChanges(defaultCatalog, changes);
   assertNonBlankTitle(input.title, "Track");
-  assertOptionalPositiveInteger(input.discNumber, "Track disc number");
   assertOptionalPositiveInteger(input.trackNumber, "Track number");
 
   const targetAlbum = currentCatalog.albums.find((album) => album.id === input.albumId);
@@ -384,11 +347,8 @@ export function addTrackToUserCatalog(
     artistId: input.artistId,
     albumId: input.albumId,
     title: input.title,
-    ...optionalValue("discNumber", input.discNumber),
     ...optionalValue("trackNumber", input.trackNumber),
     ...optionalValue("durationSeconds", input.durationSeconds),
-    ...optionalValue("version", input.version),
-    ...optionalValue("releaseDate", input.releaseDate),
     ...optionalValue("note", input.note)
   };
   const targetIsAddedAlbum = changes.addedAlbums.some(

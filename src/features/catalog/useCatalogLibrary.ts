@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type {
-  AlbumType,
-  CatalogData,
-  EntityId,
-  ISODateString,
-  UserCatalogChanges
-} from "../../types";
+import type { AlbumType, CatalogData, EntityId, UserCatalogChanges } from "../../types";
 import { mergeCatalogChanges } from "./catalogMerge";
 import {
   addAlbumToUserCatalog,
@@ -18,7 +12,7 @@ import {
   type CatalogAlbumPatch,
   type CatalogEntityIdFactory
 } from "./catalogMutations";
-import { isPositiveSafeInteger, isValidCalendarDate } from "./catalogValidation";
+import { isPositiveSafeInteger } from "./catalogValidation";
 import type { LocalCatalogRepository } from "./localCatalogRepository";
 
 const albumTypes = new Set<AlbumType>(["album", "ep", "single_collection", "other"]);
@@ -28,29 +22,21 @@ export type CatalogLibraryStatus = "loading" | "ready" | "error";
 export interface CatalogAlbumDraft {
   title: string;
   type: AlbumType;
-  releaseDate?: ISODateString;
 }
 
 export interface CatalogTrackDraft {
   title: string;
-  discNumber: number;
   trackNumber: number;
-  version?: string;
-  releaseDate?: ISODateString;
 }
 
 export interface CatalogAlbumUpdateDraft {
   title: string;
   type: AlbumType;
-  releaseDate: ISODateString | null;
 }
 
 export interface CatalogTrackUpdateDraft {
   title: string;
-  discNumber: number | null;
   trackNumber: number | null;
-  version: string | null;
-  releaseDate: ISODateString | null;
 }
 
 type CatalogMutationFailure = {
@@ -281,20 +267,15 @@ export function useCatalogLibrary(
       }
 
       const title = draft.title.trim();
-      const releaseDate = draft.releaseDate?.trim();
       const sourceToken = activeResult.sourceToken;
       const currentChanges = activeResult.state.changes;
       const currentCatalog = activeResult.state.catalog;
 
-      if (
-        title.length === 0 ||
-        !albumTypes.has(draft.type) ||
-        (releaseDate !== undefined && !isValidCalendarDate(releaseDate))
-      ) {
+      if (title.length === 0 || !albumTypes.has(draft.type)) {
         return {
           ok: false,
           code: "invalid_input",
-          errorMessage: "专辑名、类型或发行日期无效，请检查后重试。"
+          errorMessage: "专辑名或类型无效，请检查后重试。"
         };
       }
       const sortOrder =
@@ -315,7 +296,6 @@ export function useCatalogLibrary(
               artistId: artist.id,
               title,
               type: draft.type,
-              ...(releaseDate ? { releaseDate } : {}),
               sortOrder
             },
             idFactory ?? createDefaultCatalogAlbumId
@@ -374,19 +354,12 @@ export function useCatalogLibrary(
       }
 
       const title = draft.title.trim();
-      const version = draft.version?.trim();
-      const releaseDate = draft.releaseDate?.trim();
 
-      if (
-        title.length === 0 ||
-        !isPositiveSafeInteger(draft.discNumber) ||
-        !isPositiveSafeInteger(draft.trackNumber) ||
-        (releaseDate !== undefined && !isValidCalendarDate(releaseDate))
-      ) {
+      if (title.length === 0 || !isPositiveSafeInteger(draft.trackNumber)) {
         return {
           ok: false,
           code: "invalid_input",
-          errorMessage: "歌曲名、碟号和曲序无效，请检查后重试。"
+          errorMessage: "歌曲名或曲序无效，请检查后重试。"
         };
       }
 
@@ -422,10 +395,7 @@ export function useCatalogLibrary(
               artistId: targetAlbum.artistId,
               albumId: targetAlbum.id,
               title,
-              discNumber: draft.discNumber,
-              trackNumber: draft.trackNumber,
-              ...(version ? { version } : {}),
-              ...(releaseDate ? { releaseDate } : {})
+              trackNumber: draft.trackNumber
             },
             idFactory ?? createDefaultCatalogTrackId
           );
@@ -485,7 +455,6 @@ export function useCatalogLibrary(
         (album) => album.id === albumId
       );
       const title = draft.title.trim();
-      const releaseDate = draft.releaseDate === null ? null : draft.releaseDate.trim();
 
       if (!targetAlbum) {
         return {
@@ -494,15 +463,11 @@ export function useCatalogLibrary(
           errorMessage: "目标专辑已不可用，请重新选择专辑。"
         };
       }
-      if (
-        title.length === 0 ||
-        !albumTypes.has(draft.type) ||
-        (releaseDate !== null && !isValidCalendarDate(releaseDate))
-      ) {
+      if (title.length === 0 || !albumTypes.has(draft.type)) {
         return {
           ok: false,
           code: "invalid_input",
-          errorMessage: "专辑名、类型或发行日期无效，请检查后重试。"
+          errorMessage: "专辑名或类型无效，请检查后重试。"
         };
       }
 
@@ -510,8 +475,7 @@ export function useCatalogLibrary(
       const currentChanges = activeResult.state.changes;
       const patch: CatalogAlbumPatch = {
         title,
-        type: draft.type,
-        releaseDate
+        type: draft.type
       };
       const result = await saveChanges(
         "album",
@@ -550,8 +514,6 @@ export function useCatalogLibrary(
         (track) => track.id === trackId
       );
       const title = draft.title.trim();
-      const version = draft.version === null ? null : draft.version.trim() || null;
-      const releaseDate = draft.releaseDate === null ? null : draft.releaseDate.trim();
 
       if (!targetTrack) {
         return {
@@ -562,14 +524,12 @@ export function useCatalogLibrary(
       }
       if (
         title.length === 0 ||
-        (draft.discNumber !== null && !isPositiveSafeInteger(draft.discNumber)) ||
-        (draft.trackNumber !== null && !isPositiveSafeInteger(draft.trackNumber)) ||
-        (releaseDate !== null && !isValidCalendarDate(releaseDate))
+        (draft.trackNumber !== null && !isPositiveSafeInteger(draft.trackNumber))
       ) {
         return {
           ok: false,
           code: "invalid_input",
-          errorMessage: "歌曲名、碟号和曲序无效，请检查后重试。"
+          errorMessage: "歌曲名或曲序无效，请检查后重试。"
         };
       }
 
@@ -582,10 +542,7 @@ export function useCatalogLibrary(
         () =>
           patchTrackInUserCatalog(defaultCatalog, currentChanges, trackId, {
             title,
-            discNumber: draft.discNumber,
-            trackNumber: draft.trackNumber,
-            version,
-            releaseDate
+            trackNumber: draft.trackNumber
           }),
         "保存歌曲修改失败，请检查浏览器存储权限后重试。"
       );

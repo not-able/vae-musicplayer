@@ -15,7 +15,6 @@ export const mockCatalog: CatalogData = {
       artistId: "artist_vae",
       title: "示例专辑 A",
       type: "album",
-      releaseDate: "2000-01-01",
       sortOrder: 1,
       trackIds: ["track_sample_001", "track_sample_002"],
       note: "占位专辑，不代表真实完整发行数据。"
@@ -36,7 +35,6 @@ export const mockCatalog: CatalogData = {
       artistId: "artist_vae",
       albumId: "album_sample_001",
       title: "示例歌曲一",
-      discNumber: 1,
       trackNumber: 1,
       note: "占位歌曲，不包含真实音频或歌词。"
     },
@@ -45,7 +43,6 @@ export const mockCatalog: CatalogData = {
       artistId: "artist_vae",
       albumId: "album_sample_001",
       title: "示例歌曲二",
-      discNumber: 1,
       trackNumber: 2,
       note: "占位歌曲，不包含真实音频或歌词。"
     },
@@ -54,7 +51,6 @@ export const mockCatalog: CatalogData = {
       artistId: "artist_vae",
       albumId: "album_sample_002",
       title: "示例歌曲三",
-      discNumber: 1,
       trackNumber: 1,
       note: "占位歌曲，不包含真实音频或歌词。"
     }
