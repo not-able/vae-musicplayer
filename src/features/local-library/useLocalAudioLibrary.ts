@@ -11,6 +11,7 @@ export type LocalAudioLibraryStatus = "loading" | "ready" | "error";
 
 export interface LocalAudioLibrary {
   bindingsByTrackId: ReadonlyMap<EntityId, LocalAudioFileRecord>;
+  bindingRevisionsByTrackId: ReadonlyMap<EntityId, number>;
   pendingTrackIds: ReadonlySet<EntityId>;
   status: LocalAudioLibraryStatus;
   errorMessage?: string;
@@ -23,6 +24,9 @@ export function useLocalAudioLibrary(
 ): LocalAudioLibrary {
   const [bindingsByTrackId, setBindingsByTrackId] = useState<
     ReadonlyMap<EntityId, LocalAudioFileRecord>
+  >(() => new Map());
+  const [bindingRevisionsByTrackId, setBindingRevisionsByTrackId] = useState<
+    ReadonlyMap<EntityId, number>
   >(() => new Map());
   const [pendingTrackIds, setPendingTrackIds] = useState<ReadonlySet<EntityId>>(
     () => new Set()
@@ -42,6 +46,9 @@ export function useLocalAudioLibrary(
 
         setBindingsByTrackId(
           new Map(records.map((record) => [record.trackId, record]))
+        );
+        setBindingRevisionsByTrackId(
+          new Map(records.map((record) => [record.trackId, 1]))
         );
         setStatus("ready");
       })
@@ -84,6 +91,9 @@ export function useLocalAudioLibrary(
           nextBindings.set(trackId, record);
           return nextBindings;
         });
+        setBindingRevisionsByTrackId((currentRevisions) =>
+          incrementBindingRevision(currentRevisions, trackId)
+        );
         return true;
       } catch (error) {
         setErrorMessage(getStorageWriteErrorMessage(error));
@@ -107,6 +117,9 @@ export function useLocalAudioLibrary(
           nextBindings.delete(trackId);
           return nextBindings;
         });
+        setBindingRevisionsByTrackId((currentRevisions) =>
+          incrementBindingRevision(currentRevisions, trackId)
+        );
         return true;
       } catch (error) {
         setErrorMessage(getStorageWriteErrorMessage(error));
@@ -120,12 +133,22 @@ export function useLocalAudioLibrary(
 
   return {
     bindingsByTrackId,
+    bindingRevisionsByTrackId,
     pendingTrackIds,
     status,
     errorMessage,
     bindAudioFile,
     unbindAudioFile
   };
+}
+
+function incrementBindingRevision(
+  revisions: ReadonlyMap<EntityId, number>,
+  trackId: EntityId
+): ReadonlyMap<EntityId, number> {
+  const nextRevisions = new Map(revisions);
+  nextRevisions.set(trackId, (nextRevisions.get(trackId) ?? 0) + 1);
+  return nextRevisions;
 }
 
 function addId(ids: ReadonlySet<EntityId>, id: EntityId): ReadonlySet<EntityId> {

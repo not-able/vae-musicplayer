@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { appReducer, createAppState } from "../app/appReducer";
+import { appReducer, createAppState, type AppState } from "../app/appReducer";
 import {
   createPlayerState,
   playerReducer,
-  syncPlayerSequence
+  syncPlayerSequence,
+  type PlayerState
 } from "../features/player/playerReducer";
 import type { PlaySequenceEntry, TemporaryPlaylist } from "../types";
 import {
@@ -33,6 +34,23 @@ function createEmptyPlaylist(): TemporaryPlaylist {
   });
 }
 
+function finishCurrentSource(state: PlayerState): PlayerState {
+  return playerReducer(state, {
+    type: "playback-ended",
+    playbackRevision: state.playbackRevision
+  });
+}
+
+function finishCurrentAppSource(state: AppState): AppState {
+  return appReducer(state, {
+    type: "player",
+    action: {
+      type: "playback-ended",
+      playbackRevision: state.player.playbackRevision
+    }
+  });
+}
+
 describe("player reducer", () => {
   it("represents an empty queue and ignores playback commands safely", () => {
     const state = createPlayerState();
@@ -51,7 +69,7 @@ describe("player reducer", () => {
       { type: "next" },
       { type: "previous" },
       { type: "restart-current" },
-      { type: "playback-ended" }
+      { type: "playback-ended", playbackRevision: 0 }
     ] as const) {
       expect(playerReducer(state, action)).toBe(state);
     }
@@ -131,7 +149,7 @@ describe("player reducer", () => {
       repeatTotal: 3
     });
 
-    state = playerReducer(state, { type: "playback-ended" });
+    state = finishCurrentSource(state);
     expect(state.currentEntry).toMatchObject({
       trackId: "track_001",
       repeatIndex: 2,
@@ -139,21 +157,21 @@ describe("player reducer", () => {
     });
     expect(state.status).toBe("playing");
 
-    state = playerReducer(state, { type: "playback-ended" });
+    state = finishCurrentSource(state);
     expect(state.currentEntry).toMatchObject({
       trackId: "track_001",
       repeatIndex: 3,
       repeatTotal: 3
     });
 
-    state = playerReducer(state, { type: "playback-ended" });
+    state = finishCurrentSource(state);
     expect(state.currentEntry).toMatchObject({
       trackId: "track_002",
       repeatIndex: 1,
       repeatTotal: 1
     });
 
-    state = playerReducer(state, { type: "playback-ended" });
+    state = finishCurrentSource(state);
     expect(state.status).toBe("ended");
     expect(state.currentIndex).toBe(3);
     expect(state.playSequence).toHaveLength(4);
@@ -167,7 +185,54 @@ describe("player reducer", () => {
   it("ignores stale ended events while playback is paused", () => {
     const state = createPlayerState([createEntry("item_001", "track_001")]);
 
-    expect(playerReducer(state, { type: "playback-ended" })).toBe(state);
+    expect(
+      playerReducer(state, {
+        type: "playback-ended",
+        playbackRevision: state.playbackRevision
+      })
+    ).toBe(state);
+  });
+
+  it("ignores an ended event from an earlier playback revision", () => {
+    const playingState = playerReducer(
+      createPlayerState([
+        createEntry("item_001", "track_001"),
+        createEntry("item_002", "track_002"),
+        createEntry("item_003", "track_003")
+      ]),
+      { type: "play" }
+    );
+    const stalePlaybackRevision = playingState.playbackRevision;
+    const switchedState = playerReducer(playingState, { type: "next" });
+
+    expect(switchedState.playbackRevision).toBe(stalePlaybackRevision + 1);
+    expect(
+      playerReducer(switchedState, {
+        type: "playback-ended",
+        playbackRevision: stalePlaybackRevision
+      })
+    ).toBe(switchedState);
+  });
+
+  it("accepts a current ended event only once", () => {
+    const playingState = playerReducer(
+      createPlayerState([
+        createEntry("item_001", "track_001"),
+        createEntry("item_002", "track_002"),
+        createEntry("item_003", "track_003")
+      ]),
+      { type: "play" }
+    );
+    const endedAction = {
+      type: "playback-ended",
+      playbackRevision: playingState.playbackRevision
+    } as const;
+    const advancedState = playerReducer(playingState, endedAction);
+
+    expect(advancedState.currentIndex).toBe(1);
+    expect(advancedState.status).toBe("playing");
+    expect(advancedState.playbackRevision).toBe(playingState.playbackRevision + 1);
+    expect(playerReducer(advancedState, endedAction)).toBe(advancedState);
   });
 
   it("keeps the same playback occurrence when the sequence is reordered", () => {
@@ -179,7 +244,7 @@ describe("player reducer", () => {
     const firstState = playerReducer(createPlayerState(initialSequence), {
       type: "play"
     });
-    const secondState = playerReducer(firstState, { type: "playback-ended" });
+    const secondState = finishCurrentSource(firstState);
     const reorderedSequence = [
       createEntry("item_002", "track_002"),
       createEntry("item_001", "track_001", 1, 3),
@@ -204,7 +269,7 @@ describe("player reducer", () => {
     const playingState = playerReducer(createPlayerState([firstEntry]), {
       type: "play"
     });
-    const endedState = playerReducer(playingState, { type: "playback-ended" });
+    const endedState = finishCurrentSource(playingState);
     const appendedState = syncPlayerSequence(endedState, [
       firstEntry,
       createEntry("item_002", "track_002")
@@ -254,10 +319,7 @@ describe("app player integration", () => {
       type: "player",
       action: { type: "play" }
     });
-    const advancedState = appReducer(playingState, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
+    const advancedState = finishCurrentAppSource(playingState);
 
     expect(advancedState.player.currentIndex).toBe(1);
     expect(advancedState.player.currentEntry?.repeatIndex).toBe(2);
@@ -294,14 +356,8 @@ describe("app player integration", () => {
       type: "player",
       action: { type: "play" }
     });
-    state = appReducer(state, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
-    state = appReducer(state, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
+    state = finishCurrentAppSource(state);
+    state = finishCurrentAppSource(state);
 
     expect(state.player.currentEntry).toMatchObject({
       queueItemId: "item_a",
@@ -355,14 +411,8 @@ describe("app player integration", () => {
       type: "player",
       action: { type: "play" }
     });
-    state = appReducer(state, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
-    state = appReducer(state, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
+    state = finishCurrentAppSource(state);
+    state = finishCurrentAppSource(state);
 
     expect(state.player.currentEntry).toMatchObject({
       queueItemId: "item_b",
@@ -399,10 +449,7 @@ describe("app player integration", () => {
       type: "player",
       action: { type: "play" }
     });
-    state = appReducer(state, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
+    state = finishCurrentAppSource(state);
 
     expect(state.player.currentEntry?.queueItemId).toBe("item_b");
 
@@ -475,10 +522,7 @@ describe("app player integration", () => {
       type: "player",
       action: { type: "play" }
     });
-    state = appReducer(state, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
+    state = finishCurrentAppSource(state);
 
     const movedState = appReducer(state, {
       type: "playlist",
@@ -489,10 +533,7 @@ describe("app player integration", () => {
     expect(movedState.player.currentEntry?.queueItemId).toBe("item_b");
     expect(movedState.player.status).toBe("playing");
 
-    const advancedState = appReducer(movedState, {
-      type: "player",
-      action: { type: "playback-ended" }
-    });
+    const advancedState = finishCurrentAppSource(movedState);
 
     expect(advancedState.player.currentEntry?.queueItemId).toBe("item_c");
     expect(advancedState.player.status).toBe("playing");

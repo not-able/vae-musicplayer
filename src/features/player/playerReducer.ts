@@ -16,7 +16,7 @@ export type PlayerAction =
   | { type: "next" }
   | { type: "previous" }
   | { type: "restart-current" }
-  | { type: "playback-ended" };
+  | { type: "playback-ended"; playbackRevision: number };
 
 export function createPlayerState(
   playSequence: readonly PlaySequenceEntry[] = []
@@ -49,7 +49,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     case "restart-current":
       return restartCurrent(state);
     case "playback-ended":
-      return handlePlaybackEnded(state);
+      return handlePlaybackEnded(state, action.playbackRevision);
   }
 }
 
@@ -199,8 +199,15 @@ function restartCurrent(state: PlayerState): PlayerState {
   };
 }
 
-function handlePlaybackEnded(state: PlayerState): PlayerState {
-  if (state.status !== "playing" || state.currentIndex === null) {
+function handlePlaybackEnded(
+  state: PlayerState,
+  playbackRevision: number
+): PlayerState {
+  if (
+    state.status !== "playing" ||
+    state.currentIndex === null ||
+    playbackRevision !== state.playbackRevision
+  ) {
     return state;
   }
 

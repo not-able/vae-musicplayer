@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import type { EntityId, LocalAudioFileRecord, PlaySequenceEntry } from "../../types";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
@@ -13,17 +13,21 @@ interface UseLocalAudioPlaybackOptions {
 }
 
 interface PreparedAudioSource {
-  token: string;
+  sourceKey: string;
+  sourceToken: number;
   objectUrl: string;
-  file: File;
+  record: LocalAudioFileRecord;
+  audio: HTMLAudioElement;
+  handleEnded: () => void;
 }
+
+const SOURCE_ENDED_LISTENER_OPTIONS = { passive: true } as const;
 
 export interface LocalAudioPlaybackControls {
   errorMessage?: string;
   requestPlay: () => void;
   requestPause: () => void;
   requestRestart: () => void;
-  handleAudioEnded: () => void;
   handleAudioError: () => void;
   clearError: () => void;
 }
@@ -36,56 +40,87 @@ export function useLocalAudioPlayback({
   audioRef
 }: UseLocalAudioPlaybackOptions): LocalAudioPlaybackControls {
   const preparedSourceRef = useRef<PreparedAudioSource | undefined>(undefined);
+  const sourceTokenSequenceRef = useRef(0);
   const [errorMessage, setErrorMessage] = useState<string>();
 
-  const releasePreparedSource = useCallback((audio: HTMLAudioElement) => {
+  const releasePreparedSource = useCallback(() => {
     const preparedSource = preparedSourceRef.current;
 
     if (!preparedSource) {
       return;
     }
 
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
-    URL.revokeObjectURL(preparedSource.objectUrl);
     preparedSourceRef.current = undefined;
+    preparedSource.audio.removeEventListener("ended", preparedSource.handleEnded);
+    preparedSource.audio.pause();
+    preparedSource.audio.removeAttribute("src");
+    preparedSource.audio.load();
+    URL.revokeObjectURL(preparedSource.objectUrl);
   }, []);
 
   const prepareSource = useCallback(
     (
       entry: PlaySequenceEntry,
-      file: File,
+      record: LocalAudioFileRecord,
       playbackRevision: number
-    ): string | undefined => {
+    ): number | undefined => {
       const audio = audioRef.current;
 
       if (!audio) {
         return undefined;
       }
 
-      const token = createSourceToken(entry, playbackRevision);
+      const sourceKey = createSourceKey(entry, playbackRevision);
       const preparedSource = preparedSourceRef.current;
 
-      if (preparedSource?.token === token && preparedSource.file === file) {
-        return token;
+      if (
+        preparedSource?.sourceKey === sourceKey &&
+        preparedSource.record === record &&
+        preparedSource.audio === audio
+      ) {
+        return preparedSource.sourceToken;
       }
 
-      releasePreparedSource(audio);
+      releasePreparedSource();
 
-      const objectUrl = URL.createObjectURL(file);
-      audio.src = objectUrl;
-      audio.currentTime = 0;
-      audio.load();
-      preparedSourceRef.current = { token, objectUrl, file };
+      const objectUrl = URL.createObjectURL(record.file);
+      const sourceToken = sourceTokenSequenceRef.current + 1;
+      const handleEnded = () => {
+        if (preparedSourceRef.current?.sourceToken !== sourceToken) {
+          return;
+        }
 
-      return token;
+        setErrorMessage(undefined);
+        dispatchPlayer({ type: "playback-ended", playbackRevision });
+      };
+
+      sourceTokenSequenceRef.current = sourceToken;
+      preparedSourceRef.current = {
+        sourceKey,
+        sourceToken,
+        objectUrl,
+        record,
+        audio,
+        handleEnded
+      };
+      audio.addEventListener("ended", handleEnded, SOURCE_ENDED_LISTENER_OPTIONS);
+
+      try {
+        audio.src = objectUrl;
+        audio.currentTime = 0;
+        audio.load();
+      } catch (error) {
+        releasePreparedSource();
+        throw error;
+      }
+
+      return sourceToken;
     },
-    [audioRef, releasePreparedSource]
+    [audioRef, dispatchPlayer, releasePreparedSource]
   );
 
   const beginPlayback = useCallback(
-    (expectedSourceToken: string) => {
+    (expectedSourceToken: number) => {
       const audio = audioRef.current;
 
       if (!audio) {
@@ -93,7 +128,7 @@ export function useLocalAudioPlayback({
       }
 
       void audio.play().catch((error: unknown) => {
-        if (preparedSourceRef.current?.token !== expectedSourceToken) {
+        if (preparedSourceRef.current?.sourceToken !== expectedSourceToken) {
           return;
         }
 
@@ -104,22 +139,24 @@ export function useLocalAudioPlayback({
     [audioRef, dispatchPlayer]
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const audio = audioRef.current;
 
     if (!audio) {
       return;
     }
 
-    const currentEntry = state.currentEntry;
-    const currentRecord = currentEntry
-      ? bindingsByTrackId.get(currentEntry.trackId)
+    const targetEntry = getPlayTargetEntry(state);
+    const targetRevision =
+      state.status === "ended" ? state.playbackRevision + 1 : state.playbackRevision;
+    const targetRecord = targetEntry
+      ? bindingsByTrackId.get(targetEntry.trackId)
       : undefined;
 
-    if (!currentEntry || !currentRecord) {
-      releasePreparedSource(audio);
+    if (!targetEntry || !targetRecord) {
+      releasePreparedSource();
 
-      if (currentEntry && libraryStatus === "ready" && state.status === "playing") {
+      if (targetEntry && libraryStatus === "ready" && state.status === "playing") {
         dispatchPlayer({ type: "pause" });
       }
 
@@ -127,11 +164,7 @@ export function useLocalAudioPlayback({
     }
 
     try {
-      const sourceToken = prepareSource(
-        currentEntry,
-        currentRecord.file,
-        state.playbackRevision
-      );
+      const sourceToken = prepareSource(targetEntry, targetRecord, targetRevision);
 
       if (state.status === "playing" && sourceToken) {
         beginPlayback(sourceToken);
@@ -150,20 +183,14 @@ export function useLocalAudioPlayback({
     libraryStatus,
     prepareSource,
     releasePreparedSource,
-    state.currentEntry,
-    state.playbackRevision,
-    state.status
+    state
   ]);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-
+  useLayoutEffect(() => {
     return () => {
-      if (audio) {
-        releasePreparedSource(audio);
-      }
+      releasePreparedSource();
     };
-  }, [audioRef, releasePreparedSource]);
+  }, [releasePreparedSource]);
 
   const requestPlay = useCallback(() => {
     if (libraryStatus === "loading") {
@@ -193,7 +220,7 @@ export function useLocalAudioPlayback({
     try {
       const targetRevision =
         state.status === "ended" ? state.playbackRevision + 1 : state.playbackRevision;
-      const sourceToken = prepareSource(targetEntry, targetRecord.file, targetRevision);
+      const sourceToken = prepareSource(targetEntry, targetRecord, targetRevision);
 
       if (!sourceToken) {
         setErrorMessage("播放器尚未准备完成，请重试。");
@@ -238,7 +265,7 @@ export function useLocalAudioPlayback({
     try {
       const sourceToken = prepareSource(
         currentEntry,
-        currentRecord.file,
+        currentRecord,
         state.playbackRevision + 1
       );
 
@@ -254,11 +281,6 @@ export function useLocalAudioPlayback({
     }
   }, [beginPlayback, bindingsByTrackId, dispatchPlayer, prepareSource, state]);
 
-  const handleAudioEnded = useCallback(() => {
-    setErrorMessage(undefined);
-    dispatchPlayer({ type: "playback-ended" });
-  }, [dispatchPlayer]);
-
   const handleAudioError = useCallback(() => {
     if (!preparedSourceRef.current) {
       return;
@@ -273,13 +295,12 @@ export function useLocalAudioPlayback({
     requestPlay,
     requestPause,
     requestRestart,
-    handleAudioEnded,
     handleAudioError,
     clearError: () => setErrorMessage(undefined)
   };
 }
 
-function createSourceToken(entry: PlaySequenceEntry, playbackRevision: number): string {
+function createSourceKey(entry: PlaySequenceEntry, playbackRevision: number): string {
   return [entry.queueItemId, entry.trackId, entry.repeatIndex, playbackRevision].join(
     ":"
   );

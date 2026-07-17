@@ -16,7 +16,7 @@ import { useLocalAudioPlayback } from "../features/player/useLocalAudioPlayback"
 import { TemporaryPlaylistPanel } from "../features/playlist/TemporaryPlaylistPanel";
 import { indexedDbLocalAudioRepository } from "../infra/storage/indexedDbLocalAudioRepository";
 import { localStorageCatalogRepository } from "../infra/storage/localStorageCatalogRepository";
-import type { EntityId } from "../types";
+import type { EntityId, PlaySequenceEntry } from "../types";
 import { createTemporaryPlaylist } from "../utils/playlist";
 
 function createInitialState() {
@@ -33,6 +33,24 @@ function createInitialState() {
 
 function createPlaylistItemId(): string {
   return `queue_item_${crypto.randomUUID()}`;
+}
+
+function createAudioElementKey(
+  entry: PlaySequenceEntry | undefined,
+  playbackRevision: number,
+  bindingRevision: number
+): string {
+  if (!entry) {
+    return ["empty", playbackRevision, bindingRevision].join(":");
+  }
+
+  return [
+    entry.queueItemId,
+    entry.trackId,
+    entry.repeatIndex,
+    playbackRevision,
+    bindingRevision
+  ].join(":");
 }
 
 interface AppProps {
@@ -77,6 +95,16 @@ export function App({
     : undefined;
   const playTargetEntry =
     player.status === "ended" ? player.playSequence[0] : player.currentEntry;
+  const playTargetRevision =
+    player.status === "ended" ? player.playbackRevision + 1 : player.playbackRevision;
+  const playTargetBindingRevision = playTargetEntry
+    ? (localAudioLibrary.bindingRevisionsByTrackId.get(playTargetEntry.trackId) ?? 0)
+    : 0;
+  const audioElementKey = createAudioElementKey(
+    playTargetEntry ?? undefined,
+    playTargetRevision,
+    playTargetBindingRevision
+  );
   const canPlayTarget = Boolean(
     playTargetEntry &&
     localAudioLibrary.status === "ready" &&
@@ -225,11 +253,11 @@ export function App({
         onRestart={localAudioPlayback.requestRestart}
       />
       <audio
+        key={audioElementKey}
         className="local-audio-element"
         ref={audioRef}
         preload="metadata"
         aria-hidden="true"
-        onEnded={localAudioPlayback.handleAudioEnded}
         onError={localAudioPlayback.handleAudioError}
       />
     </PageShell>
