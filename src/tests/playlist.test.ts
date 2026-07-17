@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  PlaylistPersistenceError,
+  parseStoredTemporaryPlaylist,
+  serializeTemporaryPlaylist,
+  type PlaylistPersistenceErrorCode
+} from "../features/playlist/playlistPersistence";
 import { temporaryPlaylistReducer } from "../features/playlist/playlistReducer";
-import type { Album, TemporaryPlaylist } from "../types";
+import {
+  TEMPORARY_PLAYLIST_SCHEMA_VERSION,
+  type Album,
+  type StoredTemporaryPlaylist,
+  type TemporaryPlaylist
+} from "../types";
 import {
   addAlbumToPlaylist,
   addTrackToPlaylist,
@@ -46,6 +57,31 @@ function addSampleTrack(
     itemId,
     addedAt: updatedAt
   });
+}
+
+function createStoredPlaylist(): StoredTemporaryPlaylist {
+  const firstAdd = addSampleTrack(createEmptyPlaylist(), "item_001");
+  const secondAdd = addSampleTrack(firstAdd, "item_002");
+
+  return serializeTemporaryPlaylist(
+    updatePlaylistItemRepeatCount(secondAdd, "item_001", 3, updatedAt)
+  );
+}
+
+function expectPersistenceError(
+  operation: () => unknown,
+  code: PlaylistPersistenceErrorCode
+): void {
+  try {
+    operation();
+    throw new Error("Expected playlist persistence operation to fail.");
+  } catch (error: unknown) {
+    expect(error).toBeInstanceOf(PlaylistPersistenceError);
+    expect(error).toMatchObject({
+      name: "PlaylistPersistenceError",
+      code
+    });
+  }
 }
 
 describe("temporary playlist operations", () => {
@@ -273,5 +309,305 @@ describe("temporary playlist invariants", () => {
     expect(() => addSampleTrack(playlist, "item_001", "track_002")).toThrow(
       "Playlist item IDs must be unique."
     );
+  });
+});
+
+describe("temporary playlist persistence", () => {
+  it("round-trips an empty playlist through the versioned snapshot", () => {
+    const playlist = createEmptyPlaylist();
+    const snapshot = serializeTemporaryPlaylist(playlist);
+
+    expect(snapshot).toEqual({
+      schemaVersion: TEMPORARY_PLAYLIST_SCHEMA_VERSION,
+      id: "playlist_temp_current",
+      name: "临时歌单",
+      itemIds: [],
+      items: [],
+      createdAt,
+      updatedAt: createdAt
+    });
+    expect(parseStoredTemporaryPlaylist(snapshot)).toEqual(playlist);
+  });
+
+  it("restores duplicate tracks as independent queue items and repeat counts", () => {
+    const snapshot = createStoredPlaylist();
+    const restored = parseStoredTemporaryPlaylist(snapshot);
+
+    expect(restored.itemIds).toEqual(["item_001", "item_002"]);
+    expect(restored.itemsById.item_001).toMatchObject({
+      id: "item_001",
+      trackId: "track_001",
+      repeatCount: 3,
+      playedCount: 0
+    });
+    expect(restored.itemsById.item_002).toMatchObject({
+      id: "item_002",
+      trackId: "track_001",
+      repeatCount: 1,
+      playedCount: 0
+    });
+  });
+
+  it("accepts the supported repeatCount boundaries without normalizing them", () => {
+    const snapshot = createStoredPlaylist();
+    snapshot.items[0].repeatCount = 99;
+
+    const restored = parseStoredTemporaryPlaylist(snapshot);
+
+    expect(restored.itemsById.item_001.repeatCount).toBe(99);
+    expect(restored.itemsById.item_002.repeatCount).toBe(1);
+  });
+
+  it("round-trips a populated snapshot through JSON", () => {
+    const playlist = parseStoredTemporaryPlaylist(createStoredPlaylist());
+    const serializedSnapshot = JSON.stringify(serializeTemporaryPlaylist(playlist));
+
+    expect(parseStoredTemporaryPlaylist(JSON.parse(serializedSnapshot))).toEqual(
+      playlist
+    );
+  });
+
+  it("persists only the queue source data and resets playback progress", () => {
+    const playlist = addSampleTrack(createEmptyPlaylist(), "item_001");
+    const localFile = new File(["self-created test bytes"], "test.mp3", {
+      type: "audio/mpeg"
+    });
+    const runtimeWithTransientState = {
+      ...playlist,
+      isPlaying: true,
+      playbackToken: "runtime-token",
+      playSequence: [
+        {
+          queueItemId: "item_001",
+          trackId: "track_001",
+          repeatIndex: 1,
+          repeatTotal: 1
+        }
+      ],
+      file: localFile,
+      itemsById: {
+        item_001: {
+          ...playlist.itemsById.item_001,
+          playedCount: 1,
+          objectUrl: "blob:https://example.invalid/runtime-audio",
+          playbackToken: "item-runtime-token",
+          file: localFile
+        }
+      }
+    } as TemporaryPlaylist;
+
+    const snapshot = serializeTemporaryPlaylist(runtimeWithTransientState);
+    const serializedSnapshot = JSON.stringify(snapshot);
+
+    expect(Object.keys(snapshot)).toEqual([
+      "schemaVersion",
+      "id",
+      "name",
+      "itemIds",
+      "items",
+      "createdAt",
+      "updatedAt"
+    ]);
+    expect(Object.keys(snapshot.items[0])).toEqual([
+      "id",
+      "trackId",
+      "repeatCount",
+      "source",
+      "addedAt"
+    ]);
+    expect(serializedSnapshot).not.toContain("playedCount");
+    expect(serializedSnapshot).not.toContain("playSequence");
+    expect(serializedSnapshot).not.toContain("isPlaying");
+    expect(serializedSnapshot).not.toContain("playbackToken");
+    expect(serializedSnapshot).not.toContain("objectUrl");
+    expect(serializedSnapshot).not.toContain("test.mp3");
+    expect(parseStoredTemporaryPlaylist(snapshot).itemsById.item_001.playedCount).toBe(
+      0
+    );
+  });
+
+  it("does not require the current catalog when parsing track IDs", () => {
+    const snapshot = createStoredPlaylist();
+    snapshot.items[0].trackId = "track_not_in_current_catalog";
+
+    expect(parseStoredTemporaryPlaylist(snapshot).itemsById.item_001.trackId).toBe(
+      "track_not_in_current_catalog"
+    );
+  });
+
+  it.each([
+    0,
+    -0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+    100,
+    "1"
+  ])("rejects invalid repeatCount %s", (repeatCount) => {
+    const snapshot = createStoredPlaylist();
+    const damagedSnapshot = {
+      ...snapshot,
+      items: snapshot.items.map((item, index) =>
+        index === 0 ? { ...item, repeatCount } : item
+      )
+    };
+
+    expectPersistenceError(
+      () => parseStoredTemporaryPlaylist(damagedSnapshot),
+      "invalid_data"
+    );
+  });
+
+  it("rejects duplicate queue item IDs in the order and item collection", () => {
+    const duplicateOrder = createStoredPlaylist();
+    duplicateOrder.itemIds[1] = "item_001";
+
+    expectPersistenceError(
+      () => parseStoredTemporaryPlaylist(duplicateOrder),
+      "invalid_data"
+    );
+
+    const duplicateItems = createStoredPlaylist();
+    duplicateItems.items[1].id = "item_001";
+
+    expectPersistenceError(
+      () => parseStoredTemporaryPlaylist(duplicateItems),
+      "invalid_data"
+    );
+  });
+
+  it("rejects missing and orphaned order references", () => {
+    const missingItem = createStoredPlaylist();
+    missingItem.items = missingItem.items.slice(0, 1);
+
+    expectPersistenceError(
+      () => parseStoredTemporaryPlaylist(missingItem),
+      "invalid_data"
+    );
+
+    const orphanedItem = createStoredPlaylist();
+    orphanedItem.itemIds = orphanedItem.itemIds.slice(0, 1);
+
+    expectPersistenceError(
+      () => parseStoredTemporaryPlaylist(orphanedItem),
+      "invalid_data"
+    );
+  });
+
+  it("rejects unknown versions distinctly from malformed version fields", () => {
+    const unknownVersion = {
+      ...createStoredPlaylist(),
+      schemaVersion: TEMPORARY_PLAYLIST_SCHEMA_VERSION + 1
+    };
+
+    expectPersistenceError(
+      () => parseStoredTemporaryPlaylist(unknownVersion),
+      "unsupported_schema"
+    );
+
+    for (const schemaVersion of [
+      "1",
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY
+    ]) {
+      expectPersistenceError(
+        () =>
+          parseStoredTemporaryPlaylist({
+            ...createStoredPlaylist(),
+            schemaVersion
+          }),
+        "invalid_data"
+      );
+    }
+  });
+
+  it.each([
+    ["null root", null],
+    ["array root", []],
+    ["missing item collection", { ...createStoredPlaylist(), items: undefined }],
+    ["unexpected root field", { ...createStoredPlaylist(), isPlaying: false }],
+    [
+      "unexpected item field",
+      {
+        ...createStoredPlaylist(),
+        items: createStoredPlaylist().items.map((item, index) =>
+          index === 0
+            ? {
+                ...item,
+                objectUrl: "blob:https://example.invalid/runtime-audio"
+              }
+            : item
+        )
+      }
+    ],
+    ["invalid timestamp", { ...createStoredPlaylist(), updatedAt: "not-a-date" }]
+  ])("rejects damaged or unknown snapshot structure: %s", (_label, value) => {
+    expectPersistenceError(() => parseStoredTemporaryPlaylist(value), "invalid_data");
+  });
+
+  it("rejects inconsistent runtime queue maps before serialization", () => {
+    const playlist = addSampleTrack(createEmptyPlaylist(), "item_001");
+    const missingItem = {
+      ...playlist,
+      itemsById: {}
+    };
+    const mismatchedItemId = {
+      ...playlist,
+      itemsById: {
+        item_001: {
+          ...playlist.itemsById.item_001,
+          id: "item_other"
+        }
+      }
+    };
+
+    expectPersistenceError(
+      () => serializeTemporaryPlaylist(missingItem),
+      "invalid_data"
+    );
+    expectPersistenceError(
+      () => serializeTemporaryPlaylist(mismatchedItemId),
+      "invalid_data"
+    );
+
+    expectPersistenceError(
+      () =>
+        serializeTemporaryPlaylist({
+          ...playlist,
+          itemIds: ["item_001", "item_001"]
+        }),
+      "invalid_data"
+    );
+  });
+
+  it("returns independent snapshots and restored runtime objects", () => {
+    const firstAdd = addSampleTrack(createEmptyPlaylist(), "item_001");
+    const secondAdd = addSampleTrack(firstAdd, "item_002", "track_002");
+    const playlist = updatePlaylistItemRepeatCount(secondAdd, "item_001", 3, updatedAt);
+    const playlistBeforeSerialization = structuredClone(playlist);
+    const snapshot = serializeTemporaryPlaylist(playlist);
+
+    snapshot.itemIds.reverse();
+    snapshot.items[0].repeatCount = 1;
+
+    expect(playlist).toEqual(playlistBeforeSerialization);
+
+    const freshSnapshot = serializeTemporaryPlaylist(playlist);
+    const snapshotBeforeParsing = structuredClone(freshSnapshot);
+    const restored = parseStoredTemporaryPlaylist(freshSnapshot);
+
+    expect(freshSnapshot).toEqual(snapshotBeforeParsing);
+
+    restored.itemIds.length = 0;
+    restored.itemsById.item_001.repeatCount = 2;
+
+    expect(freshSnapshot).toEqual(snapshotBeforeParsing);
+    expect(freshSnapshot.itemIds).toEqual(["item_001", "item_002"]);
+    expect(freshSnapshot.items[0].repeatCount).toBe(3);
   });
 });
