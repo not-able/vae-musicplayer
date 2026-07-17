@@ -255,6 +255,44 @@ function createOrderedUserCatalogChanges(): UserCatalogChanges {
   );
 }
 
+function createMvp07UserCatalogChanges(): UserCatalogChanges {
+  let changes = addAlbumToUserCatalog(
+    mockCatalog,
+    createEmptyUserCatalogChanges(),
+    {
+      artistId: "artist_vae",
+      title: "用户闭环专辑",
+      type: "album",
+      sortOrder: 3
+    },
+    () => "album_user_mvp_07"
+  );
+
+  changes = addTrackToUserCatalog(
+    mockCatalog,
+    changes,
+    {
+      artistId: "artist_vae",
+      albumId: "album_user_mvp_07",
+      title: "用户歌曲二",
+      trackNumber: 2
+    },
+    () => "track_user_mvp_07_2"
+  );
+
+  return addTrackToUserCatalog(
+    mockCatalog,
+    changes,
+    {
+      artistId: "artist_vae",
+      albumId: "album_user_mvp_07",
+      title: "用户歌曲一",
+      trackNumber: 1
+    },
+    () => "track_user_mvp_07_1"
+  );
+}
+
 function installAudioElementMocks() {
   const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
     URL,
@@ -418,6 +456,220 @@ describe("persistent catalog integration", () => {
     );
     expect(catalogRepository.load).toHaveBeenCalledOnce();
     expect(catalogRepository.save).not.toHaveBeenCalled();
+    expect(catalogRepository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("connects two loaded user tracks through queue ordering, repeats, and player state", async () => {
+    const deferred = createDeferred<UserCatalogChanges>();
+    const catalogRepository = createMemoryLocalCatalogRepository(
+      () => deferred.promise
+    );
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const playlistItemIds = [
+      "queue_user_single_1",
+      "queue_user_album_1",
+      "queue_user_album_2"
+    ];
+    let playlistItemIdIndex = 0;
+    const playlistItemIdFactory = vi.fn(() => {
+      const itemId = playlistItemIds[playlistItemIdIndex];
+
+      if (itemId === undefined) {
+        throw new Error("MVP-07 playlist item ID factory was exhausted.");
+      }
+
+      playlistItemIdIndex += 1;
+      return itemId;
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const queueTitles = () =>
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      );
+    const queueItemIds = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+        (item) => item.dataset.queueItemId
+      );
+    const repeatCounts = () =>
+      Array.from(
+        container.querySelectorAll(".queue-repeat-count"),
+        (count) => count.textContent
+      );
+    const playerTitle = () =>
+      container.querySelector(".player-now-playing strong")?.textContent;
+    const playerMeta = () =>
+      container.querySelector(".player-sequence-meta")?.textContent;
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository,
+          playlistItemIdFactory
+        })
+      );
+    });
+
+    expect(container.textContent).toContain("正在读取用户目录，当前先显示内置目录。");
+    expect(container.textContent).not.toContain("用户闭环专辑");
+
+    await act(async () => {
+      deferred.resolve(createMvp07UserCatalogChanges());
+    });
+
+    expect(container.textContent).not.toContain("正在读取用户目录");
+
+    const userAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("用户闭环专辑"));
+
+    expect(userAlbumButton).toBeDefined();
+
+    await act(async () => {
+      userAlbumButton?.click();
+    });
+    await act(async () => {
+      findButton(container, "将用户歌曲一加入临时歌单")?.click();
+    });
+
+    expect(queueTitles()).toEqual(["用户歌曲一"]);
+    expect(queueItemIds()).toEqual(["queue_user_single_1"]);
+    expect(repeatCounts()).toEqual(["×1"]);
+    expect(playerTitle()).toBe("用户歌曲一");
+    expect(playerMeta()).toContain("播放序列 1 / 1");
+    expect(playerMeta()).toContain("本项第 1 / 1 次");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+
+    expect(queueTitles()).toEqual(["用户歌曲一", "用户歌曲一", "用户歌曲二"]);
+    expect(queueItemIds()).toEqual([
+      "queue_user_single_1",
+      "queue_user_album_1",
+      "queue_user_album_2"
+    ]);
+    expect(new Set(queueItemIds())).toHaveLength(3);
+    expect(repeatCounts()).toEqual(["×1", "×1", "×1"]);
+    expect(playlistItemIdFactory).toHaveBeenCalledTimes(3);
+    expect(playerMeta()).toContain("播放序列 1 / 3");
+
+    const firstQueueItem = container.querySelector<HTMLElement>(
+      '[data-queue-item-id="queue_user_single_1"]'
+    );
+
+    await act(async () => {
+      firstQueueItem?.querySelector<HTMLButtonElement>(".queue-menu-trigger")?.click();
+    });
+
+    const repeatInput = document.body.querySelector<HTMLInputElement>(
+      '[role="dialog"] .repeat-stepper input'
+    );
+
+    expect(repeatInput).not.toBeNull();
+
+    await act(async () => {
+      changeInputValue(repeatInput as HTMLInputElement, "2");
+    });
+
+    expect(repeatCounts()).toEqual(["×2", "×1", "×1"]);
+    expect(
+      container.querySelector(".playlist-heading-actions .pill")?.textContent
+    ).toContain("3 首 · 4 次");
+    expect(playerMeta()).toContain("播放序列 1 / 4");
+    expect(playerMeta()).toContain("本项第 1 / 2 次");
+
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+      );
+    });
+
+    const queueItems = container.querySelectorAll<HTMLElement>(
+      ".queue-item:not(.queue-item-order-ghost)"
+    );
+    setVerticalBounds(queueItems[0], 100);
+    setVerticalBounds(queueItems[1], 200);
+    setVerticalBounds(queueItems[2], 300);
+
+    const panel = container.querySelector(".playlist-panel") as Element;
+    const secondTrackDragSource = queueItems[2].querySelector(
+      ".queue-item-copy"
+    ) as Element;
+    const dataTransfer = createDataTransfer();
+
+    await act(async () => {
+      dispatchDragEvent(secondTrackDragSource, "dragstart", dataTransfer, 340);
+      dispatchDragEvent(panel, "dragover", dataTransfer, 180);
+      dispatchDragEvent(panel, "drop", dataTransfer, 180);
+      dispatchDragEvent(secondTrackDragSource, "dragend", dataTransfer, 180);
+    });
+
+    expect(queueTitles()).toEqual(["用户歌曲一", "用户歌曲二", "用户歌曲一"]);
+    expect(queueItemIds()).toEqual([
+      "queue_user_single_1",
+      "queue_user_album_2",
+      "queue_user_album_1"
+    ]);
+    expect(repeatCounts()).toEqual(["×2", "×1", "×1"]);
+    expect(playerTitle()).toBe("用户歌曲一");
+    expect(playerMeta()).toContain("播放序列 1 / 4");
+
+    await act(async () => {
+      findButton(container, "下一首")?.click();
+    });
+    expect(playerTitle()).toBe("用户歌曲一");
+    expect(playerMeta()).toContain("播放序列 2 / 4");
+    expect(playerMeta()).toContain("本项第 2 / 2 次");
+
+    await act(async () => {
+      findButton(container, "下一首")?.click();
+    });
+    expect(playerTitle()).toBe("用户歌曲二");
+    expect(playerMeta()).toContain("播放序列 3 / 4");
+    expect(playerMeta()).toContain("本项第 1 / 1 次");
+
+    await act(async () => {
+      findButton(container, "下一首")?.click();
+    });
+    expect(playerTitle()).toBe("用户歌曲一");
+    expect(playerMeta()).toContain("播放序列 4 / 4");
+    expect(playerMeta()).toContain("本项第 1 / 1 次");
+
+    const queueIdsBeforeEdit = queueItemIds();
+    const playerMetaBeforeEdit = playerMeta();
+
+    await act(async () => {
+      findButton(container, "编辑用户歌曲一的元数据")?.click();
+    });
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-title"]'
+        ) as HTMLInputElement,
+        "  用户歌曲一（已修改）  "
+      );
+      findButtonByText(container, "保存修改")?.click();
+    });
+
+    expect(queueTitles()).toEqual([
+      "用户歌曲一（已修改）",
+      "用户歌曲二",
+      "用户歌曲一（已修改）"
+    ]);
+    expect(queueItemIds()).toEqual(queueIdsBeforeEdit);
+    expect(playerTitle()).toBe("用户歌曲一（已修改）");
+    expect(playerMeta()).toBe(playerMetaBeforeEdit);
+    expect(catalogRepository.load).toHaveBeenCalledOnce();
+    expect(catalogRepository.save).toHaveBeenCalledOnce();
     expect(catalogRepository.clear).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -932,7 +1184,7 @@ describe("track creation workflow", () => {
     container.remove();
   });
 
-  it("uses the same disc and track ordering for display and whole-album queueing", async () => {
+  it("uses the same track ordering for display and whole-album queueing", async () => {
     const changes = createOrderedUserCatalogChanges();
     const catalogRepository = createMemoryLocalCatalogRepository(async () => changes);
     const localAudioRepository = createMemoryLocalAudioRepository();

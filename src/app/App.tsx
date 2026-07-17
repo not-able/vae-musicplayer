@@ -39,12 +39,14 @@ interface AppProps {
   catalogRepository?: LocalCatalogRepository;
   catalogEntityIdFactory?: CatalogEntityIdFactory;
   localAudioRepository?: LocalAudioFileRepository;
+  playlistItemIdFactory?: () => EntityId;
 }
 
 export function App({
   catalogRepository = localStorageCatalogRepository,
   catalogEntityIdFactory,
-  localAudioRepository = indexedDbLocalAudioRepository
+  localAudioRepository = indexedDbLocalAudioRepository,
+  playlistItemIdFactory = createPlaylistItemId
 }: AppProps) {
   const [{ playlist, player }, dispatch] = useReducer(
     appReducer,
@@ -93,7 +95,7 @@ export function App({
       action: {
         type: "add-track",
         trackId,
-        itemId: createPlaylistItemId(),
+        itemId: playlistItemIdFactory(),
         addedAt: new Date().toISOString()
       }
     });
@@ -106,15 +108,17 @@ export function App({
       return;
     }
 
+    const trackIds = getAlbumTracks(catalog, album).map((track) => track.id);
+
     dispatch({
       type: "playlist",
       action: {
         type: "add-album",
         album: {
           ...album,
-          trackIds: getAlbumTracks(catalog, album).map((track) => track.id)
+          trackIds
         },
-        itemIds: album.trackIds.map(() => createPlaylistItemId()),
+        itemIds: trackIds.map(() => playlistItemIdFactory()),
         addedAt: new Date().toISOString()
       }
     });
