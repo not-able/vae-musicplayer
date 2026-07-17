@@ -12,18 +12,25 @@ import { LOCAL_AUDIO_FILE_ACCEPT } from "../local-library/localAudioFile";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import { writeAlbumDragData, writeTrackDragData } from "../../utils/albumDrag";
 import { getAlbumTracks, getReleaseYear, getSortedAlbums } from "./catalog";
-import type { CatalogLibraryStatus } from "./useCatalogLibrary";
+import { CatalogEditor } from "./CatalogEditor";
+import type {
+  CatalogAlbumCreationResult,
+  CatalogAlbumDraft,
+  CatalogLibraryStatus
+} from "./useCatalogLibrary";
 
 interface CatalogOverviewProps {
   catalog: CatalogData;
   catalogLibraryStatus: CatalogLibraryStatus;
   catalogLibraryError?: string;
+  isSavingAlbum: boolean;
   audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
   pendingAudioTrackIds: ReadonlySet<EntityId>;
   audioLibraryStatus: LocalAudioLibraryStatus;
   audioLibraryError?: string;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
+  onCreateAlbum: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
   onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
   onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
 }
@@ -39,12 +46,14 @@ export function CatalogOverview({
   catalog,
   catalogLibraryStatus,
   catalogLibraryError,
+  isSavingAlbum,
   audioBindings,
   pendingAudioTrackIds,
   audioLibraryStatus,
   audioLibraryError,
   onAddTrack,
   onAddAlbum,
+  onCreateAlbum,
   onBindAudio,
   onUnbindAudio
 }: CatalogOverviewProps) {
@@ -55,6 +64,7 @@ export function CatalogOverview({
   }));
   const [draggingAlbumId, setDraggingAlbumId] = useState<EntityId>();
   const [draggingTrackId, setDraggingTrackId] = useState<EntityId>();
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const selectedAlbumId =
     albumSelection.catalog === catalog ||
     albums.some((album) => album.id === albumSelection.albumId)
@@ -80,18 +90,12 @@ export function CatalogOverview({
     setDraggingTrackId(trackId);
   }
 
-  if (!selectedAlbum) {
-    return (
-      <section className="catalog-empty" aria-labelledby="catalog-heading">
-        <p className="eyebrow">Catalog</p>
-        <h2 id="catalog-heading">专辑目录</h2>
-        <p className="muted">尚未维护专辑数据。</p>
-        <CatalogLibraryNotice
-          status={catalogLibraryStatus}
-          errorMessage={catalogLibraryError}
-        />
-      </section>
-    );
+  function handleAlbumCreated(albumId: EntityId): void {
+    setAlbumSelection({
+      catalog,
+      albumId
+    });
+    setIsEditorOpen(false);
   }
 
   return (
@@ -101,8 +105,34 @@ export function CatalogOverview({
           <p className="eyebrow">Catalog</p>
           <h2 id="catalog-heading">专辑目录</h2>
         </div>
-        <span className="pill">{catalog.schemaVersion} 版元数据</span>
+        <div className="catalog-heading-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            aria-expanded={isEditorOpen}
+            disabled={
+              isEditorOpen ||
+              isSavingAlbum ||
+              catalogLibraryStatus !== "ready" ||
+              catalog.artists.length === 0
+            }
+            onClick={() => setIsEditorOpen(true)}
+          >
+            新增专辑
+          </button>
+          <span className="pill">{catalog.schemaVersion} 版元数据</span>
+        </div>
       </div>
+
+      {isEditorOpen && (
+        <CatalogEditor
+          artistName={catalog.artists[0]?.name ?? "项目艺人不可用"}
+          isSaving={isSavingAlbum}
+          onCancel={() => setIsEditorOpen(false)}
+          onSubmit={onCreateAlbum}
+          onCreated={handleAlbumCreated}
+        />
+      )}
 
       <div className="local-audio-notice">
         <p>音频文件仅保存在当前浏览器的本地存储中，不会上传。</p>
@@ -117,74 +147,80 @@ export function CatalogOverview({
         )}
       </div>
 
-      <div className="catalog-browser">
-        <nav className="album-directory" aria-labelledby="album-list-heading">
-          <div className="directory-heading">
-            <h3 id="album-list-heading">全部专辑</h3>
-            <span>{albums.length} 张</span>
-          </div>
+      {selectedAlbum ? (
+        <div className="catalog-browser">
+          <nav className="album-directory" aria-labelledby="album-list-heading">
+            <div className="directory-heading">
+              <h3 id="album-list-heading">全部专辑</h3>
+              <span>{albums.length} 张</span>
+            </div>
 
-          <ul className="album-list">
-            {albums.map((album) => {
-              const tracks = getAlbumTracks(catalog, album);
-              const isSelected = album.id === selectedAlbum.id;
+            <ul className="album-list">
+              {albums.map((album) => {
+                const tracks = getAlbumTracks(catalog, album);
+                const isSelected = album.id === selectedAlbum.id;
 
-              return (
-                <li
-                  className={
-                    draggingAlbumId === album.id
-                      ? "album-list-item is-dragging"
-                      : "album-list-item"
-                  }
-                  key={album.id}
-                >
-                  <button
-                    className="album-list-button"
-                    type="button"
-                    draggable
-                    aria-current={isSelected ? "true" : undefined}
-                    onClick={() =>
-                      setAlbumSelection({
-                        catalog,
-                        albumId: album.id
-                      })
+                return (
+                  <li
+                    className={
+                      draggingAlbumId === album.id
+                        ? "album-list-item is-dragging"
+                        : "album-list-item"
                     }
-                    onDragStart={(event) => startAlbumDrag(event, album.id)}
-                    onDragEnd={() => setDraggingAlbumId(undefined)}
+                    key={album.id}
                   >
-                    <span className="album-monogram" aria-hidden="true">
-                      {album.title.slice(0, 1)}
-                    </span>
-                    <span className="album-list-copy">
-                      <strong>{album.title}</strong>
-                      <span>
-                        {getReleaseYear(album.releaseDate) ?? "年份待维护"}
-                        <span aria-hidden="true"> · </span>
-                        {tracks.length} 首
+                    <button
+                      className="album-list-button"
+                      type="button"
+                      draggable
+                      aria-current={isSelected ? "true" : undefined}
+                      onClick={() =>
+                        setAlbumSelection({
+                          catalog,
+                          albumId: album.id
+                        })
+                      }
+                      onDragStart={(event) => startAlbumDrag(event, album.id)}
+                      onDragEnd={() => setDraggingAlbumId(undefined)}
+                    >
+                      <span className="album-monogram" aria-hidden="true">
+                        {album.title.slice(0, 1)}
                       </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+                      <span className="album-list-copy">
+                        <strong>{album.title}</strong>
+                        <span>
+                          {getReleaseYear(album.releaseDate) ?? "年份待维护"}
+                          <span aria-hidden="true"> · </span>
+                          {tracks.length} 首
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
 
-        <AlbumDetail
-          album={selectedAlbum}
-          catalog={catalog}
-          audioBindings={audioBindings}
-          pendingAudioTrackIds={pendingAudioTrackIds}
-          audioLibraryStatus={audioLibraryStatus}
-          draggingTrackId={draggingTrackId}
-          onAddTrack={onAddTrack}
-          onAddAlbum={onAddAlbum}
-          onBindAudio={onBindAudio}
-          onUnbindAudio={onUnbindAudio}
-          onTrackDragStart={startTrackDrag}
-          onTrackDragEnd={() => setDraggingTrackId(undefined)}
-        />
-      </div>
+          <AlbumDetail
+            album={selectedAlbum}
+            catalog={catalog}
+            audioBindings={audioBindings}
+            pendingAudioTrackIds={pendingAudioTrackIds}
+            audioLibraryStatus={audioLibraryStatus}
+            draggingTrackId={draggingTrackId}
+            onAddTrack={onAddTrack}
+            onAddAlbum={onAddAlbum}
+            onBindAudio={onBindAudio}
+            onUnbindAudio={onUnbindAudio}
+            onTrackDragStart={startTrackDrag}
+            onTrackDragEnd={() => setDraggingTrackId(undefined)}
+          />
+        </div>
+      ) : (
+        <div className="catalog-empty">
+          <p className="muted">尚未维护专辑数据，可以先新增一张空专辑。</p>
+        </div>
+      )}
     </div>
   );
 }

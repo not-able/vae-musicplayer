@@ -160,6 +160,91 @@ button:disabled {
   white-space: nowrap;
 }
 
+.catalog-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.catalog-editor {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 18px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  background: var(--surface-strong);
+}
+
+.catalog-editor h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.catalog-editor-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.catalog-editor-field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.catalog-editor-field input,
+.catalog-editor-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 7px 9px;
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.catalog-editor-field input[readonly] {
+  background: #f3f5f4;
+  color: var(--muted);
+}
+
+.catalog-editor-field input:focus-visible,
+.catalog-editor-field select:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.catalog-editor-field input[aria-invalid="true"] {
+  border-color: var(--warning);
+}
+
+.catalog-editor-field-error,
+.catalog-editor-save-error {
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.catalog-editor-save-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.catalog-editor-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .catalog-browser {
   display: grid;
   grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
@@ -546,6 +631,13 @@ button:disabled {
 .catalog-empty h2 {
   margin: 0 0 12px;
   letter-spacing: 0;
+}
+
+.catalog-empty {
+  border: 1px dashed var(--border);
+  padding: 24px;
+  background: var(--surface-strong);
+  text-align: center;
 }
 
 .catalog-empty-message {
@@ -1064,6 +1156,15 @@ button:disabled {
 
   .catalog-heading {
     align-items: center;
+  }
+
+  .catalog-heading-actions {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+  }
+
+  .catalog-editor-form {
+    grid-template-columns: 1fr;
   }
 
   .album-list {

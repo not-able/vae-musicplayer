@@ -25,6 +25,15 @@ function findButton(container: HTMLElement, ariaLabel: string) {
   );
 }
 
+function findButtonByText(
+  container: HTMLElement,
+  text: string
+): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.textContent?.trim() === text
+  );
+}
+
 function createDataTransfer(): DataTransfer {
   const values = new Map<string, string>();
 
@@ -83,6 +92,16 @@ function changeInputValue(input: HTMLInputElement, value: string) {
 
   valueSetter?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+}
+
+function changeSelectValue(select: HTMLSelectElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLSelectElement.prototype,
+    "value"
+  )?.set;
+
+  valueSetter?.call(select, value);
+  select.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
 }
 
 function getVisualQueueTitles(container: HTMLElement) {
@@ -420,6 +439,193 @@ describe("persistent catalog integration", () => {
     expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
     expect(catalogRepository.save).not.toHaveBeenCalled();
     expect(catalogRepository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
+
+describe("album creation workflow", () => {
+  it("saves before publishing, selects the stable ID, and restores it after remount", async () => {
+    const saveDeferred = createDeferred<void>();
+    const initialChanges = createUserCatalogChanges();
+    let storedChanges = structuredClone(initialChanges);
+    const catalogRepository = {
+      load: vi.fn(async () => structuredClone(storedChanges)),
+      save: vi.fn(async (changes: UserCatalogChanges) => {
+        await saveDeferred.promise;
+        storedChanges = structuredClone(changes);
+      }),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const idFactory = vi.fn(() => "album_user_stable_001");
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          catalogEntityIdFactory: idFactory,
+          localAudioRepository
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "新增专辑")?.click();
+    });
+
+    const editableInputs = container.querySelectorAll<HTMLInputElement>(
+      ".catalog-editor input:not([readonly])"
+    );
+    const typeSelect = container.querySelector<HTMLSelectElement>(
+      ".catalog-editor select"
+    );
+
+    await act(async () => {
+      changeInputValue(editableInputs[0], "  同名也使用稳定 ID  ");
+      changeInputValue(editableInputs[1], "2024-02-29");
+      if (typeSelect) {
+        changeSelectValue(typeSelect, "other");
+      }
+    });
+
+    const submitButton = findButtonByText(container, "保存专辑");
+
+    await act(async () => {
+      submitButton?.click();
+      submitButton?.click();
+    });
+
+    expect(catalogRepository.save).toHaveBeenCalledOnce();
+    expect(idFactory).toHaveBeenCalledOnce();
+    expect(container.querySelector(".catalog-editor")).not.toBeNull();
+    expect(container.textContent).not.toContain("同名也使用稳定 ID");
+    expect(findButtonByText(container, "正在保存…")?.disabled).toBe(true);
+
+    await act(async () => {
+      saveDeferred.resolve(undefined);
+      await saveDeferred.promise;
+    });
+
+    expect(storedChanges.addedAlbums[0]).toEqual(initialChanges.addedAlbums[0]);
+    expect(storedChanges.addedTracks).toEqual(initialChanges.addedTracks);
+    expect(storedChanges.addedAlbums[1]).toEqual({
+      id: "album_user_stable_001",
+      artistId: "artist_vae",
+      title: "同名也使用稳定 ID",
+      type: "other",
+      releaseDate: "2024-02-29",
+      sortOrder: 4,
+      trackIds: []
+    });
+    expect(container.querySelector(".catalog-editor")).toBeNull();
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "同名也使用稳定 ID"
+    );
+    expect(container.querySelector(".catalog-empty-message")?.textContent).toContain(
+      "尚未维护歌曲数据"
+    );
+    expect(mockCatalog).toEqual(catalogSnapshot);
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const restoredRoot = createRoot(container);
+
+    await act(async () => {
+      restoredRoot.render(
+        createElement(App, {
+          catalogRepository,
+          catalogEntityIdFactory: idFactory,
+          localAudioRepository
+        })
+      );
+    });
+
+    const restoredAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("同名也使用稳定 ID"));
+
+    expect(restoredAlbumButton).toBeDefined();
+    expect(catalogRepository.load).toHaveBeenCalledTimes(2);
+    expect(catalogRepository.save).toHaveBeenCalledOnce();
+    expect(idFactory).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      restoredAlbumButton?.click();
+    });
+
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "同名也使用稳定 ID"
+    );
+
+    await act(async () => {
+      restoredRoot.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps valid input and the previous catalog visible when saving fails", async () => {
+    const catalogRepository = {
+      load: vi.fn(async () => createEmptyUserCatalogChanges()),
+      save: vi.fn(async () => {
+        throw new Error("storage denied");
+      }),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const idFactory = vi.fn(() => "album_user_failed_001");
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          catalogEntityIdFactory: idFactory,
+          localAudioRepository
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "新增专辑")?.click();
+    });
+
+    const titleInput = container.querySelector<HTMLInputElement>(
+      ".catalog-editor input:not([readonly])"
+    );
+
+    await act(async () => {
+      if (titleInput) {
+        changeInputValue(titleInput, "  待重试专辑  ");
+      }
+      findButtonByText(container, "保存专辑")?.click();
+    });
+
+    expect(catalogRepository.save).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(
+      "保存新专辑失败，请检查浏览器存储权限后重试。"
+    );
+    expect(titleInput?.value).toBe("  待重试专辑  ");
+    expect(container.querySelector(".catalog-editor")).not.toBeNull();
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+      ).some((button) => button.textContent?.includes("待重试专辑"))
+    ).toBe(false);
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "示例专辑 A"
+    );
+    expect(mockCatalog).toEqual(catalogSnapshot);
 
     await act(async () => {
       root.unmount();

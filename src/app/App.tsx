@@ -4,6 +4,7 @@ import { appReducer, createAppState } from "./appReducer";
 import { PageShell } from "../components/PageShell";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
+import type { CatalogEntityIdFactory } from "../features/catalog/catalogMutations";
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
@@ -35,11 +36,13 @@ function createPlaylistItemId(): string {
 
 interface AppProps {
   catalogRepository?: LocalCatalogRepository;
+  catalogEntityIdFactory?: CatalogEntityIdFactory;
   localAudioRepository?: LocalAudioFileRepository;
 }
 
 export function App({
   catalogRepository = localStorageCatalogRepository,
+  catalogEntityIdFactory,
   localAudioRepository = indexedDbLocalAudioRepository
 }: AppProps) {
   const [{ playlist, player }, dispatch] = useReducer(
@@ -48,7 +51,11 @@ export function App({
     createInitialState
   );
   const audioRef = useRef<HTMLAudioElement>(null);
-  const catalogLibrary = useCatalogLibrary(mockCatalog, catalogRepository);
+  const catalogLibrary = useCatalogLibrary(
+    mockCatalog,
+    catalogRepository,
+    catalogEntityIdFactory
+  );
   const catalog = catalogLibrary.catalog;
   const localAudioLibrary = useLocalAudioLibrary(localAudioRepository);
   const dispatchPlayer = useCallback(
@@ -117,12 +124,14 @@ export function App({
             catalog={catalog}
             catalogLibraryStatus={catalogLibrary.status}
             catalogLibraryError={catalogLibrary.errorMessage}
+            isSavingAlbum={catalogLibrary.isSavingAlbum}
             audioBindings={localAudioLibrary.bindingsByTrackId}
             pendingAudioTrackIds={localAudioLibrary.pendingTrackIds}
             audioLibraryStatus={localAudioLibrary.status}
             audioLibraryError={localAudioLibrary.errorMessage}
             onAddTrack={addTrack}
             onAddAlbum={addAlbum}
+            onCreateAlbum={catalogLibrary.createAlbum}
             onBindAudio={localAudioLibrary.bindAudioFile}
             onUnbindAudio={localAudioLibrary.unbindAudioFile}
           />
