@@ -11,9 +11,17 @@ import { mergeCatalogChanges } from "./catalogMerge";
 import {
   addAlbumToUserCatalog,
   addTrackToUserCatalog,
+  patchAlbumInUserCatalog,
+  patchTrackInUserCatalog,
+  resetAlbumInUserCatalog,
+  resetTrackInUserCatalog,
+  type CatalogAlbumPatch,
   type CatalogEntityIdFactory
 } from "./catalogMutations";
+import { isPositiveSafeInteger, isValidCalendarDate } from "./catalogValidation";
 import type { LocalCatalogRepository } from "./localCatalogRepository";
+
+const albumTypes = new Set<AlbumType>(["album", "ep", "single_collection", "other"]);
 
 export type CatalogLibraryStatus = "loading" | "ready" | "error";
 
@@ -31,17 +39,33 @@ export interface CatalogTrackDraft {
   releaseDate?: ISODateString;
 }
 
-type CatalogCreationFailure = {
+export interface CatalogAlbumUpdateDraft {
+  title: string;
+  type: AlbumType;
+  releaseDate: ISODateString | null;
+}
+
+export interface CatalogTrackUpdateDraft {
+  title: string;
+  discNumber: number | null;
+  trackNumber: number | null;
+  version: string | null;
+  releaseDate: ISODateString | null;
+}
+
+type CatalogMutationFailure = {
   ok: false;
   code: "not_ready" | "busy" | "invalid_input" | "invalid_catalog" | "save_failed";
   errorMessage: string;
 };
 
 export type CatalogAlbumCreationResult =
-  { ok: true; albumId: EntityId } | CatalogCreationFailure;
+  { ok: true; albumId: EntityId } | CatalogMutationFailure;
 
 export type CatalogTrackCreationResult =
-  { ok: true; trackId: EntityId } | CatalogCreationFailure;
+  { ok: true; trackId: EntityId } | CatalogMutationFailure;
+
+export type CatalogMutationResult = { ok: true } | CatalogMutationFailure;
 
 export interface CatalogLibrary {
   catalog: CatalogData;
@@ -49,11 +73,23 @@ export interface CatalogLibrary {
   errorMessage?: string;
   isSavingAlbum: boolean;
   isSavingTrack: boolean;
+  resettableAlbumIds: ReadonlySet<EntityId>;
+  resettableTrackIds: ReadonlySet<EntityId>;
   createAlbum: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
   createTrack: (
     albumId: EntityId,
     draft: CatalogTrackDraft
   ) => Promise<CatalogTrackCreationResult>;
+  updateAlbum: (
+    albumId: EntityId,
+    draft: CatalogAlbumUpdateDraft
+  ) => Promise<CatalogMutationResult>;
+  updateTrack: (
+    trackId: EntityId,
+    draft: CatalogTrackUpdateDraft
+  ) => Promise<CatalogMutationResult>;
+  resetAlbum: (albumId: EntityId) => Promise<CatalogMutationResult>;
+  resetTrack: (trackId: EntityId) => Promise<CatalogMutationResult>;
 }
 
 interface CatalogSourceToken {
@@ -80,6 +116,13 @@ interface CatalogLoadResult {
 }
 
 type CatalogSaveOperation = "album" | "track";
+
+type CatalogSaveResult =
+  | {
+      ok: true;
+      changes: UserCatalogChanges;
+    }
+  | CatalogMutationFailure;
 
 export function useCatalogLibrary(
   defaultCatalog: CatalogData,
@@ -139,6 +182,77 @@ export function useCatalogLibrary(
       ? loadResult
       : undefined;
 
+  const saveChanges = useCallback(
+    async (
+      operation: CatalogSaveOperation,
+      sourceToken: CatalogSourceToken,
+      currentChanges: UserCatalogChanges,
+      mutate: () => UserCatalogChanges,
+      errorMessage: string
+    ): Promise<CatalogSaveResult> => {
+      saveInProgress.current = true;
+      setSaveOperation(operation);
+
+      try {
+        const nextChanges = mutate();
+
+        if (nextChanges === currentChanges) {
+          return {
+            ok: true,
+            changes: currentChanges
+          };
+        }
+
+        const nextCatalog = mergeCatalogChanges(defaultCatalog, nextChanges);
+        await repository.save(nextChanges);
+
+        if (!sourceToken.active) {
+          return {
+            ok: false,
+            code: "not_ready",
+            errorMessage: "目录来源已经变化，请在加载完成后重试。"
+          };
+        }
+
+        setLoadResult((currentResult) => {
+          if (
+            currentResult?.sourceToken !== sourceToken ||
+            currentResult.state.status !== "ready" ||
+            currentResult.state.changes !== currentChanges
+          ) {
+            return currentResult;
+          }
+
+          return {
+            defaultCatalog,
+            repository,
+            sourceToken,
+            state: {
+              catalog: nextCatalog,
+              status: "ready",
+              changes: nextChanges
+            }
+          };
+        });
+
+        return {
+          ok: true,
+          changes: nextChanges
+        };
+      } catch {
+        return {
+          ok: false,
+          code: "save_failed",
+          errorMessage
+        };
+      } finally {
+        saveInProgress.current = false;
+        setSaveOperation(undefined);
+      }
+    },
+    [defaultCatalog, repository]
+  );
+
   const createAlbum = useCallback(
     async (draft: CatalogAlbumDraft): Promise<CatalogAlbumCreationResult> => {
       if (saveInProgress.current) {
@@ -172,82 +286,70 @@ export function useCatalogLibrary(
       const currentChanges = activeResult.state.changes;
       const currentCatalog = activeResult.state.catalog;
 
-      saveInProgress.current = true;
-      setSaveOperation("album");
+      if (
+        title.length === 0 ||
+        !albumTypes.has(draft.type) ||
+        (releaseDate !== undefined && !isValidCalendarDate(releaseDate))
+      ) {
+        return {
+          ok: false,
+          code: "invalid_input",
+          errorMessage: "专辑名、类型或发行日期无效，请检查后重试。"
+        };
+      }
+      const sortOrder =
+        currentCatalog.albums.reduce(
+          (highestOrder, album) => Math.max(highestOrder, album.sortOrder),
+          0
+        ) + 1;
+      let createdAlbumId: EntityId | undefined;
+      const result = await saveChanges(
+        "album",
+        sourceToken,
+        currentChanges,
+        () => {
+          const nextChanges = addAlbumToUserCatalog(
+            defaultCatalog,
+            currentChanges,
+            {
+              artistId: artist.id,
+              title,
+              type: draft.type,
+              ...(releaseDate ? { releaseDate } : {}),
+              sortOrder
+            },
+            idFactory ?? createDefaultCatalogAlbumId
+          );
+          const createdAlbum =
+            nextChanges.addedAlbums[nextChanges.addedAlbums.length - 1];
 
-      try {
-        const sortOrder =
-          currentCatalog.albums.reduce(
-            (highestOrder, album) => Math.max(highestOrder, album.sortOrder),
-            0
-          ) + 1;
-        const nextChanges = addAlbumToUserCatalog(
-          defaultCatalog,
-          currentChanges,
-          {
-            artistId: artist.id,
-            title,
-            type: draft.type,
-            ...(releaseDate ? { releaseDate } : {}),
-            sortOrder
-          },
-          idFactory ?? createDefaultCatalogAlbumId
-        );
-        const createdAlbum =
-          nextChanges.addedAlbums[nextChanges.addedAlbums.length - 1];
-        const nextCatalog = mergeCatalogChanges(defaultCatalog, nextChanges);
-
-        if (!createdAlbum) {
-          throw new Error("Catalog mutation did not create an album.");
-        }
-
-        await repository.save(nextChanges);
-
-        if (!sourceToken.active) {
-          return {
-            ok: false,
-            code: "not_ready",
-            errorMessage: "目录来源已经变化，请在加载完成后重试。"
-          };
-        }
-
-        setLoadResult((currentResult) => {
-          if (
-            currentResult?.sourceToken !== sourceToken ||
-            currentResult.state.status !== "ready" ||
-            currentResult.state.changes !== currentChanges
-          ) {
-            return currentResult;
+          if (!createdAlbum) {
+            throw new Error("Catalog mutation did not create an album.");
           }
 
-          return {
-            defaultCatalog,
-            repository,
-            sourceToken,
-            state: {
-              catalog: nextCatalog,
-              status: "ready",
-              changes: nextChanges
-            }
-          };
-        });
+          createdAlbumId = createdAlbum.id;
+          return nextChanges;
+        },
+        "保存新专辑失败，请检查浏览器存储权限后重试。"
+      );
 
-        return {
-          ok: true,
-          albumId: createdAlbum.id
-        };
-      } catch {
+      if (!result.ok) {
+        return result;
+      }
+      if (!createdAlbumId) {
         return {
           ok: false,
           code: "save_failed",
           errorMessage: "保存新专辑失败，请检查浏览器存储权限后重试。"
         };
-      } finally {
-        saveInProgress.current = false;
-        setSaveOperation(undefined);
       }
+
+      return {
+        ok: true,
+        albumId: createdAlbumId
+      };
     },
-    [activeResult, defaultCatalog, idFactory, repository]
+    [activeResult, defaultCatalog, idFactory, saveChanges]
   );
 
   const createTrack = useCallback(
@@ -277,10 +379,9 @@ export function useCatalogLibrary(
 
       if (
         title.length === 0 ||
-        !Number.isSafeInteger(draft.discNumber) ||
-        draft.discNumber <= 0 ||
-        !Number.isSafeInteger(draft.trackNumber) ||
-        draft.trackNumber <= 0
+        !isPositiveSafeInteger(draft.discNumber) ||
+        !isPositiveSafeInteger(draft.trackNumber) ||
+        (releaseDate !== undefined && !isValidCalendarDate(releaseDate))
       ) {
         return {
           ok: false,
@@ -308,83 +409,286 @@ export function useCatalogLibrary(
 
       const sourceToken = activeResult.sourceToken;
       const currentChanges = activeResult.state.changes;
+      let createdTrackId: EntityId | undefined;
+      const result = await saveChanges(
+        "track",
+        sourceToken,
+        currentChanges,
+        () => {
+          const nextChanges = addTrackToUserCatalog(
+            defaultCatalog,
+            currentChanges,
+            {
+              artistId: targetAlbum.artistId,
+              albumId: targetAlbum.id,
+              title,
+              discNumber: draft.discNumber,
+              trackNumber: draft.trackNumber,
+              ...(version ? { version } : {}),
+              ...(releaseDate ? { releaseDate } : {})
+            },
+            idFactory ?? createDefaultCatalogTrackId
+          );
+          const createdTrack =
+            nextChanges.addedTracks[nextChanges.addedTracks.length - 1];
 
-      saveInProgress.current = true;
-      setSaveOperation("track");
-
-      try {
-        const nextChanges = addTrackToUserCatalog(
-          defaultCatalog,
-          currentChanges,
-          {
-            artistId: targetAlbum.artistId,
-            albumId: targetAlbum.id,
-            title,
-            discNumber: draft.discNumber,
-            trackNumber: draft.trackNumber,
-            ...(version ? { version } : {}),
-            ...(releaseDate ? { releaseDate } : {})
-          },
-          idFactory ?? createDefaultCatalogTrackId
-        );
-        const createdTrack =
-          nextChanges.addedTracks[nextChanges.addedTracks.length - 1];
-        const nextCatalog = mergeCatalogChanges(defaultCatalog, nextChanges);
-
-        if (!createdTrack) {
-          throw new Error("Catalog mutation did not create a track.");
-        }
-
-        await repository.save(nextChanges);
-
-        if (!sourceToken.active) {
-          return {
-            ok: false,
-            code: "not_ready",
-            errorMessage: "目录来源已经变化，请在加载完成后重试。"
-          };
-        }
-
-        setLoadResult((currentResult) => {
-          if (
-            currentResult?.sourceToken !== sourceToken ||
-            currentResult.state.status !== "ready" ||
-            currentResult.state.changes !== currentChanges
-          ) {
-            return currentResult;
+          if (!createdTrack) {
+            throw new Error("Catalog mutation did not create a track.");
           }
 
-          return {
-            defaultCatalog,
-            repository,
-            sourceToken,
-            state: {
-              catalog: nextCatalog,
-              status: "ready",
-              changes: nextChanges
-            }
-          };
-        });
+          createdTrackId = createdTrack.id;
+          return nextChanges;
+        },
+        "保存新歌曲失败，请检查浏览器存储权限后重试。"
+      );
 
-        return {
-          ok: true,
-          trackId: createdTrack.id
-        };
-      } catch {
+      if (!result.ok) {
+        return result;
+      }
+      if (!createdTrackId) {
         return {
           ok: false,
           code: "save_failed",
           errorMessage: "保存新歌曲失败，请检查浏览器存储权限后重试。"
         };
-      } finally {
-        saveInProgress.current = false;
-        setSaveOperation(undefined);
       }
+
+      return {
+        ok: true,
+        trackId: createdTrackId
+      };
     },
-    [activeResult, defaultCatalog, idFactory, repository]
+    [activeResult, defaultCatalog, idFactory, saveChanges]
+  );
+
+  const updateAlbum = useCallback(
+    async (
+      albumId: EntityId,
+      draft: CatalogAlbumUpdateDraft
+    ): Promise<CatalogMutationResult> => {
+      if (saveInProgress.current) {
+        return {
+          ok: false,
+          code: "busy",
+          errorMessage: "正在保存其他目录修改，请稍后再试。"
+        };
+      }
+      if (activeResult?.state.status !== "ready") {
+        return {
+          ok: false,
+          code: "not_ready",
+          errorMessage: "用户目录尚未准备好，请稍后再试。"
+        };
+      }
+
+      const targetAlbum = activeResult.state.catalog.albums.find(
+        (album) => album.id === albumId
+      );
+      const title = draft.title.trim();
+      const releaseDate = draft.releaseDate === null ? null : draft.releaseDate.trim();
+
+      if (!targetAlbum) {
+        return {
+          ok: false,
+          code: "invalid_catalog",
+          errorMessage: "目标专辑已不可用，请重新选择专辑。"
+        };
+      }
+      if (
+        title.length === 0 ||
+        !albumTypes.has(draft.type) ||
+        (releaseDate !== null && !isValidCalendarDate(releaseDate))
+      ) {
+        return {
+          ok: false,
+          code: "invalid_input",
+          errorMessage: "专辑名、类型或发行日期无效，请检查后重试。"
+        };
+      }
+
+      const sourceToken = activeResult.sourceToken;
+      const currentChanges = activeResult.state.changes;
+      const patch: CatalogAlbumPatch = {
+        title,
+        type: draft.type,
+        releaseDate
+      };
+      const result = await saveChanges(
+        "album",
+        sourceToken,
+        currentChanges,
+        () => patchAlbumInUserCatalog(defaultCatalog, currentChanges, albumId, patch),
+        "保存专辑修改失败，请检查浏览器存储权限后重试。"
+      );
+
+      return result.ok ? { ok: true } : result;
+    },
+    [activeResult, defaultCatalog, saveChanges]
+  );
+
+  const updateTrack = useCallback(
+    async (
+      trackId: EntityId,
+      draft: CatalogTrackUpdateDraft
+    ): Promise<CatalogMutationResult> => {
+      if (saveInProgress.current) {
+        return {
+          ok: false,
+          code: "busy",
+          errorMessage: "正在保存其他目录修改，请稍后再试。"
+        };
+      }
+      if (activeResult?.state.status !== "ready") {
+        return {
+          ok: false,
+          code: "not_ready",
+          errorMessage: "用户目录尚未准备好，请稍后再试。"
+        };
+      }
+
+      const targetTrack = activeResult.state.catalog.tracks.find(
+        (track) => track.id === trackId
+      );
+      const title = draft.title.trim();
+      const version = draft.version === null ? null : draft.version.trim() || null;
+      const releaseDate = draft.releaseDate === null ? null : draft.releaseDate.trim();
+
+      if (!targetTrack) {
+        return {
+          ok: false,
+          code: "invalid_catalog",
+          errorMessage: "目标歌曲已不可用，请重新选择歌曲。"
+        };
+      }
+      if (
+        title.length === 0 ||
+        (draft.discNumber !== null && !isPositiveSafeInteger(draft.discNumber)) ||
+        (draft.trackNumber !== null && !isPositiveSafeInteger(draft.trackNumber)) ||
+        (releaseDate !== null && !isValidCalendarDate(releaseDate))
+      ) {
+        return {
+          ok: false,
+          code: "invalid_input",
+          errorMessage: "歌曲名、碟号和曲序无效，请检查后重试。"
+        };
+      }
+
+      const sourceToken = activeResult.sourceToken;
+      const currentChanges = activeResult.state.changes;
+      const result = await saveChanges(
+        "track",
+        sourceToken,
+        currentChanges,
+        () =>
+          patchTrackInUserCatalog(defaultCatalog, currentChanges, trackId, {
+            title,
+            discNumber: draft.discNumber,
+            trackNumber: draft.trackNumber,
+            version,
+            releaseDate
+          }),
+        "保存歌曲修改失败，请检查浏览器存储权限后重试。"
+      );
+
+      return result.ok ? { ok: true } : result;
+    },
+    [activeResult, defaultCatalog, saveChanges]
+  );
+
+  const resetAlbum = useCallback(
+    async (albumId: EntityId): Promise<CatalogMutationResult> => {
+      if (saveInProgress.current) {
+        return {
+          ok: false,
+          code: "busy",
+          errorMessage: "正在保存其他目录修改，请稍后再试。"
+        };
+      }
+      if (activeResult?.state.status !== "ready") {
+        return {
+          ok: false,
+          code: "not_ready",
+          errorMessage: "用户目录尚未准备好，请稍后再试。"
+        };
+      }
+      if (!defaultCatalog.albums.some((album) => album.id === albumId)) {
+        return {
+          ok: false,
+          code: "invalid_catalog",
+          errorMessage: "用户新增专辑没有可恢复的内置默认值。"
+        };
+      }
+
+      const sourceToken = activeResult.sourceToken;
+      const currentChanges = activeResult.state.changes;
+      const result = await saveChanges(
+        "album",
+        sourceToken,
+        currentChanges,
+        () => resetAlbumInUserCatalog(defaultCatalog, currentChanges, albumId),
+        "恢复专辑默认值失败，请检查浏览器存储权限后重试。"
+      );
+
+      return result.ok ? { ok: true } : result;
+    },
+    [activeResult, defaultCatalog, saveChanges]
+  );
+
+  const resetTrack = useCallback(
+    async (trackId: EntityId): Promise<CatalogMutationResult> => {
+      if (saveInProgress.current) {
+        return {
+          ok: false,
+          code: "busy",
+          errorMessage: "正在保存其他目录修改，请稍后再试。"
+        };
+      }
+      if (activeResult?.state.status !== "ready") {
+        return {
+          ok: false,
+          code: "not_ready",
+          errorMessage: "用户目录尚未准备好，请稍后再试。"
+        };
+      }
+      if (!defaultCatalog.tracks.some((track) => track.id === trackId)) {
+        return {
+          ok: false,
+          code: "invalid_catalog",
+          errorMessage: "用户新增歌曲没有可恢复的内置默认值。"
+        };
+      }
+
+      const sourceToken = activeResult.sourceToken;
+      const currentChanges = activeResult.state.changes;
+      const result = await saveChanges(
+        "track",
+        sourceToken,
+        currentChanges,
+        () => resetTrackInUserCatalog(defaultCatalog, currentChanges, trackId),
+        "恢复歌曲默认值失败，请检查浏览器存储权限后重试。"
+      );
+
+      return result.ok ? { ok: true } : result;
+    },
+    [activeResult, defaultCatalog, saveChanges]
   );
 
   if (activeResult) {
+    const resettableAlbumIds =
+      activeResult.state.status === "ready"
+        ? getResettableEntityIds(
+            defaultCatalog.albums.map((album) => album.id),
+            activeResult.state.changes.albumOverrides
+          )
+        : new Set<EntityId>();
+    const resettableTrackIds =
+      activeResult.state.status === "ready"
+        ? getResettableEntityIds(
+            defaultCatalog.tracks.map((track) => track.id),
+            activeResult.state.changes.trackOverrides
+          )
+        : new Set<EntityId>();
+
     return {
       catalog: activeResult.state.catalog,
       status: activeResult.state.status,
@@ -393,8 +697,14 @@ export function useCatalogLibrary(
         : {}),
       isSavingAlbum: saveOperation === "album",
       isSavingTrack: saveOperation === "track",
+      resettableAlbumIds,
+      resettableTrackIds,
       createAlbum,
-      createTrack
+      createTrack,
+      updateAlbum,
+      updateTrack,
+      resetAlbum,
+      resetTrack
     };
   }
 
@@ -403,9 +713,26 @@ export function useCatalogLibrary(
     status: "loading",
     isSavingAlbum: saveOperation === "album",
     isSavingTrack: saveOperation === "track",
+    resettableAlbumIds: new Set<EntityId>(),
+    resettableTrackIds: new Set<EntityId>(),
     createAlbum,
-    createTrack
+    createTrack,
+    updateAlbum,
+    updateTrack,
+    resetAlbum,
+    resetTrack
   };
+}
+
+function getResettableEntityIds<T>(
+  defaultEntityIds: readonly EntityId[],
+  overrides: Partial<Record<EntityId, T>>
+): ReadonlySet<EntityId> {
+  return new Set(
+    defaultEntityIds.filter(
+      (entityId) => Object.keys(overrides[entityId] ?? {}).length > 0
+    )
+  );
 }
 
 function createDefaultCatalogAlbumId(): EntityId {

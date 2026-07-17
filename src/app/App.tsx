@@ -130,6 +130,8 @@ export function App({
             catalogLibraryError={catalogLibrary.errorMessage}
             isSavingAlbum={catalogLibrary.isSavingAlbum}
             isSavingTrack={catalogLibrary.isSavingTrack}
+            resettableAlbumIds={catalogLibrary.resettableAlbumIds}
+            resettableTrackIds={catalogLibrary.resettableTrackIds}
             audioBindings={localAudioLibrary.bindingsByTrackId}
             pendingAudioTrackIds={localAudioLibrary.pendingTrackIds}
             audioLibraryStatus={localAudioLibrary.status}
@@ -138,6 +140,10 @@ export function App({
             onAddAlbum={addAlbum}
             onCreateAlbum={catalogLibrary.createAlbum}
             onCreateTrack={catalogLibrary.createTrack}
+            onUpdateAlbum={catalogLibrary.updateAlbum}
+            onUpdateTrack={catalogLibrary.updateTrack}
+            onResetAlbum={catalogLibrary.resetAlbum}
+            onResetTrack={catalogLibrary.resetTrack}
             onBindAudio={localAudioLibrary.bindAudioFile}
             onUnbindAudio={localAudioLibrary.unbindAudioFile}
           />

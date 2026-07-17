@@ -1,20 +1,36 @@
 import { useRef, useState, type FormEvent } from "react";
 
-import type { AlbumType, EntityId, ISODateString } from "../../types";
+import type { Album, AlbumType, EntityId, ISODateString, Track } from "../../types";
 import type {
   CatalogAlbumCreationResult,
   CatalogAlbumDraft,
+  CatalogAlbumUpdateDraft,
+  CatalogMutationResult,
   CatalogTrackCreationResult,
-  CatalogTrackDraft
+  CatalogTrackDraft,
+  CatalogTrackUpdateDraft
 } from "./useCatalogLibrary";
+import { isValidCalendarDate, parsePositiveInteger } from "./catalogValidation";
 
-interface CatalogEditorProps {
+interface CatalogEditorCommonProps {
   artistName: string;
   isSaving: boolean;
   onCancel: () => void;
-  onSubmit: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
-  onCreated: (albumId: EntityId) => void;
 }
+
+type CatalogEditorProps =
+  | (CatalogEditorCommonProps & {
+      mode: "create";
+      onSubmit: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
+      onCreated: (albumId: EntityId) => void;
+    })
+  | (CatalogEditorCommonProps & {
+      mode: "edit";
+      album: Album;
+      onSubmit: (draft: CatalogAlbumUpdateDraft) => Promise<CatalogMutationResult>;
+      onSaved: () => void;
+      onReset?: () => Promise<CatalogMutationResult>;
+    });
 
 interface CatalogEditorErrors {
   title?: string;
@@ -31,16 +47,18 @@ const albumTypeOptions: ReadonlyArray<{
   { value: "other", label: "其他发行" }
 ];
 
-export function CatalogEditor({
-  artistName,
-  isSaving,
-  onCancel,
-  onSubmit,
-  onCreated
-}: CatalogEditorProps) {
-  const [title, setTitle] = useState("");
-  const [albumType, setAlbumType] = useState<AlbumType>("album");
-  const [releaseDate, setReleaseDate] = useState("");
+export function CatalogEditor(props: CatalogEditorProps) {
+  const { artistName, isSaving, onCancel } = props;
+  const isEditing = props.mode === "edit";
+  const [title, setTitle] = useState(() =>
+    props.mode === "edit" ? props.album.title : ""
+  );
+  const [albumType, setAlbumType] = useState<AlbumType>(() =>
+    props.mode === "edit" ? props.album.type : "album"
+  );
+  const [releaseDate, setReleaseDate] = useState(() =>
+    props.mode === "edit" ? (props.album.releaseDate ?? "") : ""
+  );
   const [errors, setErrors] = useState<CatalogEditorErrors>({});
   const [saveError, setSaveError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -77,16 +95,59 @@ export function CatalogEditor({
     setIsSubmitting(true);
 
     try {
-      const result = await onSubmit({
-        title: trimmedTitle,
-        type: albumType,
-        ...(trimmedReleaseDate
-          ? { releaseDate: trimmedReleaseDate as ISODateString }
-          : {})
-      });
+      if (props.mode === "edit") {
+        const result = await props.onSubmit({
+          title: trimmedTitle,
+          type: albumType,
+          releaseDate: trimmedReleaseDate ? (trimmedReleaseDate as ISODateString) : null
+        });
+
+        if (result.ok) {
+          props.onSaved();
+        } else {
+          setSaveError(result.errorMessage);
+        }
+      } else {
+        const result = await props.onSubmit({
+          title: trimmedTitle,
+          type: albumType,
+          ...(trimmedReleaseDate
+            ? { releaseDate: trimmedReleaseDate as ISODateString }
+            : {})
+        });
+
+        if (result.ok) {
+          props.onCreated(result.albumId);
+        } else {
+          setSaveError(result.errorMessage);
+        }
+      }
+    } finally {
+      submitInProgress.current = false;
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleReset(): Promise<void> {
+    if (
+      props.mode !== "edit" ||
+      !props.onReset ||
+      submitInProgress.current ||
+      isSaving
+    ) {
+      return;
+    }
+
+    setErrors({});
+    setSaveError(undefined);
+    submitInProgress.current = true;
+    setIsSubmitting(true);
+
+    try {
+      const result = await props.onReset();
 
       if (result.ok) {
-        onCreated(result.albumId);
+        props.onSaved();
       } else {
         setSaveError(result.errorMessage);
       }
@@ -99,20 +160,25 @@ export function CatalogEditor({
   return (
     <section className="catalog-editor" aria-labelledby="catalog-editor-heading">
       <div>
-        <p className="eyebrow">New album</p>
-        <h3 id="catalog-editor-heading">新增专辑</h3>
-        <p className="helper-text">先创建一张空专辑，歌曲可在后续步骤中维护。</p>
+        <p className="eyebrow">{isEditing ? "Edit album" : "New album"}</p>
+        <h3 id="catalog-editor-heading">{isEditing ? "编辑专辑" : "新增专辑"}</h3>
+        <p className="helper-text">
+          {isEditing
+            ? "只修改本地元数据，专辑 ID 和歌曲关系保持不变。"
+            : "先创建一张空专辑，歌曲可在后续步骤中维护。"}
+        </p>
       </div>
 
       <form className="catalog-editor-form" noValidate onSubmit={handleSubmit}>
         <label className="catalog-editor-field">
           <span>艺人</span>
-          <input type="text" value={artistName} readOnly />
+          <input name="album-artist" type="text" value={artistName} readOnly />
         </label>
 
         <label className="catalog-editor-field">
           <span>专辑名</span>
           <input
+            name="album-title"
             type="text"
             value={title}
             autoFocus
@@ -131,6 +197,7 @@ export function CatalogEditor({
         <label className="catalog-editor-field">
           <span>类型</span>
           <select
+            name="album-type"
             value={albumType}
             disabled={isPending}
             onChange={(event) => setAlbumType(event.currentTarget.value as AlbumType)}
@@ -146,6 +213,7 @@ export function CatalogEditor({
         <label className="catalog-editor-field">
           <span>发行日期（可选）</span>
           <input
+            name="album-release-date"
             type="text"
             inputMode="numeric"
             placeholder="YYYY-MM-DD"
@@ -174,6 +242,16 @@ export function CatalogEditor({
         )}
 
         <div className="catalog-editor-actions">
+          {props.mode === "edit" && props.onReset && (
+            <button
+              className="text-button catalog-editor-reset-button"
+              type="button"
+              disabled={isPending}
+              onClick={() => void handleReset()}
+            >
+              恢复默认
+            </button>
+          )}
           <button
             className="text-button"
             type="button"
@@ -183,7 +261,7 @@ export function CatalogEditor({
             取消
           </button>
           <button className="secondary-button" type="submit" disabled={isPending}>
-            {isPending ? "正在保存…" : "保存专辑"}
+            {isPending ? "正在保存…" : isEditing ? "保存修改" : "保存专辑"}
           </button>
         </div>
       </form>
@@ -191,14 +269,26 @@ export function CatalogEditor({
   );
 }
 
-interface CatalogTrackEditorProps {
+interface CatalogTrackEditorCommonProps {
   albumTitle: string;
   artistName: string;
   isSaving: boolean;
   onCancel: () => void;
-  onSubmit: (draft: CatalogTrackDraft) => Promise<CatalogTrackCreationResult>;
-  onCreated: (trackId: EntityId) => void;
 }
+
+type CatalogTrackEditorProps =
+  | (CatalogTrackEditorCommonProps & {
+      mode: "create";
+      onSubmit: (draft: CatalogTrackDraft) => Promise<CatalogTrackCreationResult>;
+      onCreated: (trackId: EntityId) => void;
+    })
+  | (CatalogTrackEditorCommonProps & {
+      mode: "edit";
+      track: Track;
+      onSubmit: (draft: CatalogTrackUpdateDraft) => Promise<CatalogMutationResult>;
+      onSaved: () => void;
+      onReset?: () => Promise<CatalogMutationResult>;
+    });
 
 interface CatalogTrackEditorErrors {
   title?: string;
@@ -207,19 +297,24 @@ interface CatalogTrackEditorErrors {
   releaseDate?: string;
 }
 
-export function CatalogTrackEditor({
-  albumTitle,
-  artistName,
-  isSaving,
-  onCancel,
-  onSubmit,
-  onCreated
-}: CatalogTrackEditorProps) {
-  const [title, setTitle] = useState("");
-  const [discNumber, setDiscNumber] = useState("1");
-  const [trackNumber, setTrackNumber] = useState("");
-  const [version, setVersion] = useState("");
-  const [releaseDate, setReleaseDate] = useState("");
+export function CatalogTrackEditor(props: CatalogTrackEditorProps) {
+  const { albumTitle, artistName, isSaving, onCancel } = props;
+  const isEditing = props.mode === "edit";
+  const [title, setTitle] = useState(() =>
+    props.mode === "edit" ? props.track.title : ""
+  );
+  const [discNumber, setDiscNumber] = useState(() =>
+    props.mode === "edit" ? String(props.track.discNumber ?? "") : "1"
+  );
+  const [trackNumber, setTrackNumber] = useState(() =>
+    props.mode === "edit" ? String(props.track.trackNumber ?? "") : ""
+  );
+  const [version, setVersion] = useState(() =>
+    props.mode === "edit" ? (props.track.version ?? "") : ""
+  );
+  const [releaseDate, setReleaseDate] = useState(() =>
+    props.mode === "edit" ? (props.track.releaseDate ?? "") : ""
+  );
   const [errors, setErrors] = useState<CatalogTrackEditorErrors>({});
   const [saveError, setSaveError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -238,15 +333,17 @@ export function CatalogTrackEditor({
     const trimmedReleaseDate = releaseDate.trim();
     const parsedDiscNumber = parsePositiveInteger(discNumber);
     const parsedTrackNumber = parsePositiveInteger(trackNumber);
+    const discNumberIsCleared = isEditing && discNumber.trim().length === 0;
+    const trackNumberIsCleared = isEditing && trackNumber.trim().length === 0;
     const nextErrors: CatalogTrackEditorErrors = {};
 
     if (trimmedTitle.length === 0) {
       nextErrors.title = "请输入歌曲名。";
     }
-    if (parsedDiscNumber === undefined) {
+    if (!discNumberIsCleared && parsedDiscNumber === undefined) {
       nextErrors.discNumber = "碟号必须是正整数。";
     }
-    if (parsedTrackNumber === undefined) {
+    if (!trackNumberIsCleared && parsedTrackNumber === undefined) {
       nextErrors.trackNumber = "曲序必须是正整数。";
     }
     if (trimmedReleaseDate && !isValidCalendarDate(trimmedReleaseDate)) {
@@ -258,8 +355,8 @@ export function CatalogTrackEditor({
 
     if (
       Object.keys(nextErrors).length > 0 ||
-      parsedDiscNumber === undefined ||
-      parsedTrackNumber === undefined
+      (!discNumberIsCleared && parsedDiscNumber === undefined) ||
+      (!trackNumberIsCleared && parsedTrackNumber === undefined)
     ) {
       return;
     }
@@ -268,18 +365,63 @@ export function CatalogTrackEditor({
     setIsSubmitting(true);
 
     try {
-      const result = await onSubmit({
-        title: trimmedTitle,
-        discNumber: parsedDiscNumber,
-        trackNumber: parsedTrackNumber,
-        ...(trimmedVersion ? { version: trimmedVersion } : {}),
-        ...(trimmedReleaseDate
-          ? { releaseDate: trimmedReleaseDate as ISODateString }
-          : {})
-      });
+      if (props.mode === "edit") {
+        const result = await props.onSubmit({
+          title: trimmedTitle,
+          discNumber: discNumberIsCleared ? null : (parsedDiscNumber as number),
+          trackNumber: trackNumberIsCleared ? null : (parsedTrackNumber as number),
+          version: trimmedVersion || null,
+          releaseDate: trimmedReleaseDate ? (trimmedReleaseDate as ISODateString) : null
+        });
+
+        if (result.ok) {
+          props.onSaved();
+        } else {
+          setSaveError(result.errorMessage);
+        }
+      } else {
+        const result = await props.onSubmit({
+          title: trimmedTitle,
+          discNumber: parsedDiscNumber as number,
+          trackNumber: parsedTrackNumber as number,
+          ...(trimmedVersion ? { version: trimmedVersion } : {}),
+          ...(trimmedReleaseDate
+            ? { releaseDate: trimmedReleaseDate as ISODateString }
+            : {})
+        });
+
+        if (result.ok) {
+          props.onCreated(result.trackId);
+        } else {
+          setSaveError(result.errorMessage);
+        }
+      }
+    } finally {
+      submitInProgress.current = false;
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleReset(): Promise<void> {
+    if (
+      props.mode !== "edit" ||
+      !props.onReset ||
+      submitInProgress.current ||
+      isSaving
+    ) {
+      return;
+    }
+
+    setErrors({});
+    setSaveError(undefined);
+    submitInProgress.current = true;
+    setIsSubmitting(true);
+
+    try {
+      const result = await props.onReset();
 
       if (result.ok) {
-        onCreated(result.trackId);
+        props.onSaved();
       } else {
         setSaveError(result.errorMessage);
       }
@@ -295,9 +437,13 @@ export function CatalogTrackEditor({
       aria-labelledby="catalog-track-editor-heading"
     >
       <div>
-        <p className="eyebrow">New track</p>
-        <h3 id="catalog-track-editor-heading">新增歌曲</h3>
-        <p className="helper-text">歌曲会保存到当前专辑，并按碟号和曲序展示。</p>
+        <p className="eyebrow">{isEditing ? "Edit track" : "New track"}</p>
+        <h3 id="catalog-track-editor-heading">{isEditing ? "编辑歌曲" : "新增歌曲"}</h3>
+        <p className="helper-text">
+          {isEditing
+            ? "只修改本地元数据，歌曲 ID、队列和音频绑定保持不变。"
+            : "歌曲会保存到当前专辑，并按碟号和曲序展示。"}
+        </p>
       </div>
 
       <form className="catalog-editor-form" noValidate onSubmit={handleSubmit}>
@@ -421,6 +567,16 @@ export function CatalogTrackEditor({
         )}
 
         <div className="catalog-editor-actions">
+          {props.mode === "edit" && props.onReset && (
+            <button
+              className="text-button catalog-editor-reset-button"
+              type="button"
+              disabled={isPending}
+              onClick={() => void handleReset()}
+            >
+              恢复默认
+            </button>
+          )}
           <button
             className="text-button"
             type="button"
@@ -430,59 +586,10 @@ export function CatalogTrackEditor({
             取消
           </button>
           <button className="secondary-button" type="submit" disabled={isPending}>
-            {isPending ? "正在保存…" : "保存歌曲"}
+            {isPending ? "正在保存…" : isEditing ? "保存修改" : "保存歌曲"}
           </button>
         </div>
       </form>
     </section>
   );
-}
-
-function parsePositiveInteger(value: string): number | undefined {
-  const trimmedValue = value.trim();
-
-  if (!/^\d+$/.test(trimmedValue)) {
-    return undefined;
-  }
-
-  const parsedValue = Number(trimmedValue);
-
-  return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : undefined;
-}
-
-function isValidCalendarDate(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-
-  if (!match) {
-    return false;
-  }
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-
-  if (year < 1 || month < 1 || month > 12 || day < 1) {
-    return false;
-  }
-
-  const daysInMonth = [
-    31,
-    isLeapYear(year) ? 29 : 28,
-    31,
-    30,
-    31,
-    30,
-    31,
-    31,
-    30,
-    31,
-    30,
-    31
-  ];
-
-  return day <= daysInMonth[month - 1];
-}
-
-function isLeapYear(year: number): boolean {
-  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 }

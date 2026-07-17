@@ -150,6 +150,25 @@ function createMemoryLocalCatalogRepository(load: () => Promise<UserCatalogChang
   } satisfies LocalCatalogRepository;
 }
 
+function createStatefulLocalCatalogRepository(initialChanges: UserCatalogChanges): {
+  repository: LocalCatalogRepository;
+  getStoredChanges: () => UserCatalogChanges;
+} {
+  let storedChanges = structuredClone(initialChanges);
+  const repository = {
+    load: vi.fn(async () => structuredClone(storedChanges)),
+    save: vi.fn(async (changes: UserCatalogChanges) => {
+      storedChanges = structuredClone(changes);
+    }),
+    clear: vi.fn(async () => undefined)
+  } satisfies LocalCatalogRepository;
+
+  return {
+    repository,
+    getStoredChanges: () => structuredClone(storedChanges)
+  };
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -981,6 +1000,423 @@ describe("track creation workflow", () => {
       )
     ).toEqual(["第一首", "第二首", "第二碟第一首"]);
     expect(catalogRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
+
+describe("catalog metadata editing workflow", () => {
+  it("keeps a built-in track linked to its queue item and local audio through edit and reset", async () => {
+    const { repository: catalogRepository, getStoredChanges } =
+      createStatefulLocalCatalogRepository(createEmptyUserCatalogChanges());
+    const localFile = new File(["self-created test bytes"], "sample-one.mp3", {
+      type: "audio/mpeg"
+    });
+    const localAudioRepository = createMemoryLocalAudioRepository([
+      createLocalAudioFileRecord(
+        "track_sample_001",
+        localFile,
+        "2026-07-17T00:00:00.000Z"
+      )
+    ]);
+    const mediaMocks = installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲二加入临时歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
+    const queueItemIds = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+      (item) => item.dataset.queueItemId
+    );
+    const playbackOccurrenceBeforeEdit = container.querySelector(
+      ".player-sequence-meta"
+    )?.textContent;
+    const playCallsBeforeEdit = mediaMocks.play.mock.calls.length;
+    const objectUrlCallsBeforeEdit = mediaMocks.createObjectURL.mock.calls.length;
+
+    await act(async () => {
+      findButton(container, "编辑示例歌曲一的元数据")?.click();
+    });
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-title"]'
+        ) as HTMLInputElement,
+        "  本地修订歌曲  "
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-disc-number"]'
+        ) as HTMLInputElement,
+        "1"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-number"]'
+        ) as HTMLInputElement,
+        "3"
+      );
+      findButtonByText(container, "保存修改")?.click();
+    });
+
+    expect(getStoredChanges().trackOverrides).toEqual({
+      track_sample_001: {
+        title: "本地修订歌曲",
+        trackNumber: 3
+      }
+    });
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+        (item) => item.dataset.queueItemId
+      )
+    ).toEqual(queueItemIds);
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["本地修订歌曲", "示例歌曲二"]);
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "本地修订歌曲"
+    );
+    expect(container.querySelector(".player-status")?.textContent).toContain(
+      "正在播放"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toBe(
+      playbackOccurrenceBeforeEdit
+    );
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "已绑定：sample-one.mp3"
+    );
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".album-track-list .track-copy strong"),
+        (heading) => heading.textContent
+      )
+    ).toEqual(["示例歌曲二", "本地修订歌曲"]);
+    expect(localAudioRepository.save).not.toHaveBeenCalled();
+    expect(localAudioRepository.remove).not.toHaveBeenCalled();
+    expect(mediaMocks.play).toHaveBeenCalledTimes(playCallsBeforeEdit);
+    expect(mediaMocks.createObjectURL).toHaveBeenCalledTimes(objectUrlCallsBeforeEdit);
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const restoredRoot = createRoot(container);
+
+    await act(async () => {
+      restoredRoot.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+
+    expect(findButton(container, "编辑本地修订歌曲的元数据")).toBeDefined();
+    expect(container.textContent).toContain("已绑定：sample-one.mp3");
+
+    await act(async () => {
+      findButton(container, "将本地修订歌曲加入临时歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲二加入临时歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
+    const restoredQueueItemIds = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+      (item) => item.dataset.queueItemId
+    );
+    const playbackOccurrenceBeforeReset = container.querySelector(
+      ".player-sequence-meta"
+    )?.textContent;
+    const playCallsBeforeReset = mediaMocks.play.mock.calls.length;
+    const objectUrlCallsBeforeReset = mediaMocks.createObjectURL.mock.calls.length;
+
+    await act(async () => {
+      findButton(container, "编辑本地修订歌曲的元数据")?.click();
+    });
+    expect(findButtonByText(container, "恢复默认")).toBeDefined();
+
+    await act(async () => {
+      findButtonByText(container, "恢复默认")?.click();
+    });
+
+    expect(getStoredChanges().trackOverrides).toEqual({});
+    expect(catalogRepository.save).toHaveBeenCalledTimes(2);
+    expect(catalogRepository.clear).not.toHaveBeenCalled();
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+        (item) => item.dataset.queueItemId
+      )
+    ).toEqual(restoredQueueItemIds);
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲一", "示例歌曲二"]);
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲一"
+    );
+    expect(container.querySelector(".player-status")?.textContent).toContain(
+      "正在播放"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toBe(
+      playbackOccurrenceBeforeReset
+    );
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "已绑定：sample-one.mp3"
+    );
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".album-track-list .track-copy strong"),
+        (heading) => heading.textContent
+      )
+    ).toEqual(["示例歌曲一", "示例歌曲二"]);
+    expect(localAudioRepository.save).not.toHaveBeenCalled();
+    expect(localAudioRepository.remove).not.toHaveBeenCalled();
+    expect(mediaMocks.play).toHaveBeenCalledTimes(playCallsBeforeReset);
+    expect(mediaMocks.createObjectURL).toHaveBeenCalledTimes(objectUrlCallsBeforeReset);
+
+    await act(async () => {
+      restoredRoot.unmount();
+    });
+    container.remove();
+  });
+
+  it("updates user-created entities directly and restores them after remount", async () => {
+    const initialChanges = createUserCatalogChanges();
+    const { repository: catalogRepository, getStoredChanges } =
+      createStatefulLocalCatalogRepository(initialChanges);
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+
+    const userAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("用户专辑"));
+
+    await act(async () => {
+      userAlbumButton?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "编辑专辑")?.click();
+    });
+
+    expect(findButtonByText(container, "恢复默认")).toBeUndefined();
+
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="album-title"]'
+        ) as HTMLInputElement,
+        "  用户修订专辑  "
+      );
+      changeSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          'select[name="album-type"]'
+        ) as HTMLSelectElement,
+        "ep"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="album-release-date"]'
+        ) as HTMLInputElement,
+        "2024-02-29"
+      );
+      findButtonByText(container, "保存修改")?.click();
+    });
+
+    expect(getStoredChanges().addedAlbums[0]).toEqual({
+      ...initialChanges.addedAlbums[0],
+      title: "用户修订专辑",
+      type: "ep",
+      releaseDate: "2024-02-29"
+    });
+    expect(getStoredChanges().albumOverrides).toEqual({});
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "用户修订专辑"
+    );
+
+    await act(async () => {
+      findButton(container, "编辑用户歌曲的元数据")?.click();
+    });
+
+    expect(findButtonByText(container, "恢复默认")).toBeUndefined();
+
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-title"]'
+        ) as HTMLInputElement,
+        "  用户修订歌曲  "
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-disc-number"]'
+        ) as HTMLInputElement,
+        "2"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-number"]'
+        ) as HTMLInputElement,
+        "3"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-version"]'
+        ) as HTMLInputElement,
+        "  本地修订版  "
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-release-date"]'
+        ) as HTMLInputElement,
+        "2025-01-02"
+      );
+      findButtonByText(container, "保存修改")?.click();
+    });
+
+    expect(getStoredChanges().addedTracks[0]).toEqual({
+      ...initialChanges.addedTracks[0],
+      title: "用户修订歌曲",
+      discNumber: 2,
+      trackNumber: 3,
+      version: "本地修订版",
+      releaseDate: "2025-01-02"
+    });
+    expect(getStoredChanges().trackOverrides).toEqual({});
+    expect(getStoredChanges().addedAlbums[0].trackIds).toEqual(["track_user_001"]);
+
+    await act(async () => {
+      findButton(container, "将用户修订歌曲加入临时歌单")?.click();
+    });
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户修订歌曲");
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const restoredRoot = createRoot(container);
+
+    await act(async () => {
+      restoredRoot.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+
+    const restoredAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("用户修订专辑"));
+
+    expect(restoredAlbumButton).toBeDefined();
+    expect(catalogRepository.load).toHaveBeenCalledTimes(2);
+    expect(catalogRepository.save).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      restoredAlbumButton?.click();
+    });
+
+    expect(findButton(container, "编辑用户修订歌曲的元数据")).toBeDefined();
+    expect(container.querySelector(".album-track-list")?.textContent).toContain(
+      "用户修订歌曲"
+    );
+
+    await act(async () => {
+      restoredRoot.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps the previous catalog and raw edit input when saving an edit fails", async () => {
+    const initialChanges = createEmptyUserCatalogChanges();
+    const catalogRepository = {
+      load: vi.fn(async () => structuredClone(initialChanges)),
+      save: vi.fn(async () => {
+        throw new Error("storage denied");
+      }),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+    await act(async () => {
+      findButton(container, "编辑示例歌曲一的元数据")?.click();
+    });
+
+    const titleInput = container.querySelector<HTMLInputElement>(
+      'input[name="track-title"]'
+    );
+
+    await act(async () => {
+      changeInputValue(titleInput as HTMLInputElement, "  尚未保存的修订  ");
+      findButtonByText(container, "保存修改")?.click();
+    });
+
+    expect(catalogRepository.save).toHaveBeenCalledOnce();
+    expect(catalogRepository.clear).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "保存歌曲修改失败，请检查浏览器存储权限后重试。"
+    );
+    expect(titleInput?.value).toBe("  尚未保存的修订  ");
+    expect(container.querySelector(".catalog-track-editor")).not.toBeNull();
+    expect(container.querySelector(".album-track-list")?.textContent).toContain(
+      "示例歌曲一"
+    );
+    expect(container.querySelector(".album-track-list")?.textContent).not.toContain(
+      "尚未保存的修订"
+    );
+    expect(initialChanges.trackOverrides).toEqual({});
 
     await act(async () => {
       root.unmount();

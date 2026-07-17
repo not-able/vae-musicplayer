@@ -245,6 +245,11 @@ button:disabled {
   gap: 8px;
 }
 
+.catalog-editor-reset-button {
+  margin-right: auto;
+  color: var(--warning);
+}
+
 .catalog-browser {
   display: grid;
   grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
@@ -408,7 +413,7 @@ button:disabled {
   gap: 8px;
 }
 
-.album-detail .catalog-track-editor {
+.album-detail .catalog-editor {
   margin: 20px 0 0;
 }
 
@@ -492,6 +497,8 @@ button:disabled {
 
 .track-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 10px;
 }

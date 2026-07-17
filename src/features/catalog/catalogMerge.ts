@@ -9,6 +9,7 @@ import {
   type TrackFieldOverrides,
   type UserCatalogChanges
 } from "../../types";
+import { isPositiveSafeInteger } from "./catalogValidation";
 
 const albumTypes = new Set<Album["type"]>([
   "album",
@@ -176,6 +177,15 @@ function assertNonBlank(value: string, entityName: string): void {
   }
 }
 
+function assertOptionalPositiveInteger(
+  value: number | undefined,
+  fieldName: string
+): void {
+  if (value !== undefined && !isPositiveSafeInteger(value)) {
+    throw new Error(`${fieldName} must be a positive integer.`);
+  }
+}
+
 function assertCatalogIntegrity(catalog: CatalogData): void {
   const entityIds = new Set<EntityId>();
 
@@ -225,6 +235,8 @@ function assertCatalogIntegrity(catalog: CatalogData): void {
 
   for (const track of catalog.tracks) {
     assertNonBlank(track.title, "Track");
+    assertOptionalPositiveInteger(track.discNumber, "Track disc number");
+    assertOptionalPositiveInteger(track.trackNumber, "Track number");
 
     if (!artistIds.has(track.artistId)) {
       throw new Error(`Unknown artist ID for track ${track.id}: ${track.artistId}.`);

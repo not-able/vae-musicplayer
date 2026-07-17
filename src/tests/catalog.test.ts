@@ -13,7 +13,11 @@ import { mergeCatalogChanges } from "../features/catalog/catalogMerge";
 import {
   addAlbumToUserCatalog,
   addTrackToUserCatalog,
-  createEmptyUserCatalogChanges
+  createEmptyUserCatalogChanges,
+  patchAlbumInUserCatalog,
+  patchTrackInUserCatalog,
+  resetAlbumInUserCatalog,
+  resetTrackInUserCatalog
 } from "../features/catalog/catalogMutations";
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
@@ -91,6 +95,15 @@ function findButtonByText(
   );
 }
 
+function findButton(
+  container: HTMLElement,
+  ariaLabel: string
+): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.getAttribute("aria-label") === ariaLabel
+  );
+}
+
 function createCatalogOverviewProps(
   overrides: Partial<ComponentProps<typeof CatalogOverview>> = {}
 ): ComponentProps<typeof CatalogOverview> {
@@ -99,6 +112,8 @@ function createCatalogOverviewProps(
     catalogLibraryStatus: "ready",
     isSavingAlbum: false,
     isSavingTrack: false,
+    resettableAlbumIds: new Set<string>(),
+    resettableTrackIds: new Set<string>(),
     audioBindings: new Map(),
     pendingAudioTrackIds: new Set<string>(),
     audioLibraryStatus: "ready",
@@ -112,6 +127,10 @@ function createCatalogOverviewProps(
       ok: true as const,
       trackId: "track_user_test"
     })),
+    onUpdateAlbum: vi.fn(async () => ({ ok: true as const })),
+    onUpdateTrack: vi.fn(async () => ({ ok: true as const })),
+    onResetAlbum: vi.fn(async () => ({ ok: true as const })),
+    onResetTrack: vi.fn(async () => ({ ok: true as const })),
     onBindAudio: vi.fn().mockResolvedValue(true),
     onUnbindAudio: vi.fn().mockResolvedValue(true),
     ...overrides
@@ -126,12 +145,45 @@ function createMemoryCatalogRepository(load: () => Promise<UserCatalogChanges>) 
   } satisfies LocalCatalogRepository;
 }
 
+function createUserCatalogForResetTest(): UserCatalogChanges {
+  const albumChanges = addAlbumToUserCatalog(
+    mockCatalog,
+    createEmptyUserCatalogChanges(),
+    {
+      artistId: "artist_vae",
+      title: "用户重置测试专辑",
+      type: "other",
+      sortOrder: 3
+    },
+    () => "album_user_reset"
+  );
+
+  return addTrackToUserCatalog(
+    mockCatalog,
+    albumChanges,
+    {
+      artistId: "artist_vae",
+      albumId: "album_user_reset",
+      title: "用户重置测试歌曲",
+      discNumber: 1,
+      trackNumber: 1
+    },
+    () => "track_user_reset"
+  );
+}
+
 interface CatalogLibraryProbeProps {
   catalog?: CatalogData;
   repository: LocalCatalogRepository;
   createAlbumTitle?: string;
   createTrackTitle?: string;
   trackAlbumId?: string;
+  updateAlbumTitle?: string;
+  updateAlbumId?: string;
+  updateTrackTitle?: string;
+  updateTrackId?: string;
+  resetAlbumId?: string;
+  resetTrackId?: string;
   idFactory?: () => string;
 }
 
@@ -141,6 +193,12 @@ function CatalogLibraryProbe({
   createAlbumTitle,
   createTrackTitle,
   trackAlbumId = "album_sample_001",
+  updateAlbumTitle,
+  updateAlbumId = "album_sample_001",
+  updateTrackTitle,
+  updateTrackId = "track_sample_001",
+  resetAlbumId,
+  resetTrackId,
   idFactory
 }: CatalogLibraryProbeProps) {
   const library = useCatalogLibrary(catalog, repository, idFactory);
@@ -152,6 +210,8 @@ function CatalogLibraryProbe({
       "output",
       {
         "data-error": library.errorMessage ?? "",
+        "data-resettable-albums": [...library.resettableAlbumIds].join("|"),
+        "data-resettable-tracks": [...library.resettableTrackIds].join("|"),
         "data-status": library.status
       },
       [
@@ -190,6 +250,80 @@ function CatalogLibraryProbe({
             type: "button"
           },
           "创建测试歌曲"
+        )
+      : null,
+    updateAlbumTitle
+      ? createElement(
+          "button",
+          {
+            disabled: library.status !== "ready",
+            onClick: () => {
+              const album = library.catalog.albums.find(
+                (item) => item.id === updateAlbumId
+              );
+
+              if (album) {
+                void library.updateAlbum(album.id, {
+                  title: updateAlbumTitle,
+                  type: album.type,
+                  releaseDate: album.releaseDate ?? null
+                });
+              }
+            },
+            type: "button"
+          },
+          "修改测试专辑"
+        )
+      : null,
+    updateTrackTitle
+      ? createElement(
+          "button",
+          {
+            disabled: library.status !== "ready",
+            onClick: () => {
+              const track = library.catalog.tracks.find(
+                (item) => item.id === updateTrackId
+              );
+
+              if (track) {
+                void library.updateTrack(track.id, {
+                  title: updateTrackTitle,
+                  discNumber: track.discNumber ?? null,
+                  trackNumber: track.trackNumber ?? null,
+                  version: track.version ?? null,
+                  releaseDate: track.releaseDate ?? null
+                });
+              }
+            },
+            type: "button"
+          },
+          "修改测试歌曲"
+        )
+      : null,
+    resetAlbumId
+      ? createElement(
+          "button",
+          {
+            disabled: library.status !== "ready",
+            onClick: () => {
+              void library.resetAlbum(resetAlbumId);
+            },
+            type: "button"
+          },
+          "重置测试专辑"
+        )
+      : null,
+    resetTrackId
+      ? createElement(
+          "button",
+          {
+            disabled: library.status !== "ready",
+            onClick: () => {
+              void library.resetTrack(resetTrackId);
+            },
+            type: "button"
+          },
+          "重置测试歌曲"
         )
       : null
   );
@@ -600,6 +734,324 @@ describe("user catalog mutations", () => {
     expect(mockCatalog).toEqual(catalogSnapshot);
     expect(secondChanges).toEqual(changesSnapshot);
   });
+
+  it("patches built-in metadata with sparse overrides while preserving identity", () => {
+    const changes: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_sample_001: { title: "已有专辑标题" }
+      },
+      trackOverrides: {
+        track_sample_001: { note: "已有歌曲说明" }
+      }
+    };
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const changesSnapshot = structuredClone(changes);
+    const albumPatch = { type: "ep" as const, releaseDate: null };
+    const trackPatch = {
+      title: "修正后的歌曲",
+      discNumber: 2,
+      trackNumber: 4,
+      version: "本地版本",
+      releaseDate: null
+    };
+    const albumPatchSnapshot = structuredClone(albumPatch);
+    const trackPatchSnapshot = structuredClone(trackPatch);
+
+    const albumChanges = patchAlbumInUserCatalog(
+      mockCatalog,
+      changes,
+      "album_sample_001",
+      albumPatch
+    );
+    const trackChanges = patchTrackInUserCatalog(
+      mockCatalog,
+      albumChanges,
+      "track_sample_001",
+      trackPatch
+    );
+    const mergedCatalog = mergeCatalogChanges(mockCatalog, trackChanges);
+    const album = mergedCatalog.albums.find((item) => item.id === "album_sample_001");
+    const track = mergedCatalog.tracks.find((item) => item.id === "track_sample_001");
+
+    expect(trackChanges.albumOverrides.album_sample_001).toEqual({
+      title: "已有专辑标题",
+      type: "ep",
+      releaseDate: null
+    });
+    expect(trackChanges.trackOverrides.track_sample_001).toEqual({
+      note: "已有歌曲说明",
+      title: "修正后的歌曲",
+      discNumber: 2,
+      trackNumber: 4,
+      version: "本地版本"
+    });
+    expect(album).toMatchObject({
+      id: "album_sample_001",
+      artistId: "artist_vae",
+      title: "已有专辑标题",
+      type: "ep",
+      trackIds: ["track_sample_001", "track_sample_002"]
+    });
+    expect(album?.releaseDate).toBeUndefined();
+    expect(track).toMatchObject({
+      id: "track_sample_001",
+      artistId: "artist_vae",
+      albumId: "album_sample_001",
+      title: "修正后的歌曲",
+      discNumber: 2,
+      trackNumber: 4,
+      version: "本地版本"
+    });
+    expect(track?.releaseDate).toBeUndefined();
+    expect(mockCatalog).toEqual(catalogSnapshot);
+    expect(changes).toEqual(changesSnapshot);
+    expect(albumPatch).toEqual(albumPatchSnapshot);
+    expect(trackPatch).toEqual(trackPatchSnapshot);
+    expectCatalogIntegrity(mergedCatalog);
+  });
+
+  it("patches user-created records directly and removes legacy redundant overrides", () => {
+    let changes = addAlbumToUserCatalog(
+      mockCatalog,
+      createEmptyUserCatalogChanges(),
+      {
+        artistId: "artist_vae",
+        title: "用户专辑",
+        type: "other",
+        releaseDate: "2024-01-01",
+        sortOrder: 3,
+        note: "用户专辑说明"
+      },
+      () => "album_user_patch"
+    );
+    changes = addTrackToUserCatalog(
+      mockCatalog,
+      changes,
+      {
+        artistId: "artist_vae",
+        albumId: "album_user_patch",
+        title: "用户歌曲",
+        discNumber: 1,
+        trackNumber: 1,
+        version: "初始版本",
+        releaseDate: "2024-01-01",
+        note: "用户歌曲说明"
+      },
+      () => "track_user_patch"
+    );
+    changes = {
+      ...changes,
+      albumOverrides: {
+        album_user_patch: { title: "旧覆盖标题" }
+      },
+      trackOverrides: {
+        track_user_patch: { version: "旧覆盖版本" }
+      }
+    };
+    const changesSnapshot = structuredClone(changes);
+
+    const albumChanges = patchAlbumInUserCatalog(
+      mockCatalog,
+      changes,
+      "album_user_patch",
+      {
+        title: "直接更新专辑",
+        releaseDate: null
+      }
+    );
+    const trackChanges = patchTrackInUserCatalog(
+      mockCatalog,
+      albumChanges,
+      "track_user_patch",
+      {
+        title: "直接更新歌曲",
+        discNumber: 2,
+        trackNumber: 3,
+        version: null,
+        releaseDate: null
+      }
+    );
+    const album = trackChanges.addedAlbums[0];
+    const track = trackChanges.addedTracks[0];
+
+    expect(album).toEqual({
+      id: "album_user_patch",
+      artistId: "artist_vae",
+      title: "直接更新专辑",
+      type: "other",
+      sortOrder: 3,
+      trackIds: ["track_user_patch"],
+      note: "用户专辑说明"
+    });
+    expect(track).toEqual({
+      id: "track_user_patch",
+      artistId: "artist_vae",
+      albumId: "album_user_patch",
+      title: "直接更新歌曲",
+      discNumber: 2,
+      trackNumber: 3,
+      note: "用户歌曲说明"
+    });
+    expect(trackChanges.albumOverrides).toEqual({});
+    expect(trackChanges.trackOverrides).toEqual({});
+    expect(changes).toEqual(changesSnapshot);
+    expectCatalogIntegrity(mergeCatalogChanges(mockCatalog, trackChanges));
+  });
+
+  it("rejects identity fields, invalid metadata, and unknown patch targets immutably", () => {
+    const changes = createEmptyUserCatalogChanges();
+    const catalogSnapshot = structuredClone(mockCatalog);
+    const changesSnapshot = structuredClone(changes);
+
+    for (const forbiddenPatch of [
+      { id: "album_changed" },
+      { artistId: "artist_changed" },
+      { trackIds: [] }
+    ]) {
+      expect(() =>
+        patchAlbumInUserCatalog(
+          mockCatalog,
+          changes,
+          "album_sample_001",
+          forbiddenPatch as never
+        )
+      ).toThrow("cannot change field");
+    }
+
+    for (const forbiddenPatch of [
+      { id: "track_changed" },
+      { artistId: "artist_changed" },
+      { albumId: "album_sample_002" }
+    ]) {
+      expect(() =>
+        patchTrackInUserCatalog(
+          mockCatalog,
+          changes,
+          "track_sample_001",
+          forbiddenPatch as never
+        )
+      ).toThrow("cannot change field");
+    }
+
+    expect(() =>
+      patchAlbumInUserCatalog(
+        mockCatalog,
+        changes,
+        "album_sample_001",
+        Object.assign(Object.create({ inherited: true }), {
+          title: "非普通对象"
+        }) as never
+      )
+    ).toThrow("plain objects");
+    expect(() =>
+      patchAlbumInUserCatalog(mockCatalog, changes, "album_sample_001", {
+        title: "  "
+      })
+    ).toThrow("title");
+    expect(() =>
+      patchAlbumInUserCatalog(mockCatalog, changes, "album_sample_001", {
+        releaseDate: "2023-02-29"
+      })
+    ).toThrow("valid YYYY-MM-DD");
+    expect(() =>
+      patchTrackInUserCatalog(mockCatalog, changes, "track_sample_001", {
+        trackNumber: 0
+      })
+    ).toThrow("positive integer");
+    expect(() =>
+      patchTrackInUserCatalog(mockCatalog, changes, "track_sample_001", {
+        discNumber: Number.MAX_SAFE_INTEGER + 1
+      })
+    ).toThrow("positive integer");
+    expect(() =>
+      patchAlbumInUserCatalog(mockCatalog, changes, "album_missing", {
+        title: "未知专辑"
+      })
+    ).toThrow("Unknown album");
+    expect(() =>
+      patchTrackInUserCatalog(mockCatalog, changes, "track_missing", {
+        title: "未知歌曲"
+      })
+    ).toThrow("Unknown track");
+    expect(mockCatalog).toEqual(catalogSnapshot);
+    expect(changes).toEqual(changesSnapshot);
+  });
+
+  it("resets only built-in overrides while preserving user tracks and other changes", () => {
+    let changes = addTrackToUserCatalog(
+      mockCatalog,
+      createEmptyUserCatalogChanges(),
+      {
+        artistId: "artist_vae",
+        albumId: "album_sample_001",
+        title: "保留的用户歌曲",
+        discNumber: 1,
+        trackNumber: 3
+      },
+      () => "track_user_reset_preserved"
+    );
+    changes = {
+      ...changes,
+      albumOverrides: {
+        album_sample_001: { title: "待恢复专辑" },
+        album_sample_002: { title: "保留专辑覆盖" }
+      },
+      trackOverrides: {
+        track_sample_001: { title: "待恢复歌曲" },
+        track_sample_002: { title: "保留歌曲覆盖" }
+      }
+    };
+    const changesSnapshot = structuredClone(changes);
+
+    const albumReset = resetAlbumInUserCatalog(
+      mockCatalog,
+      changes,
+      "album_sample_001"
+    );
+    const trackReset = resetTrackInUserCatalog(
+      mockCatalog,
+      albumReset,
+      "track_sample_001"
+    );
+    const mergedCatalog = mergeCatalogChanges(mockCatalog, trackReset);
+
+    expect(trackReset.albumOverrides).toEqual({
+      album_sample_002: { title: "保留专辑覆盖" }
+    });
+    expect(trackReset.trackOverrides).toEqual({
+      track_sample_002: { title: "保留歌曲覆盖" }
+    });
+    expect(trackReset.albumTrackIdAdditions).toEqual({
+      album_sample_001: ["track_user_reset_preserved"]
+    });
+    expect(trackReset.addedTracks).toEqual(changes.addedTracks);
+    expect(
+      mergedCatalog.albums.find((album) => album.id === "album_sample_001")?.trackIds
+    ).toContain("track_user_reset_preserved");
+    expect(
+      mergedCatalog.tracks.find((track) => track.id === "track_sample_001")?.title
+    ).toBe("示例歌曲一");
+    expect(changes).toEqual(changesSnapshot);
+
+    const userChanges = createUserCatalogForResetTest();
+    expect(() =>
+      resetAlbumInUserCatalog(mockCatalog, userChanges, "album_user_reset")
+    ).toThrow("cannot be reset");
+    expect(() =>
+      resetTrackInUserCatalog(mockCatalog, userChanges, "track_user_reset")
+    ).toThrow("cannot be reset");
+    const emptyChanges = createEmptyUserCatalogChanges();
+    expect(
+      patchAlbumInUserCatalog(mockCatalog, emptyChanges, "album_sample_001", {})
+    ).toBe(emptyChanges);
+    expect(
+      patchTrackInUserCatalog(mockCatalog, emptyChanges, "track_sample_001", {})
+    ).toBe(emptyChanges);
+    expect(resetAlbumInUserCatalog(mockCatalog, emptyChanges, "album_sample_001")).toBe(
+      emptyChanges
+    );
+  });
 });
 
 describe("catalog change merging", () => {
@@ -692,6 +1144,120 @@ describe("catalog change merging", () => {
       "track_user_001"
     ]);
     expectCatalogIntegrity(mergedCatalog);
+  });
+
+  it("keeps sparse overrides compatible with later built-in metadata updates", () => {
+    const changes = patchAlbumInUserCatalog(
+      mockCatalog,
+      createEmptyUserCatalogChanges(),
+      "album_sample_001",
+      { title: "仅覆盖标题" }
+    );
+    const updatedDefaultCatalog: CatalogData = {
+      ...structuredClone(mockCatalog),
+      albums: mockCatalog.albums.map((album) =>
+        album.id === "album_sample_001"
+          ? {
+              ...album,
+              type: "other",
+              releaseDate: "2025-05-01",
+              note: "更新后的内置说明",
+              trackIds: [...album.trackIds]
+            }
+          : { ...album, trackIds: [...album.trackIds] }
+      )
+    };
+
+    const mergedCatalog = mergeCatalogChanges(updatedDefaultCatalog, changes);
+    const overriddenAlbum = mergedCatalog.albums.find(
+      (album) => album.id === "album_sample_001"
+    );
+
+    expect(changes.albumOverrides.album_sample_001).toEqual({
+      title: "仅覆盖标题"
+    });
+    expect(overriddenAlbum).toMatchObject({
+      title: "仅覆盖标题",
+      type: "other",
+      releaseDate: "2025-05-01",
+      note: "更新后的内置说明"
+    });
+
+    const resetChanges = resetAlbumInUserCatalog(
+      updatedDefaultCatalog,
+      changes,
+      "album_sample_001"
+    );
+    const resetAlbum = mergeCatalogChanges(
+      updatedDefaultCatalog,
+      resetChanges
+    ).albums.find((album) => album.id === "album_sample_001");
+
+    expect(resetChanges.albumOverrides).toEqual({});
+    expect(resetAlbum).toMatchObject({
+      title: "示例专辑 A",
+      type: "other",
+      releaseDate: "2025-05-01",
+      note: "更新后的内置说明"
+    });
+  });
+
+  it("keeps sparse track overrides compatible with later built-in metadata updates", () => {
+    const changes = patchTrackInUserCatalog(
+      mockCatalog,
+      createEmptyUserCatalogChanges(),
+      "track_sample_001",
+      { title: "仅覆盖歌曲标题" }
+    );
+    const updatedDefaultCatalog: CatalogData = {
+      ...structuredClone(mockCatalog),
+      tracks: mockCatalog.tracks.map((track) =>
+        track.id === "track_sample_001"
+          ? {
+              ...track,
+              trackNumber: 7,
+              version: "更新后的内置版本",
+              releaseDate: "2025-06-01",
+              note: "更新后的内置歌曲说明"
+            }
+          : { ...track }
+      )
+    };
+
+    const mergedCatalog = mergeCatalogChanges(updatedDefaultCatalog, changes);
+    const overriddenTrack = mergedCatalog.tracks.find(
+      (track) => track.id === "track_sample_001"
+    );
+
+    expect(changes.trackOverrides.track_sample_001).toEqual({
+      title: "仅覆盖歌曲标题"
+    });
+    expect(overriddenTrack).toMatchObject({
+      title: "仅覆盖歌曲标题",
+      trackNumber: 7,
+      version: "更新后的内置版本",
+      releaseDate: "2025-06-01",
+      note: "更新后的内置歌曲说明"
+    });
+
+    const resetChanges = resetTrackInUserCatalog(
+      updatedDefaultCatalog,
+      changes,
+      "track_sample_001"
+    );
+    const resetTrack = mergeCatalogChanges(
+      updatedDefaultCatalog,
+      resetChanges
+    ).tracks.find((track) => track.id === "track_sample_001");
+
+    expect(resetChanges.trackOverrides).toEqual({});
+    expect(resetTrack).toMatchObject({
+      title: "示例歌曲一",
+      trackNumber: 7,
+      version: "更新后的内置版本",
+      releaseDate: "2025-06-01",
+      note: "更新后的内置歌曲说明"
+    });
   });
 
   it("rejects unknown override targets and incomplete bidirectional references", () => {
@@ -1030,6 +1596,191 @@ describe("catalog library loading", () => {
     });
   });
 
+  it("does not publish a pending edit after the repository source changes", async () => {
+    const saveDeferred = createDeferred<void>();
+    const firstRepository = {
+      load: vi.fn(async () => createEmptyUserCatalogChanges()),
+      save: vi.fn(async () => saveDeferred.promise),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const secondChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      trackOverrides: {
+        track_sample_001: { title: "当前编辑仓储歌曲" }
+      }
+    };
+    const secondRepository = createMemoryCatalogRepository(async () => secondChanges);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository: firstRepository,
+          updateTrackTitle: "迟到的歌曲修改"
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "修改测试歌曲")?.click();
+    });
+
+    expect(firstRepository.save).toHaveBeenCalledOnce();
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "迟到的歌曲修改"
+    );
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository: secondRepository,
+          updateTrackTitle: "迟到的歌曲修改"
+        })
+      );
+    });
+
+    expect(container.querySelector("output")?.textContent).toContain(
+      "当前编辑仓储歌曲"
+    );
+
+    await act(async () => {
+      saveDeferred.resolve(undefined);
+      await saveDeferred.promise;
+    });
+
+    expect(container.querySelector("output")?.textContent).toContain(
+      "当前编辑仓储歌曲"
+    );
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "迟到的歌曲修改"
+    );
+    expect(secondRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("publishes an edit only after saving and resets only its built-in override", async () => {
+    const saveDeferred = createDeferred<void>();
+    const repository = {
+      load: vi.fn(async () => createEmptyUserCatalogChanges()),
+      save: vi.fn(async () => saveDeferred.promise),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository,
+          updateTrackTitle: "Hook 修改歌曲",
+          resetTrackId: "track_sample_001"
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "修改测试歌曲")?.click();
+    });
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trackOverrides: {
+          track_sample_001: { title: "Hook 修改歌曲" }
+        }
+      })
+    );
+    expect(container.querySelector("output")?.textContent).toContain("示例歌曲一");
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "Hook 修改歌曲"
+    );
+
+    await act(async () => {
+      saveDeferred.resolve(undefined);
+      await saveDeferred.promise;
+    });
+
+    expect(container.querySelector("output")?.textContent).toContain("Hook 修改歌曲");
+    expect(container.querySelector("output")?.dataset.resettableTracks).toContain(
+      "track_sample_001"
+    );
+
+    await act(async () => {
+      findButtonByText(container, "重置测试歌曲")?.click();
+    });
+
+    expect(repository.save).toHaveBeenCalledTimes(2);
+    expect(repository.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        trackOverrides: {}
+      })
+    );
+    expect(container.querySelector("output")?.textContent).toContain("示例歌曲一");
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "Hook 修改歌曲"
+    );
+    expect(container.querySelector("output")?.dataset.resettableTracks).toBe("");
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("shares one synchronous lock across edit, reset, and create operations", async () => {
+    const saveDeferred = createDeferred<void>();
+    const initialChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_sample_001: { title: "可重置专辑" }
+      }
+    };
+    const repository = {
+      load: vi.fn(async () => initialChanges),
+      save: vi.fn(async () => saveDeferred.promise),
+      clear: vi.fn(async () => undefined)
+    } satisfies LocalCatalogRepository;
+    const idFactory = vi.fn(() => "album_user_should_not_be_created");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogLibraryProbe, {
+          repository,
+          updateTrackTitle: "锁定中的修改",
+          resetAlbumId: "album_sample_001",
+          createAlbumTitle: "不应并发创建",
+          idFactory
+        })
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "修改测试歌曲")?.click();
+      findButtonByText(container, "重置测试专辑")?.click();
+      findButtonByText(container, "创建测试专辑")?.click();
+    });
+
+    expect(repository.save).toHaveBeenCalledOnce();
+    expect(idFactory).not.toHaveBeenCalled();
+    expect(container.querySelector("output")?.textContent).not.toContain(
+      "锁定中的修改"
+    );
+
+    await act(async () => {
+      saveDeferred.resolve(undefined);
+      await saveDeferred.promise;
+    });
+
+    expect(container.querySelector("output")?.textContent).toContain("锁定中的修改");
+    expect(container.querySelector("output")?.textContent).toContain("可重置专辑");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("uses one synchronous write lock for album and track creation", async () => {
     const saveDeferred = createDeferred<void>();
     const repository = {
@@ -1194,6 +1945,8 @@ describe("catalog browsing", () => {
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
           isSavingTrack: false,
+          resettableAlbumIds: new Set<string>(),
+          resettableTrackIds: new Set<string>(),
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
@@ -1207,6 +1960,10 @@ describe("catalog browsing", () => {
             ok: true as const,
             trackId: "track_user_unused"
           })),
+          onUpdateAlbum: vi.fn(async () => ({ ok: true as const })),
+          onUpdateTrack: vi.fn(async () => ({ ok: true as const })),
+          onResetAlbum: vi.fn(async () => ({ ok: true as const })),
+          onResetTrack: vi.fn(async () => ({ ok: true as const })),
           onBindAudio,
           onUnbindAudio
         })
@@ -1253,6 +2010,8 @@ describe("catalog browsing", () => {
       catalogLibraryStatus: "ready" as const,
       isSavingAlbum: false,
       isSavingTrack: false,
+      resettableAlbumIds: new Set<string>(),
+      resettableTrackIds: new Set<string>(),
       audioBindings: new Map(),
       pendingAudioTrackIds: new Set<string>(),
       audioLibraryStatus: "ready" as const,
@@ -1266,6 +2025,10 @@ describe("catalog browsing", () => {
         ok: true as const,
         trackId: "track_user_unused"
       })),
+      onUpdateAlbum: vi.fn(async () => ({ ok: true as const })),
+      onUpdateTrack: vi.fn(async () => ({ ok: true as const })),
+      onResetAlbum: vi.fn(async () => ({ ok: true as const })),
+      onResetTrack: vi.fn(async () => ({ ok: true as const })),
       onBindAudio: vi.fn().mockResolvedValue(true),
       onUnbindAudio: vi.fn().mockResolvedValue(true)
     };
@@ -1351,6 +2114,8 @@ describe("catalog album editor", () => {
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
           isSavingTrack: false,
+          resettableAlbumIds: new Set<string>(),
+          resettableTrackIds: new Set<string>(),
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
@@ -1361,6 +2126,10 @@ describe("catalog album editor", () => {
             ok: true as const,
             trackId: "track_user_unused"
           })),
+          onUpdateAlbum: vi.fn(async () => ({ ok: true as const })),
+          onUpdateTrack: vi.fn(async () => ({ ok: true as const })),
+          onResetAlbum: vi.fn(async () => ({ ok: true as const })),
+          onResetTrack: vi.fn(async () => ({ ok: true as const })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1413,6 +2182,8 @@ describe("catalog album editor", () => {
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
           isSavingTrack: false,
+          resettableAlbumIds: new Set<string>(),
+          resettableTrackIds: new Set<string>(),
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
@@ -1423,6 +2194,10 @@ describe("catalog album editor", () => {
             ok: true as const,
             trackId: "track_user_unused"
           })),
+          onUpdateAlbum: vi.fn(async () => ({ ok: true as const })),
+          onUpdateTrack: vi.fn(async () => ({ ok: true as const })),
+          onResetAlbum: vi.fn(async () => ({ ok: true as const })),
+          onResetTrack: vi.fn(async () => ({ ok: true as const })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1469,6 +2244,8 @@ describe("catalog album editor", () => {
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
           isSavingTrack: false,
+          resettableAlbumIds: new Set<string>(),
+          resettableTrackIds: new Set<string>(),
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
@@ -1479,6 +2256,10 @@ describe("catalog album editor", () => {
             ok: true as const,
             trackId: "track_user_unused"
           })),
+          onUpdateAlbum: vi.fn(async () => ({ ok: true as const })),
+          onUpdateTrack: vi.fn(async () => ({ ok: true as const })),
+          onResetAlbum: vi.fn(async () => ({ ok: true as const })),
+          onResetTrack: vi.fn(async () => ({ ok: true as const })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1537,6 +2318,8 @@ describe("catalog album editor", () => {
           catalogLibraryStatus: "ready",
           isSavingAlbum: false,
           isSavingTrack: false,
+          resettableAlbumIds: new Set<string>(),
+          resettableTrackIds: new Set<string>(),
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
@@ -1547,6 +2330,10 @@ describe("catalog album editor", () => {
             ok: true as const,
             trackId: "track_user_unused"
           })),
+          onUpdateAlbum: vi.fn(async () => ({ ok: true as const })),
+          onUpdateTrack: vi.fn(async () => ({ ok: true as const })),
+          onResetAlbum: vi.fn(async () => ({ ok: true as const })),
+          onResetTrack: vi.fn(async () => ({ ok: true as const })),
           onBindAudio: vi.fn().mockResolvedValue(true),
           onUnbindAudio: vi.fn().mockResolvedValue(true)
         })
@@ -1883,6 +2670,231 @@ describe("catalog track editor", () => {
         ?.value
     ).toBe(rawValues.releaseDate);
     expect(container.querySelector(".catalog-track-editor")).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
+
+describe("catalog metadata editing", () => {
+  it("prefills and submits an album edit while using null to clear the date", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onUpdateAlbum = vi.fn(async () => ({ ok: true as const }));
+
+    await act(async () => {
+      root.render(
+        createElement(
+          CatalogOverview,
+          createCatalogOverviewProps({
+            resettableAlbumIds: new Set(["album_sample_001"]),
+            onUpdateAlbum
+          })
+        )
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "编辑专辑")?.click();
+    });
+
+    expect(container.querySelector("#catalog-editor-heading")?.textContent).toBe(
+      "编辑专辑"
+    );
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="album-artist"]')?.value
+    ).toBe("许嵩");
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="album-title"]')?.value
+    ).toBe("示例专辑 A");
+    expect(
+      container.querySelector<HTMLSelectElement>('select[name="album-type"]')?.value
+    ).toBe("album");
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="album-release-date"]')
+        ?.value
+    ).toBe("2000-01-01");
+    expect(findButtonByText(container, "恢复默认")).toBeDefined();
+
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="album-title"]'
+        ) as HTMLInputElement,
+        "  修改后的专辑  "
+      );
+      changeSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          'select[name="album-type"]'
+        ) as HTMLSelectElement,
+        "ep"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="album-release-date"]'
+        ) as HTMLInputElement,
+        "   "
+      );
+      findButtonByText(container, "保存修改")?.click();
+    });
+
+    expect(onUpdateAlbum).toHaveBeenCalledWith("album_sample_001", {
+      title: "修改后的专辑",
+      type: "ep",
+      releaseDate: null
+    });
+    expect(container.querySelector("#catalog-editor-heading")).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps album edit input and shows an error when reset saving fails", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onResetAlbum = vi.fn(async () => ({
+      ok: false as const,
+      code: "save_failed" as const,
+      errorMessage: "测试恢复专辑失败，请重试。"
+    }));
+
+    await act(async () => {
+      root.render(
+        createElement(
+          CatalogOverview,
+          createCatalogOverviewProps({
+            resettableAlbumIds: new Set(["album_sample_001"]),
+            onResetAlbum
+          })
+        )
+      );
+    });
+    await act(async () => {
+      findButtonByText(container, "编辑专辑")?.click();
+    });
+
+    const titleInput = container.querySelector<HTMLInputElement>(
+      'input[name="album-title"]'
+    );
+
+    await act(async () => {
+      changeInputValue(titleInput as HTMLInputElement, "  尚未保存的输入  ");
+      findButtonByText(container, "恢复默认")?.click();
+    });
+
+    expect(onResetAlbum).toHaveBeenCalledWith("album_sample_001");
+    expect(titleInput?.value).toBe("  尚未保存的输入  ");
+    expect(container.textContent).toContain("测试恢复专辑失败，请重试。");
+    expect(container.querySelector("#catalog-editor-heading")?.textContent).toBe(
+      "编辑专辑"
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("edits a track without exposing identity fields and closes on album switch", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onUpdateTrack = vi.fn(async () => ({ ok: true as const }));
+
+    await act(async () => {
+      root.render(
+        createElement(
+          CatalogOverview,
+          createCatalogOverviewProps({
+            resettableTrackIds: new Set(["track_sample_001"]),
+            onUpdateTrack
+          })
+        )
+      );
+    });
+    await act(async () => {
+      findButton(container, "编辑示例歌曲一的元数据")?.click();
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-title"]')?.value
+    ).toBe("示例歌曲一");
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-album"]')?.value
+    ).toBe("示例专辑 A");
+    expect(
+      container.querySelector<HTMLInputElement>('input[name="track-artist"]')?.value
+    ).toBe("许嵩");
+    expect(
+      container
+        .querySelector<HTMLInputElement>('input[name="track-title"]')
+        ?.form?.querySelector('input[name="track-id"]')
+    ).toBeNull();
+    expect(findButtonByText(container, "恢复默认")).toBeDefined();
+
+    await act(async () => {
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-title"]'
+        ) as HTMLInputElement,
+        "  修改后的歌曲  "
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-disc-number"]'
+        ) as HTMLInputElement,
+        "02"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-number"]'
+        ) as HTMLInputElement,
+        "03"
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-version"]'
+        ) as HTMLInputElement,
+        "  本地修订版  "
+      );
+      changeInputValue(
+        container.querySelector<HTMLInputElement>(
+          'input[name="track-release-date"]'
+        ) as HTMLInputElement,
+        ""
+      );
+      findButtonByText(container, "保存修改")?.click();
+    });
+
+    expect(onUpdateTrack).toHaveBeenCalledWith("track_sample_001", {
+      title: "修改后的歌曲",
+      discNumber: 2,
+      trackNumber: 3,
+      version: "本地修订版",
+      releaseDate: null
+    });
+    expect(container.querySelector(".catalog-track-editor")).toBeNull();
+
+    await act(async () => {
+      findButton(container, "编辑示例歌曲一的元数据")?.click();
+    });
+    const secondAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("示例专辑 B"));
+
+    await act(async () => {
+      secondAlbumButton?.click();
+    });
+
+    expect(container.querySelector(".catalog-track-editor")).toBeNull();
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "示例专辑 B"
+    );
 
     await act(async () => {
       root.unmount();
