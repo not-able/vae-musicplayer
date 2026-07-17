@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type DragEvent } from "react";
+import { useMemo, useState, type ChangeEvent, type DragEvent } from "react";
 
 import type {
   Album,
@@ -12,9 +12,12 @@ import { LOCAL_AUDIO_FILE_ACCEPT } from "../local-library/localAudioFile";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import { writeAlbumDragData, writeTrackDragData } from "../../utils/albumDrag";
 import { getAlbumTracks, getReleaseYear, getSortedAlbums } from "./catalog";
+import type { CatalogLibraryStatus } from "./useCatalogLibrary";
 
 interface CatalogOverviewProps {
   catalog: CatalogData;
+  catalogLibraryStatus: CatalogLibraryStatus;
+  catalogLibraryError?: string;
   audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
   pendingAudioTrackIds: ReadonlySet<EntityId>;
   audioLibraryStatus: LocalAudioLibraryStatus;
@@ -34,6 +37,8 @@ const albumTypeLabels: Record<AlbumType, string> = {
 
 export function CatalogOverview({
   catalog,
+  catalogLibraryStatus,
+  catalogLibraryError,
   audioBindings,
   pendingAudioTrackIds,
   audioLibraryStatus,
@@ -43,12 +48,27 @@ export function CatalogOverview({
   onBindAudio,
   onUnbindAudio
 }: CatalogOverviewProps) {
-  const albums = getSortedAlbums(catalog);
-  const [selectedAlbumId, setSelectedAlbumId] = useState(() => albums[0]?.id);
+  const albums = useMemo(() => getSortedAlbums(catalog), [catalog]);
+  const [albumSelection, setAlbumSelection] = useState(() => ({
+    catalog,
+    albumId: albums[0]?.id
+  }));
   const [draggingAlbumId, setDraggingAlbumId] = useState<EntityId>();
   const [draggingTrackId, setDraggingTrackId] = useState<EntityId>();
+  const selectedAlbumId =
+    albumSelection.catalog === catalog ||
+    albums.some((album) => album.id === albumSelection.albumId)
+      ? albumSelection.albumId
+      : albums[0]?.id;
   const selectedAlbum =
     albums.find((album) => album.id === selectedAlbumId) ?? albums[0];
+
+  if (albumSelection.catalog !== catalog) {
+    setAlbumSelection({
+      catalog,
+      albumId: selectedAlbum?.id
+    });
+  }
 
   function startAlbumDrag(event: DragEvent<HTMLButtonElement>, albumId: EntityId) {
     writeAlbumDragData(event.dataTransfer, albumId);
@@ -66,6 +86,10 @@ export function CatalogOverview({
         <p className="eyebrow">Catalog</p>
         <h2 id="catalog-heading">专辑目录</h2>
         <p className="muted">尚未维护专辑数据。</p>
+        <CatalogLibraryNotice
+          status={catalogLibraryStatus}
+          errorMessage={catalogLibraryError}
+        />
       </section>
     );
   }
@@ -82,6 +106,10 @@ export function CatalogOverview({
 
       <div className="local-audio-notice">
         <p>音频文件仅保存在当前浏览器的本地存储中，不会上传。</p>
+        <CatalogLibraryNotice
+          status={catalogLibraryStatus}
+          errorMessage={catalogLibraryError}
+        />
         {audioLibraryError && (
           <p className="local-audio-error" role="status">
             {audioLibraryError}
@@ -115,7 +143,12 @@ export function CatalogOverview({
                     type="button"
                     draggable
                     aria-current={isSelected ? "true" : undefined}
-                    onClick={() => setSelectedAlbumId(album.id)}
+                    onClick={() =>
+                      setAlbumSelection({
+                        catalog,
+                        albumId: album.id
+                      })
+                    }
                     onDragStart={(event) => startAlbumDrag(event, album.id)}
                     onDragEnd={() => setDraggingAlbumId(undefined)}
                   >
@@ -154,6 +187,31 @@ export function CatalogOverview({
       </div>
     </div>
   );
+}
+
+interface CatalogLibraryNoticeProps {
+  status: CatalogLibraryStatus;
+  errorMessage?: string;
+}
+
+function CatalogLibraryNotice({ status, errorMessage }: CatalogLibraryNoticeProps) {
+  if (status === "error" && errorMessage) {
+    return (
+      <p className="local-audio-error catalog-library-error" role="status">
+        {errorMessage}
+      </p>
+    );
+  }
+
+  if (status === "loading") {
+    return (
+      <p className="catalog-library-status" role="status">
+        正在读取用户目录，当前先显示内置目录。
+      </p>
+    );
+  }
+
+  return null;
 }
 
 interface AlbumDetailProps {

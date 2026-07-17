@@ -3,9 +3,16 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../app/App";
+import { mockCatalog } from "../data/catalog/mockCatalog";
+import {
+  addAlbumToUserCatalog,
+  addTrackToUserCatalog,
+  createEmptyUserCatalogChanges
+} from "../features/catalog/catalogMutations";
+import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import { createLocalAudioFileRecord } from "../features/local-library/localAudioFile";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
-import type { LocalAudioFileRecord } from "../types";
+import type { LocalAudioFileRecord, UserCatalogChanges } from "../types";
 import {
   ALBUM_DRAG_MIME_TYPE,
   PLAYLIST_ITEM_DRAG_MIME_TYPE,
@@ -116,6 +123,51 @@ function createMemoryLocalAudioRepository(
   };
 }
 
+function createMemoryLocalCatalogRepository(load: () => Promise<UserCatalogChanges>) {
+  return {
+    load: vi.fn(load),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined)
+  } satisfies LocalCatalogRepository;
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, reject, resolve };
+}
+
+function createUserCatalogChanges(): UserCatalogChanges {
+  const albumChanges = addAlbumToUserCatalog(
+    mockCatalog,
+    createEmptyUserCatalogChanges(),
+    {
+      artistId: "artist_vae",
+      title: "用户专辑",
+      type: "other",
+      sortOrder: 3
+    },
+    () => "album_user_001"
+  );
+
+  return addTrackToUserCatalog(
+    mockCatalog,
+    albumChanges,
+    {
+      artistId: "artist_vae",
+      albumId: "album_user_001",
+      title: "用户歌曲",
+      trackNumber: 1
+    },
+    () => "track_user_001"
+  );
+}
+
 function installAudioElementMocks() {
   const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
     URL,
@@ -174,6 +226,207 @@ function selectFile(input: HTMLInputElement, file: File) {
   });
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
+
+describe("persistent catalog integration", () => {
+  it("shows the built-in catalog immediately and keeps existing behavior for empty changes", async () => {
+    const deferred = createDeferred<UserCatalogChanges>();
+    const catalogRepository = createMemoryLocalCatalogRepository(
+      () => deferred.promise
+    );
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+
+    expect(container.textContent).toContain("示例专辑 A");
+    expect(container.textContent).toContain("正在读取用户目录，当前先显示内置目录。");
+
+    await act(async () => {
+      deferred.resolve(createEmptyUserCatalogChanges());
+    });
+
+    expect(container.textContent).toContain("示例专辑 A");
+    expect(container.textContent).not.toContain("正在读取用户目录");
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
+    expect(catalogRepository.save).not.toHaveBeenCalled();
+    expect(catalogRepository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("uses loaded albums and tracks for catalog, queue, and player actions", async () => {
+    const deferred = createDeferred<UserCatalogChanges>();
+    const catalogRepository = createMemoryLocalCatalogRepository(
+      () => deferred.promise
+    );
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+
+    expect(container.textContent).not.toContain("用户专辑");
+
+    await act(async () => {
+      deferred.resolve(createUserCatalogChanges());
+    });
+
+    const userAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("用户专辑"));
+
+    expect(userAlbumButton).toBeDefined();
+
+    await act(async () => {
+      userAlbumButton?.click();
+    });
+
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "用户专辑"
+    );
+
+    await act(async () => {
+      findButton(container, "将用户歌曲加入临时歌单")?.click();
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户歌曲");
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "用户歌曲"
+    );
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".danger-button")?.click();
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+
+    expect(container.querySelectorAll(".queue-item")).toHaveLength(1);
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户歌曲");
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "用户歌曲"
+    );
+    expect(catalogRepository.load).toHaveBeenCalledOnce();
+    expect(catalogRepository.save).not.toHaveBeenCalled();
+    expect(catalogRepository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("preserves the queue and player when user changes finish loading", async () => {
+    const deferred = createDeferred<UserCatalogChanges>();
+    const catalogRepository = createMemoryLocalCatalogRepository(
+      () => deferred.promise
+    );
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲一"
+    );
+
+    await act(async () => {
+      deferred.resolve(createUserCatalogChanges());
+    });
+
+    expect(container.textContent).toContain("用户专辑");
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲一"
+    );
+    expect(catalogRepository.save).not.toHaveBeenCalled();
+    expect(catalogRepository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps the built-in catalog usable and shows a non-blocking message after load failure", async () => {
+    const catalogRepository = createMemoryLocalCatalogRepository(async () => {
+      throw new Error("catalog unavailable");
+    });
+    const localAudioRepository = createMemoryLocalAudioRepository();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository,
+          localAudioRepository
+        })
+      );
+    });
+
+    const statusMessages = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="status"]')
+    );
+
+    expect(
+      statusMessages.some((message) =>
+        message.textContent?.includes("无法读取用户目录，已继续使用内置目录。")
+      )
+    ).toBe(true);
+    expect(container.textContent).toContain("示例专辑 A");
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+
+    expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
+    expect(catalogRepository.save).not.toHaveBeenCalled();
+    expect(catalogRepository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
 
 describe("temporary playlist workflow", () => {
   it("connects catalog actions to repeat, ordering, removal, and clear controls", async () => {

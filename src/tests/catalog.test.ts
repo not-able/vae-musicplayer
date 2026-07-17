@@ -15,6 +15,8 @@ import {
   addTrackToUserCatalog,
   createEmptyUserCatalogChanges
 } from "../features/catalog/catalogMutations";
+import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
+import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
 import type { Album, CatalogData, UserCatalogChanges } from "../types";
 
 function expectCatalogIntegrity(catalog: CatalogData): void {
@@ -47,6 +49,42 @@ function expectCatalogIntegrity(catalog: CatalogData): void {
     expect(albumIdSet.has(track.albumId)).toBe(true);
     expect(album?.trackIds.filter((trackId) => trackId === track.id)).toHaveLength(1);
   }
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, reject, resolve };
+}
+
+function createMemoryCatalogRepository(load: () => Promise<UserCatalogChanges>) {
+  return {
+    load: vi.fn(load),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined)
+  } satisfies LocalCatalogRepository;
+}
+
+interface CatalogLibraryProbeProps {
+  repository: LocalCatalogRepository;
+}
+
+function CatalogLibraryProbe({ repository }: CatalogLibraryProbeProps) {
+  const library = useCatalogLibrary(mockCatalog, repository);
+
+  return createElement(
+    "output",
+    {
+      "data-error": library.errorMessage ?? "",
+      "data-status": library.status
+    },
+    library.catalog.albums.map((album) => album.title).join("|")
+  );
 }
 
 describe("catalog helpers", () => {
@@ -528,6 +566,137 @@ describe("catalog change merging", () => {
   });
 });
 
+describe("catalog library loading", () => {
+  it("keeps the built-in catalog available while loading and becomes ready without saving", async () => {
+    const deferred = createDeferred<UserCatalogChanges>();
+    const repository = createMemoryCatalogRepository(() => deferred.promise);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(CatalogLibraryProbe, { repository }));
+    });
+
+    const output = container.querySelector("output");
+
+    expect(output?.dataset.status).toBe("loading");
+    expect(output?.textContent).toContain("示例专辑 A");
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      deferred.resolve(createEmptyUserCatalogChanges());
+    });
+
+    expect(output?.dataset.status).toBe("ready");
+    expect(output?.textContent).toContain("示例专辑 A");
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("falls back to the built-in catalog when loaded changes cannot be merged", async () => {
+    const invalidChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_unknown: { title: "无效覆盖" }
+      }
+    };
+    const repository = createMemoryCatalogRepository(async () => invalidChanges);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(CatalogLibraryProbe, { repository }));
+    });
+
+    const output = container.querySelector("output");
+
+    expect(output?.dataset.status).toBe("error");
+    expect(output?.dataset.error).toBe("无法读取用户目录，已继续使用内置目录。");
+    expect(output?.textContent).toContain("示例专辑 A");
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.clear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("ignores a stale repository result after the repository changes", async () => {
+    const firstDeferred = createDeferred<UserCatalogChanges>();
+    const secondDeferred = createDeferred<UserCatalogChanges>();
+    const firstRepository = createMemoryCatalogRepository(() => firstDeferred.promise);
+    const secondRepository = createMemoryCatalogRepository(
+      () => secondDeferred.promise
+    );
+    const firstChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_sample_001: { title: "迟到的目录" }
+      }
+    };
+    const secondChanges: UserCatalogChanges = {
+      ...createEmptyUserCatalogChanges(),
+      albumOverrides: {
+        album_sample_001: { title: "当前目录" }
+      }
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(CatalogLibraryProbe, { repository: firstRepository }));
+    });
+    await act(async () => {
+      root.render(createElement(CatalogLibraryProbe, { repository: secondRepository }));
+    });
+    await act(async () => {
+      secondDeferred.resolve(secondChanges);
+    });
+
+    expect(container.textContent).toContain("当前目录");
+
+    await act(async () => {
+      firstDeferred.resolve(firstChanges);
+    });
+
+    expect(container.textContent).toContain("当前目录");
+    expect(container.textContent).not.toContain("迟到的目录");
+    expect(firstRepository.save).not.toHaveBeenCalled();
+    expect(secondRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("ignores a repository result that arrives after unmounting", async () => {
+    const deferred = createDeferred<UserCatalogChanges>();
+    const repository = createMemoryCatalogRepository(() => deferred.promise);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(CatalogLibraryProbe, { repository }));
+    });
+    await act(async () => {
+      root.unmount();
+    });
+    await act(async () => {
+      deferred.resolve(createEmptyUserCatalogChanges());
+    });
+
+    expect(container.childNodes).toHaveLength(0);
+    expect(repository.load).toHaveBeenCalledOnce();
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.clear).not.toHaveBeenCalled();
+  });
+});
+
 describe("catalog browsing", () => {
   it("shows the selected album and its tracks after an album click", async () => {
     const container = document.createElement("div");
@@ -541,6 +710,7 @@ describe("catalog browsing", () => {
       root.render(
         createElement(CatalogOverview, {
           catalog: mockCatalog,
+          catalogLibraryStatus: "ready",
           audioBindings: new Map(),
           pendingAudioTrackIds: new Set<string>(),
           audioLibraryStatus: "ready",
@@ -579,6 +749,83 @@ describe("catalog browsing", () => {
 
     expect(onAddAlbum).toHaveBeenCalledWith("album_sample_002");
     expect(onAddTrack).toHaveBeenCalledWith("track_sample_003");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps the first available album selected after the previous selection disappears", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const commonProps = {
+      catalogLibraryStatus: "ready" as const,
+      audioBindings: new Map(),
+      pendingAudioTrackIds: new Set<string>(),
+      audioLibraryStatus: "ready" as const,
+      onAddTrack: vi.fn(),
+      onAddAlbum: vi.fn(),
+      onBindAudio: vi.fn().mockResolvedValue(true),
+      onUnbindAudio: vi.fn().mockResolvedValue(true)
+    };
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, {
+          ...commonProps,
+          catalog: mockCatalog
+        })
+      );
+    });
+
+    const secondAlbumButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".album-list-button")
+    ).find((button) => button.textContent?.includes("示例专辑 B"));
+
+    await act(async () => {
+      secondAlbumButton?.click();
+    });
+
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "示例专辑 B"
+    );
+
+    const catalogWithoutSecondAlbum: CatalogData = {
+      ...mockCatalog,
+      albums: [mockCatalog.albums[0]],
+      tracks: mockCatalog.tracks.filter((track) => track.albumId === "album_sample_001")
+    };
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, {
+          ...commonProps,
+          catalog: catalogWithoutSecondAlbum
+        })
+      );
+    });
+
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "示例专辑 A"
+    );
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, {
+          ...commonProps,
+          catalog: mockCatalog
+        })
+      );
+    });
+
+    expect(container.querySelector("#album-detail-heading")?.textContent).toBe(
+      "示例专辑 A"
+    );
+    expect(
+      Array.from(container.querySelectorAll<HTMLButtonElement>(".album-list-button"))
+        .find((button) => button.textContent?.includes("示例专辑 A"))
+        ?.getAttribute("aria-current")
+    ).toBe("true");
 
     await act(async () => {
       root.unmount();

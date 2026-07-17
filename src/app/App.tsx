@@ -4,6 +4,8 @@ import { appReducer, createAppState } from "./appReducer";
 import { PageShell } from "../components/PageShell";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
+import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
+import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
 import { useLocalAudioLibrary } from "../features/local-library/useLocalAudioLibrary";
 import { PlayerBar } from "../features/player/PlayerBar";
@@ -11,6 +13,7 @@ import type { PlayerAction } from "../features/player/playerReducer";
 import { useLocalAudioPlayback } from "../features/player/useLocalAudioPlayback";
 import { TemporaryPlaylistPanel } from "../features/playlist/TemporaryPlaylistPanel";
 import { indexedDbLocalAudioRepository } from "../infra/storage/indexedDbLocalAudioRepository";
+import { localStorageCatalogRepository } from "../infra/storage/localStorageCatalogRepository";
 import type { EntityId } from "../types";
 import { createTemporaryPlaylist } from "../utils/playlist";
 
@@ -31,10 +34,12 @@ function createPlaylistItemId(): string {
 }
 
 interface AppProps {
+  catalogRepository?: LocalCatalogRepository;
   localAudioRepository?: LocalAudioFileRepository;
 }
 
 export function App({
+  catalogRepository = localStorageCatalogRepository,
   localAudioRepository = indexedDbLocalAudioRepository
 }: AppProps) {
   const [{ playlist, player }, dispatch] = useReducer(
@@ -43,6 +48,8 @@ export function App({
     createInitialState
   );
   const audioRef = useRef<HTMLAudioElement>(null);
+  const catalogLibrary = useCatalogLibrary(mockCatalog, catalogRepository);
+  const catalog = catalogLibrary.catalog;
   const localAudioLibrary = useLocalAudioLibrary(localAudioRepository);
   const dispatchPlayer = useCallback(
     (action: PlayerAction) => dispatch({ type: "player", action }),
@@ -67,7 +74,7 @@ export function App({
   );
 
   function addTrack(trackId: EntityId) {
-    const trackExists = mockCatalog.tracks.some((track) => track.id === trackId);
+    const trackExists = catalog.tracks.some((track) => track.id === trackId);
 
     if (!trackExists) {
       return;
@@ -85,7 +92,7 @@ export function App({
   }
 
   function addAlbum(albumId: EntityId) {
-    const album = mockCatalog.albums.find((item) => item.id === albumId);
+    const album = catalog.albums.find((item) => item.id === albumId);
 
     if (!album) {
       return;
@@ -107,7 +114,9 @@ export function App({
       <main className="app-layout">
         <section className="workspace" aria-labelledby="catalog-heading">
           <CatalogOverview
-            catalog={mockCatalog}
+            catalog={catalog}
+            catalogLibraryStatus={catalogLibrary.status}
+            catalogLibraryError={catalogLibrary.errorMessage}
             audioBindings={localAudioLibrary.bindingsByTrackId}
             pendingAudioTrackIds={localAudioLibrary.pendingTrackIds}
             audioLibraryStatus={localAudioLibrary.status}
@@ -122,7 +131,7 @@ export function App({
         <aside className="queue-panel" aria-labelledby="playlist-heading">
           <TemporaryPlaylistPanel
             playlist={playlist}
-            tracks={mockCatalog.tracks}
+            tracks={catalog.tracks}
             onRepeatCountChange={(itemId, repeatCount) =>
               dispatch({
                 type: "playlist",
@@ -172,7 +181,7 @@ export function App({
 
       <PlayerBar
         state={player}
-        tracks={mockCatalog.tracks}
+        tracks={catalog.tracks}
         currentAudioFileName={currentAudioBinding?.fileName}
         isCurrentAudioBound={Boolean(currentAudioBinding)}
         canPlayTarget={canPlayTarget}
