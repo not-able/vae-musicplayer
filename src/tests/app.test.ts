@@ -59,6 +59,45 @@ async function chooseAlbumMenuAction(
   });
 }
 
+async function openTrackActionsMenu(
+  container: HTMLElement,
+  trackTitle: string
+): Promise<void> {
+  await act(async () => {
+    findButton(container, `打开目录歌曲${trackTitle}的更多操作`)?.click();
+  });
+}
+
+async function chooseTrackMenuAction(
+  container: HTMLElement,
+  trackTitle: string,
+  actionLabel: string
+): Promise<void> {
+  await openTrackActionsMenu(container, trackTitle);
+  await act(async () => {
+    findButton(document.body, actionLabel)?.click();
+  });
+}
+
+async function selectCatalogTrackAudioFile(
+  container: HTMLElement,
+  trackTitle: string,
+  file: File
+): Promise<void> {
+  await openTrackActionsMenu(container, trackTitle);
+  const input = document.body.querySelector<HTMLInputElement>(
+    `input[aria-label="为${trackTitle}选择本地音频文件"]`
+  );
+
+  if (!input) {
+    throw new Error(`Audio input is unavailable for ${trackTitle}.`);
+  }
+
+  await act(async () => {
+    selectFile(input, file);
+  });
+}
+
 function createDataTransfer(): DataTransfer {
   const values = new Map<string, string>();
 
@@ -1569,9 +1608,7 @@ describe("persistent catalog integration", () => {
     const queueIdsBeforeEdit = queueItemIds();
     const playerMetaBeforeEdit = playerMeta();
 
-    await act(async () => {
-      findButton(container, "编辑用户歌曲一的元数据")?.click();
-    });
+    await chooseTrackMenuAction(container, "用户歌曲一", "编辑用户歌曲一的元数据");
     await act(async () => {
       changeInputValue(
         container.querySelector<HTMLInputElement>(
@@ -2199,9 +2236,7 @@ describe("catalog metadata editing workflow", () => {
     const playCallsBeforeEdit = mediaMocks.play.mock.calls.length;
     const objectUrlCallsBeforeEdit = mediaMocks.createObjectURL.mock.calls.length;
 
-    await act(async () => {
-      findButton(container, "编辑示例歌曲一的元数据")?.click();
-    });
+    await chooseTrackMenuAction(container, "示例歌曲一", "编辑示例歌曲一的元数据");
     await act(async () => {
       changeInputValue(
         container.querySelector<HTMLInputElement>(
@@ -2273,7 +2308,9 @@ describe("catalog metadata editing workflow", () => {
       );
     });
 
-    expect(findButton(container, "编辑本地修订歌曲的元数据")).toBeDefined();
+    await openTrackActionsMenu(container, "本地修订歌曲");
+    expect(findButton(document.body, "编辑本地修订歌曲的元数据")).toBeDefined();
+    await openTrackActionsMenu(container, "本地修订歌曲");
     expect(container.textContent).toContain("已绑定：sample-one.mp3");
     await act(async () => {
       findButton(container, "播放")?.click();
@@ -2289,9 +2326,7 @@ describe("catalog metadata editing workflow", () => {
     const playCallsBeforeReset = mediaMocks.play.mock.calls.length;
     const objectUrlCallsBeforeReset = mediaMocks.createObjectURL.mock.calls.length;
 
-    await act(async () => {
-      findButton(container, "编辑本地修订歌曲的元数据")?.click();
-    });
+    await chooseTrackMenuAction(container, "本地修订歌曲", "编辑本地修订歌曲的元数据");
     expect(findButtonByText(container, "恢复默认")).toBeDefined();
 
     await act(async () => {
@@ -2396,9 +2431,7 @@ describe("catalog metadata editing workflow", () => {
       "用户修订专辑"
     );
 
-    await act(async () => {
-      findButton(container, "编辑用户歌曲的元数据")?.click();
-    });
+    await chooseTrackMenuAction(container, "用户歌曲", "编辑用户歌曲的元数据");
 
     expect(findButtonByText(container, "恢复默认")).toBeUndefined();
 
@@ -2458,7 +2491,9 @@ describe("catalog metadata editing workflow", () => {
       restoredAlbumButton?.click();
     });
 
-    expect(findButton(container, "编辑用户修订歌曲的元数据")).toBeDefined();
+    await openTrackActionsMenu(container, "用户修订歌曲");
+    expect(findButton(document.body, "编辑用户修订歌曲的元数据")).toBeDefined();
+    await openTrackActionsMenu(container, "用户修订歌曲");
     expect(container.querySelector(".album-track-list")?.textContent).toContain(
       "用户修订歌曲"
     );
@@ -2491,9 +2526,7 @@ describe("catalog metadata editing workflow", () => {
         })
       );
     });
-    await act(async () => {
-      findButton(container, "编辑示例歌曲一的元数据")?.click();
-    });
+    await chooseTrackMenuAction(container, "示例歌曲一", "编辑示例歌曲一的元数据");
 
     const titleInput = container.querySelector<HTMLInputElement>(
       'input[name="track-title"]'
@@ -2819,18 +2852,11 @@ describe("temporary playlist workflow", () => {
     expect(findButton(container, "播放")?.disabled).toBe(true);
     expect(mediaMocks.play).not.toHaveBeenCalled();
 
-    const audioInput = container.querySelector<HTMLInputElement>(
-      'input[aria-label="为示例歌曲一选择本地音频文件"]'
-    );
     const localFile = new File(["self-created test bytes"], "sample-one.mp3", {
       type: "audio/mpeg"
     });
 
-    expect(audioInput).not.toBeNull();
-
-    await act(async () => {
-      selectFile(audioInput as HTMLInputElement, localFile);
-    });
+    await selectCatalogTrackAudioFile(container, "示例歌曲一", localFile);
 
     expect(repository.save).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2854,9 +2880,11 @@ describe("temporary playlist workflow", () => {
       "正在播放"
     );
 
-    await act(async () => {
-      findButton(container, "解除示例歌曲一的本地音频绑定")?.click();
-    });
+    await chooseTrackMenuAction(
+      container,
+      "示例歌曲一",
+      "解除示例歌曲一的本地音频绑定"
+    );
 
     expect(repository.remove).toHaveBeenCalledWith("track_sample_001");
     expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
@@ -3399,13 +3427,8 @@ describe("temporary playlist workflow", () => {
 
     expect(endedListeners).toHaveLength(1);
     const initialSourceEnded = endedListeners[0];
-    const audioInput = container.querySelector<HTMLInputElement>(
-      'input[aria-label="为示例歌曲一选择本地音频文件"]'
-    ) as HTMLInputElement;
 
-    await act(async () => {
-      selectFile(audioInput, replacementFile);
-    });
+    await selectCatalogTrackAudioFile(container, "示例歌曲一", replacementFile);
 
     expect(initialSourceEnded.removed).toBe(true);
     expect(endedListeners).toHaveLength(2);
@@ -3423,9 +3446,7 @@ describe("temporary playlist workflow", () => {
       "正在播放"
     );
 
-    await act(async () => {
-      selectFile(audioInput, replacementFile);
-    });
+    await selectCatalogTrackAudioFile(container, "示例歌曲一", replacementFile);
 
     expect(replacementSourceEnded.removed).toBe(true);
     expect(endedListeners).toHaveLength(3);
@@ -3440,9 +3461,11 @@ describe("temporary playlist workflow", () => {
 
     expect(playerTitle()).toBe("示例歌曲一");
 
-    await act(async () => {
-      findButton(container, "解除示例歌曲一的本地音频绑定")?.click();
-    });
+    await chooseTrackMenuAction(
+      container,
+      "示例歌曲一",
+      "解除示例歌曲一的本地音频绑定"
+    );
 
     expect(sameFileReplacementSourceEnded.removed).toBe(true);
     expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
@@ -3458,9 +3481,7 @@ describe("temporary playlist workflow", () => {
       "未绑定音频文件"
     );
 
-    await act(async () => {
-      selectFile(audioInput, replacementFile);
-    });
+    await selectCatalogTrackAudioFile(container, "示例歌曲一", replacementFile);
 
     expect(endedListeners).toHaveLength(4);
     const reboundSourceEnded = endedListeners[3];

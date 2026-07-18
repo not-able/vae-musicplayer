@@ -113,6 +113,19 @@ async function chooseAlbumMenuAction(
   });
 }
 
+async function chooseTrackMenuAction(
+  container: HTMLElement,
+  trackTitle: string,
+  actionLabel: string
+): Promise<void> {
+  await act(async () => {
+    findButton(container, `打开目录歌曲${trackTitle}的更多操作`)?.click();
+  });
+  await act(async () => {
+    findButton(document.body, actionLabel)?.click();
+  });
+}
+
 function createCatalogOverviewProps(
   overrides: Partial<ComponentProps<typeof CatalogOverview>> = {}
 ): ComponentProps<typeof CatalogOverview> {
@@ -2108,6 +2121,54 @@ describe("catalog browsing", () => {
     });
     container.remove();
   });
+
+  it("groups secondary track actions in an accessible overflow menu", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(CatalogOverview, createCatalogOverviewProps({ canDelete: true }))
+      );
+    });
+
+    const trigger = findButton(container, "打开目录歌曲示例歌曲一的更多操作");
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(findButton(container, "编辑示例歌曲一的元数据")).toBeUndefined();
+    expect(findButton(container, "从目录删除歌曲示例歌曲一")).toBeUndefined();
+
+    await act(async () => {
+      trigger?.focus();
+      trigger?.click();
+    });
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.body.querySelector('[aria-label="示例歌曲一的目录歌曲操作"]')
+    ).not.toBeNull();
+    expect(findButton(document.body, "编辑示例歌曲一的元数据")?.disabled).toBe(false);
+    expect(
+      document.body.querySelector<HTMLInputElement>(
+        'input[aria-label="为示例歌曲一选择本地音频文件"]'
+      )
+    ).not.toBeNull();
+    expect(findButton(document.body, "从目录删除歌曲示例歌曲一")).toBeDefined();
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 describe("catalog album editor", () => {
@@ -2739,9 +2800,7 @@ describe("catalog metadata editing", () => {
         )
       );
     });
-    await act(async () => {
-      findButton(container, "编辑示例歌曲一的元数据")?.click();
-    });
+    await chooseTrackMenuAction(container, "示例歌曲一", "编辑示例歌曲一的元数据");
 
     expect(
       container.querySelector<HTMLInputElement>('input[name="track-title"]')?.value
@@ -2784,9 +2843,7 @@ describe("catalog metadata editing", () => {
     });
     expect(container.querySelector(".catalog-track-editor")).toBeNull();
 
-    await act(async () => {
-      findButton(container, "编辑示例歌曲一的元数据")?.click();
-    });
+    await chooseTrackMenuAction(container, "示例歌曲一", "编辑示例歌曲一的元数据");
     const secondAlbumButton = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".album-list-button")
     ).find((button) => button.textContent?.includes("示例专辑 B"));

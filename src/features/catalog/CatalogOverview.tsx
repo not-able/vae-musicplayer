@@ -852,17 +852,8 @@ function TrackRow({
   onDragEnd
 }: TrackRowProps) {
   const hasTrackNumber = Number.isInteger(track.trackNumber);
-  const isAudioLibraryReady = audioLibraryStatus === "ready";
   const bindingStatusLabel = getBindingStatusLabel(audioLibraryStatus, audioBinding);
-
-  function handleAudioFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-
-    if (file) {
-      void onBindAudio(file);
-    }
-  }
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
 
   return (
     <li className={isDragging ? "is-dragging" : undefined}>
@@ -890,69 +881,27 @@ function TrackRow({
         </div>
       </div>
       <div className="track-actions">
-        <button
-          className="text-button edit-track-metadata-button"
-          type="button"
-          disabled={!canEdit}
-          aria-label={`编辑${track.title}的元数据`}
-          onClick={onEdit}
-        >
-          编辑
-        </button>
-        {canDelete && (
-          <button
-            className="text-button"
-            type="button"
-            aria-label={`从目录删除歌曲${track.title}`}
-            onClick={onRequestDeletion}
-          >
-            删除
-          </button>
-        )}
         <span
           className={`binding-status ${audioBinding ? "is-bound" : "is-unbound"}`}
           title={bindingStatusLabel}
         >
           {bindingStatusLabel}
         </span>
-        <label
-          className={`audio-file-picker ${
-            !isAudioLibraryReady || isAudioPending ? "is-disabled" : ""
-          }`}
-        >
-          <span>{isAudioPending ? "处理中…" : audioBinding ? "更换" : "绑定音频"}</span>
-          <input
-            className="visually-hidden"
-            type="file"
-            accept={LOCAL_AUDIO_FILE_ACCEPT}
-            disabled={!isAudioLibraryReady || isAudioPending}
-            aria-label={`为${track.title}选择本地音频文件`}
-            onChange={handleAudioFileChange}
-          />
-        </label>
-        {audioBinding?.storageMethod === "file-handle" &&
-        audioBinding.status === "permission_required" ? (
-          <button
-            className="text-button"
-            type="button"
-            disabled={isAudioPending}
-            aria-label={`重新授权读取${track.title}的原文件`}
-            onClick={() => void onRequestAudioAccess()}
-          >
-            重新授权
-          </button>
-        ) : null}
-        {audioBinding && (
-          <button
-            className="text-button unbind-audio-button"
-            type="button"
-            disabled={isAudioPending}
-            aria-label={`解除${track.title}的本地音频绑定`}
-            onClick={() => void onUnbindAudio()}
-          >
-            解绑
-          </button>
-        )}
+        <TrackActionsMenu
+          trackTitle={track.title}
+          audioBinding={audioBinding}
+          audioLibraryStatus={audioLibraryStatus}
+          isAudioPending={isAudioPending}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          isOpen={isActionsMenuOpen}
+          onOpenChange={setIsActionsMenuOpen}
+          onEdit={onEdit}
+          onBindAudio={onBindAudio}
+          onRequestAudioAccess={onRequestAudioAccess}
+          onUnbindAudio={onUnbindAudio}
+          onRequestDeletion={onRequestDeletion}
+        />
         <button
           className="icon-button add-track-button"
           type="button"
@@ -965,6 +914,246 @@ function TrackRow({
       </div>
     </li>
   );
+}
+
+interface TrackActionsMenuProps {
+  trackTitle: string;
+  audioBinding?: LocalAudioFileRecord;
+  audioLibraryStatus: LocalAudioLibraryStatus;
+  isAudioPending: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onEdit: () => void;
+  onBindAudio: (file: File) => Promise<boolean>;
+  onRequestAudioAccess: () => Promise<boolean>;
+  onUnbindAudio: () => Promise<boolean>;
+  onRequestDeletion: () => void;
+}
+
+interface TrackMenuPosition {
+  top: number;
+  left: number;
+  openAbove: boolean;
+}
+
+function TrackActionsMenu({
+  trackTitle,
+  audioBinding,
+  audioLibraryStatus,
+  isAudioPending,
+  canEdit,
+  canDelete,
+  isOpen,
+  onOpenChange,
+  onEdit,
+  onBindAudio,
+  onRequestAudioAccess,
+  onUnbindAudio,
+  onRequestDeletion
+}: TrackActionsMenuProps) {
+  const popoverId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<TrackMenuPosition>();
+  const isAudioLibraryReady = audioLibraryStatus === "ready";
+  const needsAudioAccess =
+    audioBinding?.storageMethod === "file-handle" &&
+    audioBinding.status === "permission_required";
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !triggerRef.current?.contains(event.target) &&
+        !popoverRef.current?.contains(event.target)
+      ) {
+        onOpenChange(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onOpenChange(false);
+        triggerRef.current?.focus();
+      }
+    }
+
+    function handleViewportChange() {
+      onOpenChange(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("resize", handleViewportChange);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("scroll", handleViewportChange, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [isOpen, onOpenChange]);
+
+  function toggleMenu() {
+    if (isOpen) {
+      onOpenChange(false);
+      return;
+    }
+
+    const anchorBounds = triggerRef.current?.getBoundingClientRect();
+    if (!anchorBounds) {
+      return;
+    }
+
+    setPosition(getTrackMenuPosition(anchorBounds));
+    onOpenChange(true);
+  }
+
+  function runAction(action: () => void) {
+    onOpenChange(false);
+    action();
+  }
+
+  function handleAudioFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    onOpenChange(false);
+    void onBindAudio(file);
+  }
+
+  return (
+    <>
+      <button
+        className="icon-button track-menu-trigger"
+        ref={triggerRef}
+        type="button"
+        aria-label={`打开目录歌曲${trackTitle}的更多操作`}
+        aria-controls={popoverId}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        title="更多操作"
+        onClick={toggleMenu}
+      >
+        ⋯
+      </button>
+
+      {isOpen &&
+        position &&
+        createPortal(
+          <div
+            className="track-actions-menu-popover"
+            id={popoverId}
+            ref={popoverRef}
+            role="dialog"
+            aria-label={`${trackTitle}的目录歌曲操作`}
+            style={{
+              top: position.top,
+              left: position.left,
+              transform: position.openAbove ? "translateY(-100%)" : undefined
+            }}
+          >
+            <div className="track-menu-actions">
+              <button
+                type="button"
+                disabled={!canEdit}
+                aria-label={`编辑${trackTitle}的元数据`}
+                onClick={() => runAction(onEdit)}
+              >
+                编辑元数据
+              </button>
+              <label
+                className={`audio-file-picker ${
+                  !isAudioLibraryReady || isAudioPending ? "is-disabled" : ""
+                }`}
+              >
+                <span>
+                  {isAudioPending
+                    ? "处理中…"
+                    : audioBinding
+                      ? "更换本地音频"
+                      : "绑定本地音频"}
+                </span>
+                <input
+                  className="visually-hidden"
+                  type="file"
+                  accept={LOCAL_AUDIO_FILE_ACCEPT}
+                  disabled={!isAudioLibraryReady || isAudioPending}
+                  aria-label={`为${trackTitle}选择本地音频文件`}
+                  onChange={handleAudioFileChange}
+                />
+              </label>
+              {needsAudioAccess ? (
+                <button
+                  type="button"
+                  disabled={isAudioPending}
+                  aria-label={`重新授权读取${trackTitle}的原文件`}
+                  onClick={() => runAction(() => void onRequestAudioAccess())}
+                >
+                  重新授权
+                </button>
+              ) : null}
+              {audioBinding ? (
+                <button
+                  type="button"
+                  disabled={isAudioPending}
+                  aria-label={`解除${trackTitle}的本地音频绑定`}
+                  onClick={() => runAction(() => void onUnbindAudio())}
+                >
+                  解绑本地音频
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  className="track-menu-delete"
+                  type="button"
+                  aria-label={`从目录删除歌曲${trackTitle}`}
+                  onClick={() => runAction(onRequestDeletion)}
+                >
+                  删除歌曲
+                </button>
+              ) : null}
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+function getTrackMenuPosition(anchorBounds: DOMRect): TrackMenuPosition {
+  const viewportPadding = 8;
+  const menuGap = 6;
+  const menuWidth = 210;
+  const estimatedMenuHeight = 230;
+  const availableBelow = window.innerHeight - anchorBounds.bottom;
+  const openAbove =
+    availableBelow < estimatedMenuHeight + viewportPadding &&
+    anchorBounds.top >= estimatedMenuHeight + viewportPadding;
+  const maximumLeft = Math.max(
+    viewportPadding,
+    window.innerWidth - menuWidth - viewportPadding
+  );
+
+  return {
+    top: openAbove ? anchorBounds.top - menuGap : anchorBounds.bottom + menuGap,
+    left: Math.min(
+      Math.max(viewportPadding, anchorBounds.right - menuWidth),
+      maximumLeft
+    ),
+    openAbove
+  };
 }
 
 interface CatalogDeletionDialogProps {

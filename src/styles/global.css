@@ -1269,7 +1269,8 @@ a:focus-visible {
 }
 
 .queue-menu-trigger.icon-button,
-.album-menu-trigger.icon-button {
+.album-menu-trigger.icon-button,
+.track-menu-trigger.icon-button {
   width: 28px;
   height: 28px;
   flex-basis: 28px;
@@ -1278,7 +1279,8 @@ a:focus-visible {
 }
 
 .queue-menu-trigger[aria-expanded="true"],
-.album-menu-trigger[aria-expanded="true"] {
+.album-menu-trigger[aria-expanded="true"],
+.track-menu-trigger[aria-expanded="true"] {
   border-color: var(--border);
   background: #e5f0ec;
   color: var(--accent-strong);
@@ -1295,7 +1297,8 @@ a:focus-visible {
   box-shadow: 0 12px 32px rgb(24 32 38 / 18%);
 }
 
-.album-actions-menu-popover {
+.album-actions-menu-popover,
+.track-actions-menu-popover {
   position: fixed;
   z-index: 100;
   width: min(180px, calc(100vw - 16px));
@@ -1311,7 +1314,17 @@ a:focus-visible {
   gap: 6px;
 }
 
-.album-menu-actions button {
+.track-actions-menu-popover {
+  width: min(210px, calc(100vw - 16px));
+}
+
+.track-menu-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.album-menu-actions button,
+.track-menu-actions button {
   min-height: 32px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -1341,6 +1354,14 @@ a:focus-visible {
 .repeat-unit {
   color: var(--muted);
   font-size: 12px;
+}
+
+.track-menu-actions .audio-file-picker {
+  justify-content: center;
+}
+
+.track-menu-delete {
+  color: var(--warning) !important;
 }
 
 .repeat-stepper {
