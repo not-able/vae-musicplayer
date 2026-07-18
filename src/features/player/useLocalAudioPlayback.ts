@@ -19,19 +19,31 @@ interface PreparedAudioSource {
   record: LocalAudioFileRecord;
   audio: HTMLAudioElement;
   handleEnded: () => void;
+  handleProgressChange: () => void;
 }
 
 const SOURCE_ENDED_LISTENER_OPTIONS = { passive: true } as const;
 
 export interface LocalAudioPlaybackControls {
   errorMessage?: string;
+  progress: LocalAudioPlaybackProgress;
   requestPlay: () => void;
   requestPause: () => void;
   requestRestart: () => void;
+  requestSeek: (timeSeconds: number) => void;
   stopAndRelease: () => void;
   handleAudioError: () => void;
   clearError: () => void;
 }
+
+export interface LocalAudioPlaybackProgress {
+  currentTimeSeconds: number;
+  durationSeconds?: number;
+}
+
+const EMPTY_PLAYBACK_PROGRESS: LocalAudioPlaybackProgress = {
+  currentTimeSeconds: 0
+};
 
 export function useLocalAudioPlayback({
   state,
@@ -43,21 +55,50 @@ export function useLocalAudioPlayback({
   const preparedSourceRef = useRef<PreparedAudioSource | undefined>(undefined);
   const sourceTokenSequenceRef = useRef(0);
   const [errorMessage, setErrorMessage] = useState<string>();
+  const [progress, setProgress] = useState<LocalAudioPlaybackProgress>(
+    EMPTY_PLAYBACK_PROGRESS
+  );
+
+  const updateProgress = useCallback((audio: HTMLAudioElement) => {
+    const nextProgress = getPlaybackProgress(audio);
+
+    setProgress((previousProgress) =>
+      isSamePlaybackProgress(previousProgress, nextProgress)
+        ? previousProgress
+        : nextProgress
+    );
+  }, []);
+
+  const resetProgress = useCallback(() => {
+    setProgress((previousProgress) =>
+      isSamePlaybackProgress(previousProgress, EMPTY_PLAYBACK_PROGRESS)
+        ? previousProgress
+        : EMPTY_PLAYBACK_PROGRESS
+    );
+  }, []);
 
   const releasePreparedSource = useCallback(() => {
     const preparedSource = preparedSourceRef.current;
 
     if (!preparedSource) {
+      resetProgress();
       return;
     }
 
     preparedSourceRef.current = undefined;
     preparedSource.audio.removeEventListener("ended", preparedSource.handleEnded);
+    for (const eventName of MEDIA_PROGRESS_EVENTS) {
+      preparedSource.audio.removeEventListener(
+        eventName,
+        preparedSource.handleProgressChange
+      );
+    }
     preparedSource.audio.pause();
     preparedSource.audio.removeAttribute("src");
     preparedSource.audio.load();
     URL.revokeObjectURL(preparedSource.objectUrl);
-  }, []);
+    resetProgress();
+  }, [resetProgress]);
 
   const prepareSource = useCallback(
     (
@@ -94,6 +135,13 @@ export function useLocalAudioPlayback({
         setErrorMessage(undefined);
         dispatchPlayer({ type: "playback-ended", playbackRevision });
       };
+      const handleProgressChange = () => {
+        if (preparedSourceRef.current?.sourceToken !== sourceToken) {
+          return;
+        }
+
+        updateProgress(audio);
+      };
 
       sourceTokenSequenceRef.current = sourceToken;
       preparedSourceRef.current = {
@@ -102,9 +150,14 @@ export function useLocalAudioPlayback({
         objectUrl,
         record,
         audio,
-        handleEnded
+        handleEnded,
+        handleProgressChange
       };
       audio.addEventListener("ended", handleEnded, SOURCE_ENDED_LISTENER_OPTIONS);
+      for (const eventName of MEDIA_PROGRESS_EVENTS) {
+        audio.addEventListener(eventName, handleProgressChange);
+      }
+      resetProgress();
 
       try {
         audio.src = objectUrl;
@@ -117,7 +170,7 @@ export function useLocalAudioPlayback({
 
       return sourceToken;
     },
-    [audioRef, dispatchPlayer, releasePreparedSource]
+    [audioRef, dispatchPlayer, releasePreparedSource, resetProgress, updateProgress]
   );
 
   const beginPlayback = useCallback(
@@ -282,6 +335,31 @@ export function useLocalAudioPlayback({
     }
   }, [beginPlayback, bindingsByTrackId, dispatchPlayer, prepareSource, state]);
 
+  const requestSeek = useCallback(
+    (timeSeconds: number) => {
+      const preparedSource = preparedSourceRef.current;
+      const durationSeconds = preparedSource?.audio.duration;
+
+      if (
+        !preparedSource ||
+        !Number.isFinite(timeSeconds) ||
+        !isValidDuration(durationSeconds)
+      ) {
+        return;
+      }
+
+      const nextTime = Math.min(Math.max(0, timeSeconds), durationSeconds);
+
+      try {
+        preparedSource.audio.currentTime = nextTime;
+        updateProgress(preparedSource.audio);
+      } catch {
+        setErrorMessage("无法定位当前音频，请重新绑定兼容的文件。");
+      }
+    },
+    [updateProgress]
+  );
+
   const stopAndRelease = useCallback(() => {
     releasePreparedSource();
     dispatchPlayer({ type: "pause" });
@@ -293,18 +371,57 @@ export function useLocalAudioPlayback({
     }
 
     setErrorMessage("音频文件无法播放，请重新绑定兼容的文件。");
+    releasePreparedSource();
     dispatchPlayer({ type: "pause" });
-  }, [dispatchPlayer]);
+  }, [dispatchPlayer, releasePreparedSource]);
 
   return {
     errorMessage,
+    progress,
     requestPlay,
     requestPause,
     requestRestart,
+    requestSeek,
     stopAndRelease,
     handleAudioError,
     clearError: () => setErrorMessage(undefined)
   };
+}
+
+const MEDIA_PROGRESS_EVENTS = [
+  "loadedmetadata",
+  "durationchange",
+  "timeupdate",
+  "seeking",
+  "seeked"
+] as const;
+
+function getPlaybackProgress(audio: HTMLAudioElement): LocalAudioPlaybackProgress {
+  const durationSeconds = audio.duration;
+
+  if (!isValidDuration(durationSeconds)) {
+    return EMPTY_PLAYBACK_PROGRESS;
+  }
+
+  const currentTimeSeconds = Number.isFinite(audio.currentTime)
+    ? Math.min(Math.max(0, audio.currentTime), durationSeconds)
+    : 0;
+
+  return { currentTimeSeconds, durationSeconds };
+}
+
+function isSamePlaybackProgress(
+  first: LocalAudioPlaybackProgress,
+  second: LocalAudioPlaybackProgress
+): boolean {
+  return (
+    first.currentTimeSeconds === second.currentTimeSeconds &&
+    first.durationSeconds === second.durationSeconds
+  );
+}
+
+function isValidDuration(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function createSourceKey(entry: PlaySequenceEntry, playbackRevision: number): string {

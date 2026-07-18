@@ -1,6 +1,9 @@
+import type { CSSProperties } from "react";
+
 import type { Track } from "../../types";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import type { PlayerState, PlayerStatus } from "./playerReducer";
+import type { LocalAudioPlaybackProgress } from "./useLocalAudioPlayback";
 
 interface PlayerBarProps {
   state: PlayerState;
@@ -10,11 +13,13 @@ interface PlayerBarProps {
   canPlayTarget: boolean;
   audioLibraryStatus: LocalAudioLibraryStatus;
   playbackError?: string;
+  playbackProgress: LocalAudioPlaybackProgress;
   onPlay: () => void;
   onPause: () => void;
   onNext: () => void;
   onPrevious: () => void;
   onRestart: () => void;
+  onSeek: (timeSeconds: number) => void;
 }
 
 export function PlayerBar({
@@ -25,11 +30,13 @@ export function PlayerBar({
   canPlayTarget,
   audioLibraryStatus,
   playbackError,
+  playbackProgress,
   onPlay,
   onPause,
   onNext,
   onPrevious,
-  onRestart
+  onRestart,
+  onSeek
 }: PlayerBarProps) {
   const currentTrack = tracks.find((track) => track.id === state.currentEntry?.trackId);
   const isEmpty = state.status === "empty";
@@ -46,6 +53,22 @@ export function PlayerBar({
     (!isEmpty && audioLibraryStatus === "ready" && !isCurrentAudioBound
       ? "未绑定音频文件"
       : getPlayerStatusLabel(state.status));
+  const isSeekable =
+    isCurrentAudioBound &&
+    typeof playbackProgress.durationSeconds === "number" &&
+    playbackProgress.durationSeconds > 0;
+  const durationSeconds = playbackProgress.durationSeconds ?? 0;
+  const currentTimeSeconds = isSeekable
+    ? Math.min(playbackProgress.currentTimeSeconds, durationSeconds)
+    : 0;
+  const progressTimeLabel = isSeekable
+    ? `${formatPlaybackTime(currentTimeSeconds)} / ${formatPlaybackTime(durationSeconds)}`
+    : "--:-- / --:--";
+  const progressStyle = {
+    "--player-progress-percentage": isSeekable
+      ? `${(currentTimeSeconds / durationSeconds) * 100}%`
+      : "0%"
+  } as CSSProperties;
 
   return (
     <footer className="player-bar" aria-label="本地音频播放器">
@@ -102,12 +125,44 @@ export function PlayerBar({
         </button>
       </div>
 
+      <section className="player-progress" aria-label="播放进度" style={progressStyle}>
+        <label className="player-progress-label" htmlFor="player-progress-range">
+          播放进度
+        </label>
+        <span className="player-progress-current" aria-hidden="true">
+          {isSeekable ? formatPlaybackTime(currentTimeSeconds) : "--:--"}
+        </span>
+        <input
+          id="player-progress-range"
+          type="range"
+          min="0"
+          max={durationSeconds}
+          step="0.1"
+          value={currentTimeSeconds}
+          disabled={!isSeekable}
+          aria-label="播放进度"
+          aria-valuetext={isSeekable ? progressTimeLabel : "当前音频尚未加载有效时长"}
+          onChange={(event) => onSeek(Number(event.currentTarget.value))}
+        />
+        <span className="player-progress-duration" aria-hidden="true">
+          {isSeekable ? formatPlaybackTime(durationSeconds) : "--:--"}
+        </span>
+      </section>
+
       <p className={`player-status is-${state.status}`} aria-live="polite">
         <span aria-hidden="true" />
         <span>{playerStatusLabel}</span>
       </p>
     </footer>
   );
+}
+
+function formatPlaybackTime(timeSeconds: number): string {
+  const wholeSeconds = Math.max(0, Math.floor(timeSeconds));
+  const minutes = Math.floor(wholeSeconds / 60);
+  const seconds = wholeSeconds % 60;
+
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 interface AudioStatusLabelInput {

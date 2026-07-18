@@ -348,6 +348,7 @@ export function App({
         canPlayTarget={canPlayTarget}
         audioLibraryStatus={localAudioLibrary.status}
         playbackError={localAudioPlayback.errorMessage}
+        playbackProgress={localAudioPlayback.progress}
         onPlay={localAudioPlayback.requestPlay}
         onPause={localAudioPlayback.requestPause}
         onNext={() => {
@@ -359,6 +360,7 @@ export function App({
           dispatchPlayer({ type: "previous" });
         }}
         onRestart={localAudioPlayback.requestRestart}
+        onSeek={localAudioPlayback.requestSeek}
       />
       <audio
         key={audioElementKey}

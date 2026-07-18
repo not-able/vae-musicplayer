@@ -118,6 +118,17 @@ function changeInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
 }
 
+function setAudioTiming(
+  audio: HTMLAudioElement,
+  duration: number,
+  currentTime: number
+): void {
+  Object.defineProperties(audio, {
+    duration: { configurable: true, value: duration, writable: true },
+    currentTime: { configurable: true, value: currentTime, writable: true }
+  });
+}
+
 function changeSelectValue(select: HTMLSelectElement, value: string) {
   const valueSetter = Object.getOwnPropertyDescriptor(
     HTMLSelectElement.prototype,
@@ -3056,6 +3067,94 @@ describe("temporary playlist workflow", () => {
     });
     expect(playerTitle()).toBe("播放队列为空");
     expect(playerMeta()).toContain("请先将歌曲加入临时歌单");
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("updates local playback progress, seeks safely, and clears stale media timing", async () => {
+    const firstFile = new File(["first test file"], "sample-one.mp3", {
+      type: "audio/mpeg"
+    });
+    const secondFile = new File(["second test file"], "sample-two.ogg", {
+      type: "audio/ogg"
+    });
+    const repository = createMemoryLocalAudioRepository([
+      createLocalAudioFileRecord(
+        "track_sample_001",
+        firstFile,
+        "2026-07-18T00:00:00.000Z"
+      ),
+      createLocalAudioFileRecord(
+        "track_sample_002",
+        secondFile,
+        "2026-07-18T00:00:00.000Z"
+      )
+    ]);
+    installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(App, { localAudioRepository: repository }));
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+
+    const firstAudio = container.querySelector<HTMLAudioElement>("audio");
+    const progressRange = container.querySelector<HTMLInputElement>(
+      'input[aria-label="播放进度"]'
+    );
+    const currentProgressTime = container.querySelector(".player-progress-current");
+    const durationProgressTime = container.querySelector(".player-progress-duration");
+
+    expect(progressRange?.disabled).toBe(true);
+    expect(currentProgressTime?.textContent).toBe("--:--");
+    expect(durationProgressTime?.textContent).toBe("--:--");
+
+    await act(async () => {
+      setAudioTiming(firstAudio as HTMLAudioElement, 245, 61.4);
+      firstAudio?.dispatchEvent(new Event("loadedmetadata"));
+      firstAudio?.dispatchEvent(new Event("timeupdate"));
+    });
+
+    expect(progressRange?.disabled).toBe(false);
+    expect(progressRange?.max).toBe("245");
+    expect(progressRange?.value).toBe("61.4");
+    expect(currentProgressTime?.textContent).toBe("1:01");
+    expect(durationProgressTime?.textContent).toBe("4:05");
+
+    await act(async () => {
+      changeInputValue(progressRange as HTMLInputElement, "120");
+    });
+
+    expect(firstAudio?.currentTime).toBe(120);
+    expect(currentProgressTime?.textContent).toBe("2:00");
+    expect(durationProgressTime?.textContent).toBe("4:05");
+
+    await act(async () => {
+      setAudioTiming(firstAudio as HTMLAudioElement, Number.NaN, 120);
+      firstAudio?.dispatchEvent(new Event("durationchange"));
+    });
+
+    expect(progressRange?.disabled).toBe(true);
+    expect(currentProgressTime?.textContent).toBe("--:--");
+    expect(durationProgressTime?.textContent).toBe("--:--");
+
+    await act(async () => {
+      findButton(container, "下一首")?.click();
+    });
+
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲二"
+    );
+    expect(progressRange?.disabled).toBe(true);
+    expect(currentProgressTime?.textContent).toBe("--:--");
+    expect(durationProgressTime?.textContent).toBe("--:--");
 
     await act(async () => {
       root.unmount();

@@ -1308,6 +1308,7 @@ button:disabled {
   left: 24px;
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 1fr);
+  grid-template-rows: auto auto;
   gap: 12px;
   align-items: center;
   max-width: 1200px;
@@ -1317,6 +1318,8 @@ button:disabled {
 }
 
 .player-now-playing {
+  grid-column: 1;
+  grid-row: 2;
   min-width: 0;
 }
 
@@ -1355,6 +1358,8 @@ button:disabled {
 }
 
 .player-actions {
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -1382,7 +1387,123 @@ button:disabled {
   color: var(--accent-strong);
 }
 
+.player-progress {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.player-progress-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.player-progress-current,
+.player-progress-duration {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-progress-duration {
+  text-align: right;
+}
+
+.player-progress input[type="range"] {
+  width: 100%;
+  height: 18px;
+  min-width: 0;
+  margin: 0;
+  appearance: none;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--player-progress-percentage),
+    #dce4e1 var(--player-progress-percentage),
+    #dce4e1 100%
+  );
+  cursor: pointer;
+}
+
+.player-progress input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.player-progress input[type="range"]::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  margin-top: -3px;
+  appearance: none;
+  border: 2px solid var(--surface-strong);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgb(24 32 38 / 24%);
+  opacity: 0;
+  transform: scale(0.55);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.player-progress input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.player-progress input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface-strong);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgb(24 32 38 / 24%);
+  opacity: 0;
+  transform: scale(0.55);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.player-progress input[type="range"]:hover:not(:disabled)::-webkit-slider-thumb,
+.player-progress input[type="range"]:focus-visible::-webkit-slider-thumb,
+.player-progress input[type="range"]:active::-webkit-slider-thumb {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.player-progress input[type="range"]:hover:not(:disabled)::-moz-range-thumb,
+.player-progress input[type="range"]:focus-visible::-moz-range-thumb,
+.player-progress input[type="range"]:active::-moz-range-thumb {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.player-progress input[type="range"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 3px;
+}
+
+.player-progress input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .player-status {
+  grid-column: 3;
+  grid-row: 2;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -1451,7 +1572,19 @@ button:disabled {
     margin-top: 20px;
   }
 
+  .player-progress {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .player-now-playing {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
   .player-actions {
+    grid-column: 1;
+    grid-row: 3;
     width: 100%;
   }
 
@@ -1460,6 +1593,8 @@ button:disabled {
   }
 
   .player-status {
+    grid-column: 1;
+    grid-row: 4;
     justify-content: flex-start;
     text-align: left;
   }
