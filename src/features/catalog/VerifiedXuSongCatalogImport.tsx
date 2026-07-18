@@ -12,6 +12,7 @@ interface XuSongCatalogImportProps {
   catalog: CatalogData;
   catalogStatus: CatalogLibraryStatus;
   isCatalogSaving: boolean;
+  isEmbedded?: boolean;
   onImport: (
     drafts: readonly CatalogDirectoryImportAlbumDraft[]
   ) => Promise<CatalogDirectoryImportResult>;
@@ -21,6 +22,7 @@ export function XuSongCatalogImport({
   catalog,
   catalogStatus,
   isCatalogSaving,
+  isEmbedded = false,
   onImport
 }: XuSongCatalogImportProps) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -55,10 +57,14 @@ export function XuSongCatalogImport({
   return (
     <section
       className="verified-catalog-import"
-      aria-labelledby="verified-catalog-heading"
+      {...(isEmbedded
+        ? { "aria-label": "已核对的许嵩目录导入" }
+        : { "aria-labelledby": "verified-catalog-heading" })}
     >
       <div>
-        <h2 id="verified-catalog-heading">导入已核对的许嵩目录</h2>
+        {!isEmbedded ? (
+          <h2 id="verified-catalog-heading">导入已核对的许嵩目录</h2>
+        ) : null}
         <p>
           可预览后一次性新增正式专辑类发行与曲目。此操作不下载、不绑定音频，也不会删除现有目录或覆盖同名专辑。
         </p>

@@ -5,7 +5,8 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type DragEvent
+  type DragEvent,
+  type ReactNode
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -76,6 +77,7 @@ interface CatalogOverviewProps {
   onDeleteCatalogTarget?: (
     target: CatalogDeletionTarget
   ) => Promise<CatalogDeletionResult>;
+  importTools?: ReactNode;
 }
 
 const albumTypeLabels: Record<AlbumType, string> = {
@@ -118,7 +120,8 @@ export function CatalogOverview({
   isDeleting = false,
   deletionError,
   onPreviewDeletion,
-  onDeleteCatalogTarget
+  onDeleteCatalogTarget,
+  importTools
 }: CatalogOverviewProps) {
   const albums = useMemo(() => getSortedAlbums(catalog), [catalog]);
   const [albumSelection, setAlbumSelection] = useState(() => ({
@@ -224,6 +227,7 @@ export function CatalogOverview({
           <h2 id="catalog-heading">专辑目录</h2>
         </div>
         <div className="catalog-heading-actions">
+          {importTools}
           <button
             className="secondary-button"
             type="button"

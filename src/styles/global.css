@@ -193,8 +193,97 @@ a:focus-visible {
 .catalog-heading-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.catalog-import-tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  padding: 3px;
+  background: var(--surface-strong);
+}
+
+.catalog-import-tools-label {
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.catalog-import-tools .text-button {
+  min-height: 28px;
+  border-color: transparent;
+  color: var(--accent-strong);
+}
+
+.catalog-import-tools .text-button:hover:not(:disabled),
+.catalog-import-tools .text-button[aria-expanded="true"] {
+  border-color: var(--border);
+  background: #e5f0ec;
+}
+
+.catalog-import-dialog-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  place-items: start center;
+  padding: 32px 16px;
+  background: rgb(24 32 38 / 46%);
+}
+
+.catalog-import-dialog-backdrop[hidden] {
+  display: none;
+}
+
+.catalog-import-dialog {
+  display: grid;
+  width: min(920px, 100%);
+  max-height: calc(100dvh - 64px);
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgb(24 38 32 / 26%);
+}
+
+.catalog-import-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 16px 18px;
+  background: var(--surface-strong);
+}
+
+.catalog-import-dialog-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.catalog-import-dialog-heading .eyebrow {
+  margin-bottom: 4px;
+}
+
+.catalog-import-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.catalog-import-dialog .verified-catalog-import,
+.catalog-import-dialog .directory-import {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .catalog-editor {
@@ -1742,12 +1831,33 @@ a:focus-visible {
   }
 
   .catalog-heading {
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
   }
 
   .catalog-heading-actions {
-    align-items: flex-end;
-    flex-direction: column-reverse;
+    width: 100%;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .catalog-import-tools {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .catalog-import-dialog-backdrop {
+    padding: 8px;
+  }
+
+  .catalog-import-dialog {
+    max-height: calc(100dvh - 16px);
+  }
+
+  .catalog-import-dialog-heading,
+  .catalog-import-dialog-body {
+    padding: 14px;
   }
 
   .catalog-editor-form {

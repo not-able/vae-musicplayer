@@ -86,6 +86,13 @@ function selectDirectory(container: HTMLElement, files: readonly File[]) {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function openLocalDirectoryImport(container: HTMLElement): HTMLButtonElement {
+  const button = findButtonByText(container, "批量绑定音频");
+
+  button.click();
+  return button;
+}
+
 function findButtonByText(container: HTMLElement, text: string): HTMLButtonElement {
   const button = Array.from(container.querySelectorAll("button")).find(
     (element) => element.textContent?.trim() === text
@@ -116,6 +123,52 @@ afterEach(() => {
 });
 
 describe("local directory import integration", () => {
+  it("opens and closes the compact batch-binding dialog without losing keyboard focus", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository: createCatalogRepository().repository,
+          localAudioRepository: createAudioRepository(),
+          playlistRepository: createPlaylistRepository(),
+          deletionIntentRepository: createDeletionIntentRepository()
+        })
+      );
+    });
+    await flushCatalogDeletionRecovery(container);
+
+    let trigger!: HTMLButtonElement;
+    await act(async () => {
+      trigger = openLocalDirectoryImport(container);
+    });
+    const dialog = container.querySelector<HTMLElement>(
+      "#local-directory-import-dialog"
+    );
+    const backdrop = dialog?.parentElement;
+
+    expect(backdrop?.hidden).toBe(false);
+    expect(dialog?.getAttribute("role")).toBe("dialog");
+
+    const closeButton = dialog?.querySelector<HTMLButtonElement>(
+      'button[aria-label="关闭批量绑定本地音频"]'
+    );
+    expect(closeButton).toBeDefined();
+
+    await act(async () => {
+      closeButton?.click();
+    });
+
+    expect(backdrop?.hidden).toBe(true);
+    expect(backdrop && getComputedStyle(backdrop).display).toBe("none");
+    expect(document.activeElement).toBe(trigger);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("cancels a preview without writing catalog or audio storage", async () => {
     const { repository: catalogRepository, save: saveCatalog } =
       createCatalogRepository();

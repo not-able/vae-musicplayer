@@ -36,6 +36,7 @@ interface LocalDirectoryImportProps {
   audioBindingsByTrackId: ReadonlyMap<EntityId, LocalAudioFileRecord>;
   audioStatus: LocalAudioLibraryStatus;
   isCatalogSaving: boolean;
+  isEmbedded?: boolean;
   onImportCatalogDrafts: (
     drafts: readonly CatalogDirectoryImportAlbumDraft[]
   ) => Promise<CatalogDirectoryImportResult>;
@@ -62,6 +63,7 @@ export function LocalDirectoryImport({
   audioBindingsByTrackId,
   audioStatus,
   isCatalogSaving,
+  isEmbedded = false,
   onImportCatalogDrafts,
   onBindAudioFiles
 }: LocalDirectoryImportProps) {
@@ -374,11 +376,16 @@ export function LocalDirectoryImport({
   }
 
   return (
-    <section className="directory-import" aria-labelledby="directory-import-heading">
+    <section
+      className="directory-import"
+      {...(isEmbedded
+        ? { "aria-label": "导入本地音乐目录" }
+        : { "aria-labelledby": "directory-import-heading" })}
+    >
       <div className="directory-import-heading">
         <div>
-          <p className="eyebrow">本地文件</p>
-          <h2 id="directory-import-heading">导入本地音乐目录</h2>
+          {!isEmbedded ? <p className="eyebrow">本地文件</p> : null}
+          {!isEmbedded ? <h2 id="directory-import-heading">导入本地音乐目录</h2> : null}
           <p className="helper-text">
             先预览再保存。只会保存你确认的本地文件绑定；不会上传、复制或分发音频。
           </p>

@@ -4,7 +4,7 @@ import { appReducer, createAppState } from "./appReducer";
 import { PageShell } from "../components/PageShell";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
-import { XuSongCatalogImport } from "../features/catalog/VerifiedXuSongCatalogImport";
+import { CatalogImportTools } from "../features/catalog/CatalogImportTools";
 import { getAlbumTracks } from "../features/catalog/catalog";
 import type { CatalogEntityIdFactory } from "../features/catalog/catalogMutations";
 import type {
@@ -15,7 +15,6 @@ import type { LocalCatalogRepository } from "../features/catalog/localCatalogRep
 import { useCatalogDeletion } from "../features/catalog/useCatalogDeletion";
 import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
-import { LocalDirectoryImport } from "../features/local-library/LocalDirectoryImport";
 import { useLocalAudioLibrary } from "../features/local-library/useLocalAudioLibrary";
 import { PlayerBar } from "../features/player/PlayerBar";
 import type { PlayerAction } from "../features/player/playerReducer";
@@ -235,31 +234,6 @@ export function App({
     <PageShell>
       <main className="app-layout" id="main-content" tabIndex={-1}>
         <section className="workspace" aria-labelledby="catalog-heading">
-          <XuSongCatalogImport
-            catalog={catalog}
-            catalogStatus={catalogLibrary.status}
-            isCatalogSaving={
-              catalogLibrary.isSavingAlbum ||
-              catalogLibrary.isSavingTrack ||
-              catalogDeletion.isDeleting ||
-              catalogDeletion.isRecovering
-            }
-            onImport={catalogLibrary.importDirectoryCatalogDrafts}
-          />
-          <LocalDirectoryImport
-            catalog={catalog}
-            catalogStatus={catalogLibrary.status}
-            audioBindingsByTrackId={localAudioLibrary.bindingsByTrackId}
-            audioStatus={localAudioLibrary.status}
-            isCatalogSaving={
-              catalogLibrary.isSavingAlbum ||
-              catalogLibrary.isSavingTrack ||
-              catalogDeletion.isDeleting ||
-              catalogDeletion.isRecovering
-            }
-            onImportCatalogDrafts={catalogLibrary.importDirectoryCatalogDrafts}
-            onBindAudioFiles={localAudioLibrary.bindAudioFiles}
-          />
           <CatalogOverview
             catalog={catalog}
             catalogLibraryStatus={catalogLibrary.status}
@@ -297,6 +271,22 @@ export function App({
             deletionError={catalogDeletion.errorMessage}
             onPreviewDeletion={catalogDeletion.previewDeletion}
             onDeleteCatalogTarget={catalogDeletion.deleteTarget}
+            importTools={
+              <CatalogImportTools
+                catalog={catalog}
+                catalogStatus={catalogLibrary.status}
+                audioBindingsByTrackId={localAudioLibrary.bindingsByTrackId}
+                audioStatus={localAudioLibrary.status}
+                isCatalogSaving={
+                  catalogLibrary.isSavingAlbum ||
+                  catalogLibrary.isSavingTrack ||
+                  catalogDeletion.isDeleting ||
+                  catalogDeletion.isRecovering
+                }
+                onImportCatalogDrafts={catalogLibrary.importDirectoryCatalogDrafts}
+                onBindAudioFiles={localAudioLibrary.bindAudioFiles}
+              />
+            }
             onBindAudio={localAudioLibrary.bindAudioFile}
             onRequestAudioAccess={localAudioLibrary.requestAudioAccess}
             onUnbindAudio={localAudioLibrary.unbindAudioFile}
