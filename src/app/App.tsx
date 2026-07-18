@@ -14,6 +14,7 @@ import type { LocalCatalogRepository } from "../features/catalog/localCatalogRep
 import { useCatalogDeletion } from "../features/catalog/useCatalogDeletion";
 import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
+import { LocalDirectoryImport } from "../features/local-library/LocalDirectoryImport";
 import { useLocalAudioLibrary } from "../features/local-library/useLocalAudioLibrary";
 import { PlayerBar } from "../features/player/PlayerBar";
 import type { PlayerAction } from "../features/player/playerReducer";
@@ -227,12 +228,34 @@ export function App({
     <PageShell>
       <main className="app-layout">
         <section className="workspace" aria-labelledby="catalog-heading">
+          <LocalDirectoryImport
+            catalog={catalog}
+            catalogStatus={catalogLibrary.status}
+            audioBindingsByTrackId={localAudioLibrary.bindingsByTrackId}
+            audioStatus={localAudioLibrary.status}
+            isCatalogSaving={
+              catalogLibrary.isSavingAlbum ||
+              catalogLibrary.isSavingTrack ||
+              catalogDeletion.isDeleting ||
+              catalogDeletion.isRecovering
+            }
+            onImportCatalogDrafts={catalogLibrary.importDirectoryCatalogDrafts}
+            onBindAudioFiles={localAudioLibrary.bindAudioFiles}
+          />
           <CatalogOverview
             catalog={catalog}
             catalogLibraryStatus={catalogLibrary.status}
             catalogLibraryError={catalogLibrary.errorMessage}
-            isSavingAlbum={catalogLibrary.isSavingAlbum || catalogDeletion.isDeleting}
-            isSavingTrack={catalogLibrary.isSavingTrack || catalogDeletion.isDeleting}
+            isSavingAlbum={
+              catalogLibrary.isSavingAlbum ||
+              catalogDeletion.isDeleting ||
+              catalogDeletion.isRecovering
+            }
+            isSavingTrack={
+              catalogLibrary.isSavingTrack ||
+              catalogDeletion.isDeleting ||
+              catalogDeletion.isRecovering
+            }
             resettableAlbumIds={catalogLibrary.resettableAlbumIds}
             resettableTrackIds={catalogLibrary.resettableTrackIds}
             audioBindings={localAudioLibrary.bindingsByTrackId}
@@ -247,7 +270,11 @@ export function App({
             onUpdateTrack={catalogLibrary.updateTrack}
             onResetAlbum={catalogLibrary.resetAlbum}
             onResetTrack={catalogLibrary.resetTrack}
-            canDelete={catalogDeletion.canDelete}
+            canDelete={
+              catalogDeletion.canDelete &&
+              !catalogLibrary.isSavingAlbum &&
+              !catalogLibrary.isSavingTrack
+            }
             isDeleting={catalogDeletion.isDeleting}
             deletionError={catalogDeletion.errorMessage}
             onPreviewDeletion={catalogDeletion.previewDeletion}

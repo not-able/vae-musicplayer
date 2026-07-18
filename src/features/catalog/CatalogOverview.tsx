@@ -520,7 +520,7 @@ function AlbumDetail({
             <button
               className="text-button"
               type="button"
-              aria-label={`删除${album.title}`}
+              aria-label={`从目录删除专辑${album.title}`}
               onClick={() => onRequestDeletion({ kind: "album", id: album.id })}
             >
               删除
@@ -710,7 +710,7 @@ function TrackRow({
           <button
             className="text-button"
             type="button"
-            aria-label={`删除${track.title}`}
+            aria-label={`从目录删除歌曲${track.title}`}
             onClick={onRequestDeletion}
           >
             删除

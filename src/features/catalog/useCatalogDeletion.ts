@@ -24,6 +24,11 @@ import type {
   CatalogDeletionIntentRepository
 } from "./catalogDeletionRepository";
 import type { LocalCatalogRepository } from "./localCatalogRepository";
+import {
+  isCatalogWriteLocked,
+  releaseCatalogWriteLock,
+  tryAcquireCatalogWriteLock
+} from "./catalogWriteLock";
 
 type CatalogStatus = "loading" | "ready" | "error";
 
@@ -85,11 +90,19 @@ export function useCatalogDeletion({
     undefined
   );
   const mutationInProgress = useRef(false);
+  const deletionWriteOwner = useRef(
+    `catalog_deletion_${globalThis.crypto.randomUUID()}`
+  );
+  const onCommittedRef = useRef(onCommitted);
   const isOperational =
     catalogStatus === "ready" &&
     catalogChanges !== undefined &&
     playlistIsReady &&
     audioStatus === "ready";
+
+  useEffect(() => {
+    onCommittedRef.current = onCommitted;
+  }, [onCommitted]);
 
   useEffect(() => {
     if (!isOperational || checkedIntentRepository.current === intentRepository) {
@@ -98,10 +111,6 @@ export function useCatalogDeletion({
 
     let active = true;
     checkedIntentRepository.current = intentRepository;
-    mutationInProgress.current = true;
-    setPhase("recovering");
-    setErrorMessage(undefined);
-    setRecoveredIntentRepository(undefined);
 
     void intentRepository
       .load()
@@ -110,18 +119,35 @@ export function useCatalogDeletion({
           return;
         }
 
-        await completeCatalogDeletion(
-          {
-            catalogRepository,
-            playlistRepository,
-            audioRepository,
-            intentRepository
-          },
-          intent
-        );
+        const writeOwner = deletionWriteOwner.current;
+        if (!tryAcquireCatalogWriteLock(writeOwner)) {
+          throw new Error("Catalog recovery is blocked by another write.");
+        }
 
+        mutationInProgress.current = true;
         if (active) {
-          onCommitted(intent);
+          setPhase("recovering");
+          setErrorMessage(undefined);
+          setRecoveredIntentRepository(undefined);
+        }
+
+        try {
+          await completeCatalogDeletion(
+            {
+              catalogRepository,
+              playlistRepository,
+              audioRepository,
+              intentRepository
+            },
+            intent
+          );
+
+          if (active) {
+            onCommittedRef.current(intent);
+          }
+        } finally {
+          mutationInProgress.current = false;
+          releaseCatalogWriteLock(writeOwner);
         }
       })
       .then(() => {
@@ -137,9 +163,6 @@ export function useCatalogDeletion({
             "上次目录删除尚未完成。为避免留下不一致的数据，请刷新页面后重试恢复。"
           );
         }
-      })
-      .finally(() => {
-        mutationInProgress.current = false;
       });
 
     return () => {
@@ -150,7 +173,6 @@ export function useCatalogDeletion({
     catalogRepository,
     intentRepository,
     isOperational,
-    onCommitted,
     playlistRepository
   ]);
 
@@ -190,6 +212,14 @@ export function useCatalogDeletion({
         };
       }
 
+      const writeOwner = deletionWriteOwner.current;
+      if (!tryAcquireCatalogWriteLock(writeOwner)) {
+        return {
+          ok: false,
+          errorMessage: "目录导入或其他目录删除正在保存，请稍后再试。"
+        };
+      }
+
       let plan;
       try {
         plan = createCatalogDeletionPlan({
@@ -201,6 +231,7 @@ export function useCatalogDeletion({
           updatedAt: new Date().toISOString()
         });
       } catch {
+        releaseCatalogWriteLock(writeOwner);
         return {
           ok: false,
           errorMessage: "要删除的目录记录已不存在，请刷新后重试。"
@@ -237,6 +268,7 @@ export function useCatalogDeletion({
         return { ok: false, errorMessage: nextErrorMessage };
       } finally {
         mutationInProgress.current = false;
+        releaseCatalogWriteLock(writeOwner);
       }
     },
     [
@@ -259,7 +291,8 @@ export function useCatalogDeletion({
     canDelete:
       isOperational &&
       phase === "idle" &&
-      recoveredIntentRepository === intentRepository,
+      recoveredIntentRepository === intentRepository &&
+      !isCatalogWriteLocked(),
     isDeleting: phase === "deleting",
     isRecovering: phase === "recovering",
     ...(errorMessage ? { errorMessage } : {}),

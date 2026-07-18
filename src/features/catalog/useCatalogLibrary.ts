@@ -13,6 +13,10 @@ import {
   type CatalogEntityIdFactory
 } from "./catalogMutations";
 import { isPositiveSafeInteger } from "./catalogValidation";
+import {
+  releaseCatalogWriteLock,
+  tryAcquireCatalogWriteLock
+} from "./catalogWriteLock";
 import type { LocalCatalogRepository } from "./localCatalogRepository";
 
 const albumTypes = new Set<AlbumType>(["album", "ep", "single_collection", "other"]);
@@ -39,6 +43,18 @@ export interface CatalogTrackUpdateDraft {
   trackNumber: number | null;
 }
 
+export interface CatalogDirectoryImportTrackDraft {
+  sourceId: string;
+  title: string;
+  trackNumber: number;
+}
+
+export interface CatalogDirectoryImportAlbumDraft {
+  title: string;
+  artistId: EntityId;
+  tracks: readonly CatalogDirectoryImportTrackDraft[];
+}
+
 type CatalogMutationFailure = {
   ok: false;
   code: "not_ready" | "busy" | "invalid_input" | "invalid_catalog" | "save_failed";
@@ -52,6 +68,10 @@ export type CatalogTrackCreationResult =
   { ok: true; trackId: EntityId } | CatalogMutationFailure;
 
 export type CatalogMutationResult = { ok: true } | CatalogMutationFailure;
+
+export type CatalogDirectoryImportResult =
+  | { ok: true; trackIdsBySourceId: ReadonlyMap<string, EntityId> }
+  | CatalogMutationFailure;
 
 export interface CatalogLibrary {
   catalog: CatalogData;
@@ -77,6 +97,9 @@ export interface CatalogLibrary {
   ) => Promise<CatalogMutationResult>;
   resetAlbum: (albumId: EntityId) => Promise<CatalogMutationResult>;
   resetTrack: (trackId: EntityId) => Promise<CatalogMutationResult>;
+  importDirectoryCatalogDrafts: (
+    drafts: readonly CatalogDirectoryImportAlbumDraft[]
+  ) => Promise<CatalogDirectoryImportResult>;
   applyPersistedChanges: (changes: UserCatalogChanges) => void;
 }
 
@@ -103,7 +126,7 @@ interface CatalogLoadResult {
   state: CatalogLibraryState;
 }
 
-type CatalogSaveOperation = "album" | "track";
+type CatalogSaveOperation = "album" | "track" | "directory_import";
 
 type CatalogSaveResult =
   | {
@@ -120,6 +143,9 @@ export function useCatalogLibrary(
   const [loadResult, setLoadResult] = useState<CatalogLoadResult>();
   const [saveOperation, setSaveOperation] = useState<CatalogSaveOperation>();
   const saveInProgress = useRef(false);
+  const directoryImportWriteOwner = useRef(
+    `directory_import_${globalThis.crypto.randomUUID()}`
+  );
 
   useEffect(() => {
     const sourceToken: CatalogSourceToken = { active: true };
@@ -433,6 +459,121 @@ export function useCatalogLibrary(
     [activeResult, defaultCatalog, idFactory, saveChanges]
   );
 
+  const importDirectoryCatalogDrafts = useCallback(
+    async (
+      drafts: readonly CatalogDirectoryImportAlbumDraft[]
+    ): Promise<CatalogDirectoryImportResult> => {
+      if (saveInProgress.current) {
+        return {
+          ok: false,
+          code: "busy",
+          errorMessage: "正在保存其他目录修改，请稍后再试。"
+        };
+      }
+      if (activeResult?.state.status !== "ready") {
+        return {
+          ok: false,
+          code: "not_ready",
+          errorMessage: "用户目录尚未准备好，请稍后再试。"
+        };
+      }
+      const writeOwner = directoryImportWriteOwner.current;
+      if (!tryAcquireCatalogWriteLock(writeOwner)) {
+        return {
+          ok: false,
+          code: "busy",
+          errorMessage: "目录删除或其他目录导入正在保存，请稍后再试。"
+        };
+      }
+
+      try {
+        const validationError = getDirectoryImportValidationError(
+          activeResult.state.catalog,
+          drafts
+        );
+        if (validationError) {
+          return {
+            ok: false,
+            code: "invalid_input",
+            errorMessage: validationError
+          };
+        }
+        if (drafts.length === 0) {
+          return { ok: true, trackIdsBySourceId: new Map() };
+        }
+
+        const sourceToken = activeResult.sourceToken;
+        const currentChanges = activeResult.state.changes;
+        const currentCatalog = activeResult.state.catalog;
+        const highestSortOrder = currentCatalog.albums.reduce(
+          (highestOrder, album) => Math.max(highestOrder, album.sortOrder),
+          0
+        );
+        const trackIdsBySourceId = new Map<string, EntityId>();
+        const entityIdFactory = idFactory ?? createDefaultCatalogImportId;
+        const result = await saveChanges(
+          "directory_import",
+          sourceToken,
+          currentChanges,
+          () => {
+            let nextChanges = currentChanges;
+
+            for (const [albumIndex, draft] of drafts.entries()) {
+              nextChanges = addAlbumToUserCatalog(
+                defaultCatalog,
+                nextChanges,
+                {
+                  artistId: draft.artistId,
+                  title: draft.title.trim(),
+                  type: "album",
+                  sortOrder: highestSortOrder + albumIndex + 1
+                },
+                entityIdFactory
+              );
+              const albumId = nextChanges.addedAlbums.at(-1)?.id;
+
+              if (!albumId) {
+                throw new Error("Directory import did not create an album.");
+              }
+
+              for (const trackDraft of draft.tracks) {
+                nextChanges = addTrackToUserCatalog(
+                  defaultCatalog,
+                  nextChanges,
+                  {
+                    artistId: draft.artistId,
+                    albumId,
+                    title: trackDraft.title.trim(),
+                    trackNumber: trackDraft.trackNumber
+                  },
+                  entityIdFactory
+                );
+                const trackId = nextChanges.addedTracks.at(-1)?.id;
+
+                if (!trackId) {
+                  throw new Error("Directory import did not create a track.");
+                }
+                trackIdsBySourceId.set(trackDraft.sourceId, trackId);
+              }
+            }
+
+            return nextChanges;
+          },
+          "保存目录导入的专辑信息失败，请检查浏览器存储权限后重试。"
+        );
+
+        if (!result.ok) {
+          return result;
+        }
+
+        return { ok: true, trackIdsBySourceId };
+      } finally {
+        releaseCatalogWriteLock(writeOwner);
+      }
+    },
+    [activeResult, defaultCatalog, idFactory, saveChanges]
+  );
+
   const updateAlbum = useCallback(
     async (
       albumId: EntityId,
@@ -689,8 +830,8 @@ export function useCatalogLibrary(
       ...(activeResult.state.status === "error"
         ? { errorMessage: activeResult.state.errorMessage }
         : {}),
-      isSavingAlbum: saveOperation === "album",
-      isSavingTrack: saveOperation === "track",
+      isSavingAlbum: saveOperation === "album" || saveOperation === "directory_import",
+      isSavingTrack: saveOperation === "track" || saveOperation === "directory_import",
       resettableAlbumIds,
       resettableTrackIds,
       createAlbum,
@@ -699,6 +840,7 @@ export function useCatalogLibrary(
       updateTrack,
       resetAlbum,
       resetTrack,
+      importDirectoryCatalogDrafts,
       applyPersistedChanges
     };
   }
@@ -706,8 +848,8 @@ export function useCatalogLibrary(
   return {
     catalog: defaultCatalog,
     status: "loading",
-    isSavingAlbum: saveOperation === "album",
-    isSavingTrack: saveOperation === "track",
+    isSavingAlbum: saveOperation === "album" || saveOperation === "directory_import",
+    isSavingTrack: saveOperation === "track" || saveOperation === "directory_import",
     resettableAlbumIds: new Set<EntityId>(),
     resettableTrackIds: new Set<EntityId>(),
     createAlbum,
@@ -716,6 +858,7 @@ export function useCatalogLibrary(
     updateTrack,
     resetAlbum,
     resetTrack,
+    importDirectoryCatalogDrafts,
     applyPersistedChanges
   };
 }
@@ -737,4 +880,58 @@ function createDefaultCatalogAlbumId(): EntityId {
 
 function createDefaultCatalogTrackId(): EntityId {
   return `track_user_${globalThis.crypto.randomUUID()}`;
+}
+
+function createDefaultCatalogImportId(): EntityId {
+  return `catalog_user_${globalThis.crypto.randomUUID()}`;
+}
+
+function getDirectoryImportValidationError(
+  catalog: CatalogData,
+  drafts: readonly CatalogDirectoryImportAlbumDraft[]
+): string | undefined {
+  const sourceIds = new Set<string>();
+  const importedAlbumKeys = new Set<string>();
+
+  for (const draft of drafts) {
+    const title = draft.title.trim();
+    if (!title || draft.tracks.length === 0) {
+      return "新专辑草稿必须包含专辑名和至少一首歌曲。";
+    }
+    if (!catalog.artists.some((artist) => artist.id === draft.artistId)) {
+      return "默认歌手不在当前目录中，不能创建新专辑。";
+    }
+
+    const albumKey = `${draft.artistId}:${title.normalize("NFKC").toLowerCase()}`;
+    if (importedAlbumKeys.has(albumKey)) {
+      return "同名新专辑草稿不能重复导入。";
+    }
+    if (
+      catalog.albums.some(
+        (album) =>
+          album.artistId === draft.artistId &&
+          album.title.normalize("NFKC").toLowerCase() ===
+            title.normalize("NFKC").toLowerCase()
+      )
+    ) {
+      return "当前目录已有同名专辑，请改用目录编辑功能补充歌曲。";
+    }
+    importedAlbumKeys.add(albumKey);
+
+    for (const track of draft.tracks) {
+      if (
+        !track.sourceId ||
+        !track.title.trim() ||
+        !isPositiveSafeInteger(track.trackNumber)
+      ) {
+        return "新专辑歌曲草稿缺少必要信息。";
+      }
+      if (sourceIds.has(track.sourceId)) {
+        return "同一个本地文件不能重复导入。";
+      }
+      sourceIds.add(track.sourceId);
+    }
+  }
+
+  return undefined;
 }

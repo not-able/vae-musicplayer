@@ -302,6 +302,187 @@ button:disabled {
   color: var(--warning);
 }
 
+.directory-import {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 24px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  background: var(--surface-strong);
+}
+
+.directory-import-heading h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.directory-import-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 14px;
+}
+
+.directory-import-controls .catalog-editor-field {
+  width: min(240px, 100%);
+}
+
+.directory-import-controls .helper-text {
+  flex: 1 1 220px;
+}
+
+.directory-import-picker {
+  min-height: 38px;
+}
+
+.directory-import-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.directory-import-empty,
+.directory-import-summary,
+.directory-import-warning,
+.directory-import-error,
+.directory-import-result p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.directory-import-empty,
+.directory-import-summary {
+  color: var(--muted);
+}
+
+.directory-import-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.directory-import-drafts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--border);
+  padding: 10px 12px 12px;
+}
+
+.directory-import-drafts legend {
+  padding: 0 4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.directory-import-draft {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.directory-import-draft input {
+  margin-top: 3px;
+}
+
+.directory-import-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+
+.directory-import-table {
+  width: 100%;
+  min-width: 690px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.directory-import-table caption {
+  padding: 10px 12px;
+  color: var(--muted);
+  caption-side: top;
+  text-align: left;
+}
+
+.directory-import-table th,
+.directory-import-table td {
+  border-top: 1px solid var(--border);
+  padding: 9px 10px;
+  vertical-align: top;
+  text-align: left;
+}
+
+.directory-import-table th {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.directory-import-table td:first-child {
+  width: 48px;
+  text-align: center;
+}
+
+.directory-import-table td strong,
+.directory-import-table td span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.directory-import-table td span {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.directory-import-table select {
+  max-width: 210px;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 4px 6px;
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.directory-import-warning,
+.directory-import-error {
+  color: var(--warning);
+}
+
+.directory-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.directory-import-result {
+  border: 1px solid #b9c9c4;
+  padding: 12px;
+  background: #eef6f2;
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+.directory-import-result strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.directory-import-result ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--warning);
+}
+
 .album-directory {
   border-right: 1px solid var(--border);
   background: #f6f8f7;
