@@ -1,8 +1,8 @@
 import type { LocalAudioFileRepository } from "../local-library/localAudioRepository";
 import {
-  saveTemporaryPlaylistInRepositoryOrder,
-  type TemporaryPlaylistRepository
-} from "../playlist/playlistRepository";
+  savePlaylistLibraryInRepositoryOrder,
+  type PlaylistLibraryRepository
+} from "../playlist/playlistLibraryRepository";
 import type { LocalCatalogRepository } from "./localCatalogRepository";
 import {
   CATALOG_DELETION_INTENT_SCHEMA_VERSION,
@@ -13,7 +13,7 @@ import type { CatalogDeletionPlan } from "./catalogDeletion";
 
 export interface CatalogDeletionStores {
   catalogRepository: LocalCatalogRepository;
-  playlistRepository: TemporaryPlaylistRepository;
+  playlistRepository: PlaylistLibraryRepository;
   audioRepository: LocalAudioFileRepository;
   intentRepository: CatalogDeletionIntentRepository;
 }
@@ -30,7 +30,7 @@ export async function startCatalogDeletion(
     createdAt,
     trackIds: [...plan.trackIds],
     nextCatalogChanges: plan.nextCatalogChanges,
-    nextPlaylist: plan.nextPlaylist
+    nextPlaylistLibrary: plan.nextPlaylistLibrary
   };
 
   await stores.intentRepository.save(intent);
@@ -44,9 +44,9 @@ export async function completeCatalogDeletion(
   intent: CatalogDeletionIntent
 ): Promise<void> {
   await stores.catalogRepository.save(intent.nextCatalogChanges);
-  await saveTemporaryPlaylistInRepositoryOrder(
+  await savePlaylistLibraryInRepositoryOrder(
     stores.playlistRepository,
-    intent.nextPlaylist
+    intent.nextPlaylistLibrary
   );
 
   for (const trackId of intent.trackIds) {

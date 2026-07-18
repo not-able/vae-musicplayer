@@ -4,12 +4,12 @@ import type {
   CatalogData,
   EntityId,
   LocalAudioFileRecord,
-  TemporaryPlaylist,
+  PlaylistLibrary,
   UserCatalogChanges
 } from "../../types";
 import type { LocalAudioFileRepository } from "../local-library/localAudioRepository";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
-import type { TemporaryPlaylistRepository } from "../playlist/playlistRepository";
+import type { PlaylistLibraryRepository } from "../playlist/playlistLibraryRepository";
 import {
   createCatalogDeletionPlan,
   type CatalogDeletionPreview,
@@ -52,9 +52,9 @@ interface UseCatalogDeletionOptions {
   defaultCatalog: CatalogData;
   catalogChanges?: UserCatalogChanges;
   catalogStatus: CatalogStatus;
-  playlist: TemporaryPlaylist;
+  playlistLibrary: PlaylistLibrary;
   playlistIsReady: boolean;
-  playlistRepository: TemporaryPlaylistRepository;
+  playlistRepository: PlaylistLibraryRepository;
   audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
   audioStatus: LocalAudioLibraryStatus;
   audioRepository: LocalAudioFileRepository;
@@ -68,7 +68,7 @@ export function useCatalogDeletion({
   defaultCatalog,
   catalogChanges,
   catalogStatus,
-  playlist,
+  playlistLibrary,
   playlistIsReady,
   playlistRepository,
   audioBindings,
@@ -186,7 +186,7 @@ export function useCatalogDeletion({
         return createCatalogDeletionPlan({
           defaultCatalog,
           changes: catalogChanges,
-          playlist,
+          playlistLibrary,
           audioBindings,
           target,
           updatedAt: new Date().toISOString()
@@ -195,7 +195,7 @@ export function useCatalogDeletion({
         return undefined;
       }
     },
-    [audioBindings, catalogChanges, defaultCatalog, playlist]
+    [audioBindings, catalogChanges, defaultCatalog, playlistLibrary]
   );
 
   const deleteTarget = useCallback(
@@ -225,7 +225,7 @@ export function useCatalogDeletion({
         plan = createCatalogDeletionPlan({
           defaultCatalog,
           changes: catalogChanges,
-          playlist,
+          playlistLibrary,
           audioBindings,
           target,
           updatedAt: new Date().toISOString()
@@ -282,7 +282,7 @@ export function useCatalogDeletion({
       onBeforeDelete,
       onCommitted,
       phase,
-      playlist,
+      playlistLibrary,
       playlistRepository
     ]
   );

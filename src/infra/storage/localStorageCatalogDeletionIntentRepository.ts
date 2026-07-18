@@ -3,10 +3,12 @@ import {
   type CatalogDeletionIntent,
   type CatalogDeletionIntentRepository
 } from "../../features/catalog/catalogDeletionRepository";
+import { createPlaylistLibrary } from "../../features/playlist/playlistLibrary";
 import {
-  parseStoredTemporaryPlaylist,
-  serializeTemporaryPlaylist
-} from "../../features/playlist/playlistPersistence";
+  parseStoredPlaylistLibrary,
+  serializePlaylistLibrary
+} from "../../features/playlist/playlistLibraryPersistence";
+import { parseStoredTemporaryPlaylist } from "../../features/playlist/playlistPersistence";
 import { parseUserCatalogChanges } from "./localStorageCatalogRepository";
 
 export const LOCAL_CATALOG_DELETION_INTENT_STORAGE_KEY =
@@ -33,11 +35,13 @@ export function createLocalStorageCatalogDeletionIntentRepository(
     async save(intent) {
       const normalizedIntent = parseCatalogDeletionIntent({
         ...intent,
-        nextPlaylist: serializeTemporaryPlaylist(intent.nextPlaylist)
+        nextPlaylistLibrary: serializePlaylistLibrary(intent.nextPlaylistLibrary)
       });
       const serialized = JSON.stringify({
         ...normalizedIntent,
-        nextPlaylist: serializeTemporaryPlaylist(normalizedIntent.nextPlaylist)
+        nextPlaylistLibrary: serializePlaylistLibrary(
+          normalizedIntent.nextPlaylistLibrary
+        )
       });
 
       if (serialized === undefined) {
@@ -60,6 +64,33 @@ export const localStorageCatalogDeletionIntentRepository =
 
 export function parseCatalogDeletionIntent(value: unknown): CatalogDeletionIntent {
   const record = parsePlainRecord(value, "删除恢复记录");
+  const schemaVersion = record.schemaVersion;
+
+  if (schemaVersion === 1) {
+    assertOnlyKeys(
+      record,
+      [
+        "schemaVersion",
+        "id",
+        "createdAt",
+        "trackIds",
+        "nextCatalogChanges",
+        "nextPlaylist"
+      ],
+      "删除恢复记录"
+    );
+
+    return createCatalogDeletionIntent(record, {
+      nextPlaylistLibrary: createPlaylistLibrary({
+        temporaryPlaylist: parseStoredTemporaryPlaylist(record.nextPlaylist)
+      })
+    });
+  }
+
+  if (schemaVersion !== CATALOG_DELETION_INTENT_SCHEMA_VERSION) {
+    throw new Error("删除恢复记录的版本不受支持。");
+  }
+
   assertOnlyKeys(
     record,
     [
@@ -68,22 +99,27 @@ export function parseCatalogDeletionIntent(value: unknown): CatalogDeletionInten
       "createdAt",
       "trackIds",
       "nextCatalogChanges",
-      "nextPlaylist"
+      "nextPlaylistLibrary"
     ],
     "删除恢复记录"
   );
 
-  if (record.schemaVersion !== CATALOG_DELETION_INTENT_SCHEMA_VERSION) {
-    throw new Error("删除恢复记录的版本不受支持。");
-  }
+  return createCatalogDeletionIntent(record, {
+    nextPlaylistLibrary: parseStoredPlaylistLibrary(record.nextPlaylistLibrary)
+  });
+}
 
+function createCatalogDeletionIntent(
+  record: Record<string, unknown>,
+  { nextPlaylistLibrary }: Pick<CatalogDeletionIntent, "nextPlaylistLibrary">
+): CatalogDeletionIntent {
   return {
     schemaVersion: CATALOG_DELETION_INTENT_SCHEMA_VERSION,
     id: parseNonBlankString(record.id, "删除恢复记录 id"),
     createdAt: parseNonBlankString(record.createdAt, "删除恢复记录 createdAt"),
     trackIds: parseEntityIdArray(record.trackIds, "删除恢复记录 trackIds"),
     nextCatalogChanges: parseUserCatalogChanges(record.nextCatalogChanges),
-    nextPlaylist: parseStoredTemporaryPlaylist(record.nextPlaylist)
+    nextPlaylistLibrary
   };
 }
 

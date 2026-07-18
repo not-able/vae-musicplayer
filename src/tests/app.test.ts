@@ -15,6 +15,7 @@ import type { LocalAudioFileRepository } from "../features/local-library/localAu
 import type { PlayerSettingsRepository } from "../features/player/playerSettingsRepository";
 import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
 import { LOCAL_TEMPORARY_PLAYLIST_STORAGE_KEY } from "../infra/storage/localStoragePlaylistRepository";
+import { LOCAL_PLAYLIST_LIBRARY_STORAGE_KEY } from "../infra/storage/localStoragePlaylistLibraryRepository";
 import type {
   LocalAudioFileRecord,
   TemporaryPlaylist,
@@ -197,6 +198,7 @@ afterEach(() => {
   restoreObjectUrlMocks?.();
   restoreObjectUrlMocks = undefined;
   localStorage.removeItem(LOCAL_TEMPORARY_PLAYLIST_STORAGE_KEY);
+  localStorage.removeItem(LOCAL_PLAYLIST_LIBRARY_STORAGE_KEY);
   vi.restoreAllMocks();
 });
 
@@ -567,7 +569,7 @@ function invokeEndedListener(record: EndedListenerRecord) {
 }
 
 describe("persistent temporary playlist integration", () => {
-  it("restores order, duplicate instances, repeat counts, and a paused derived sequence", async () => {
+  it("restores order, duplicate instances, and repeat counts without restoring playback", async () => {
     const storedPlaylist = createStoredTemporaryPlaylist([
       {
         itemId: "item_second",
@@ -623,12 +625,14 @@ describe("persistent temporary playlist integration", () => {
       "3 首 · 6 次"
     );
     expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
-      "示例歌曲二"
+      "播放队列为空"
     );
     expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
-      "播放序列 1 / 6 · 本项第 1 / 2 次"
+      "请先将歌曲加入临时歌单"
     );
-    expect(container.querySelector(".player-status")?.textContent).toContain("已暂停");
+    expect(container.querySelector(".player-status")?.textContent).toContain(
+      "等待播放队列"
+    );
     expect(mediaMocks.play).not.toHaveBeenCalled();
     expect(repository.save).not.toHaveBeenCalled();
     expect(repository.clear).not.toHaveBeenCalled();
@@ -866,7 +870,7 @@ describe("persistent temporary playlist integration", () => {
     expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户歌曲");
     expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×2");
     expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
-      "播放序列 1 / 2"
+      "请先将歌曲加入临时歌单"
     );
     expect(repository.save).not.toHaveBeenCalled();
     expect(repository.clear).not.toHaveBeenCalled();
@@ -919,7 +923,7 @@ describe("persistent temporary playlist integration", () => {
       container.querySelectorAll(".playlist-persistence-message.is-notice")
     ).toHaveLength(1);
     expect(container.textContent).toContain(
-      "已从临时歌单移除 1 个目录中已不存在的歌曲项。"
+      "已从歌单库移除 1 个目录中已不存在的歌曲项。"
     );
     expect(repository.save).toHaveBeenCalledOnce();
     expect(repository.clear).not.toHaveBeenCalled();
@@ -1084,7 +1088,7 @@ describe("persistent temporary playlist integration", () => {
       );
     });
 
-    expect(firstContainer.textContent).toContain("无法恢复临时歌单");
+    expect(firstContainer.textContent).toContain("无法恢复歌单库");
     expect(loadFailureRepository.save).not.toHaveBeenCalled();
     expect(loadFailureRepository.clear).not.toHaveBeenCalled();
 
@@ -1140,7 +1144,7 @@ describe("persistent temporary playlist integration", () => {
       "示例歌曲一"
     );
     expect(secondContainer.textContent).toContain(
-      "临时歌单保存失败，本次页面中的更改仍然保留。"
+      "歌单库保存失败，本次页面中的更改仍然保留。"
     );
 
     shouldFailSave = false;
@@ -1402,7 +1406,7 @@ describe("persistent catalog integration", () => {
 
     expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户歌曲");
     expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
-      "用户歌曲"
+      "播放队列为空"
     );
 
     await act(async () => {
@@ -1413,7 +1417,7 @@ describe("persistent catalog integration", () => {
     expect(container.querySelectorAll(".queue-item")).toHaveLength(1);
     expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户歌曲");
     expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
-      "用户歌曲"
+      "播放队列为空"
     );
     expect(catalogRepository.load).toHaveBeenCalledOnce();
     expect(catalogRepository.save).not.toHaveBeenCalled();
@@ -1504,9 +1508,7 @@ describe("persistent catalog integration", () => {
     expect(queueTitles()).toEqual(["用户歌曲一"]);
     expect(queueItemIds()).toEqual(["queue_user_single_1"]);
     expect(repeatCounts()).toEqual(["×1"]);
-    expect(playerTitle()).toBe("用户歌曲一");
-    expect(playerMeta()).toContain("播放序列 1 / 1");
-    expect(playerMeta()).toContain("本项第 1 / 1 次");
+    expect(playerTitle()).toBe("播放队列为空");
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
@@ -1521,7 +1523,7 @@ describe("persistent catalog integration", () => {
     expect(new Set(queueItemIds())).toHaveLength(3);
     expect(repeatCounts()).toEqual(["×1", "×1", "×1"]);
     expect(playlistItemIdFactory).toHaveBeenCalledTimes(3);
-    expect(playerMeta()).toContain("播放序列 1 / 3");
+    expect(playerTitle()).toBe("播放队列为空");
 
     const firstQueueItem = container.querySelector<HTMLElement>(
       '[data-queue-item-id="queue_user_single_1"]'
@@ -1545,8 +1547,7 @@ describe("persistent catalog integration", () => {
     expect(
       container.querySelector(".playlist-heading-actions .pill")?.textContent
     ).toContain("3 首 · 4 次");
-    expect(playerMeta()).toContain("播放序列 1 / 4");
-    expect(playerMeta()).toContain("本项第 1 / 2 次");
+    expect(playerTitle()).toBe("播放队列为空");
 
     await act(async () => {
       document.dispatchEvent(
@@ -1581,6 +1582,12 @@ describe("persistent catalog integration", () => {
       "queue_user_album_1"
     ]);
     expect(repeatCounts()).toEqual(["×2", "×1", "×1"]);
+    expect(playerTitle()).toBe("播放队列为空");
+
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
     expect(playerTitle()).toBe("用户歌曲一");
     expect(playerMeta()).toContain("播放序列 1 / 4");
 
@@ -1657,6 +1664,9 @@ describe("persistent catalog integration", () => {
     });
     await act(async () => {
       findButton(container, "将示例歌曲一加入临时歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "播放")?.click();
     });
 
     expect(container.querySelector(".queue-item h3")?.textContent).toBe("示例歌曲一");
@@ -2011,7 +2021,7 @@ describe("track creation workflow", () => {
     expect(container.querySelector(".queue-item h3")?.textContent).toBe("新增用户歌曲");
     expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×1");
     expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
-      "新增用户歌曲"
+      "播放队列为空"
     );
 
     const secondAlbumButton = Array.from(
@@ -2846,11 +2856,21 @@ describe("temporary playlist workflow", () => {
       findButton(container, "将示例歌曲一加入临时歌单")?.click();
     });
 
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "播放队列为空"
+    );
+    expect(container.querySelector(".player-audio-binding")).toBeNull();
+    expect(findButton(container, "播放")?.disabled).toBe(false);
+    expect(mediaMocks.play).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
     expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
       "未绑定音频文件"
     );
     expect(findButton(container, "播放")?.disabled).toBe(true);
-    expect(mediaMocks.play).not.toHaveBeenCalled();
 
     const localFile = new File(["self-created test bytes"], "sample-one.mp3", {
       type: "audio/mpeg"
@@ -3002,12 +3022,8 @@ describe("temporary playlist workflow", () => {
       container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
     });
 
-    expect(playerTitle()).toBe("示例歌曲一");
-    expect(playerMeta()).toContain("播放序列 1 / 2");
-    expect(playerStatus()).toContain("已暂停");
-    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
-      "已绑定：sample-one.mp3"
-    );
+    expect(playerTitle()).toBe("播放队列为空");
+    expect(playerStatus()).toContain("等待播放队列");
 
     await act(async () => {
       findButton(container, "打开示例歌曲一的更多操作")?.click();
@@ -3016,8 +3032,7 @@ describe("temporary playlist workflow", () => {
       findButton(document.body, "增加示例歌曲一的播放次数")?.click();
     });
 
-    expect(playerMeta()).toContain("播放序列 1 / 3");
-    expect(playerMeta()).toContain("本项第 1 / 2 次");
+    expect(playerTitle()).toBe("播放队列为空");
 
     await act(async () => {
       findButton(container, "打开示例歌曲一的更多操作")?.click();
@@ -3028,6 +3043,9 @@ describe("temporary playlist workflow", () => {
       findButton(container, "播放")?.click();
     });
 
+    expect(playerTitle()).toBe("示例歌曲一");
+    expect(playerMeta()).toContain("播放序列 1 / 3");
+    expect(playerMeta()).toContain("本项第 1 / 2 次");
     expect(playerStatus()).toContain("正在播放");
     expect(findButton(container, "暂停")).not.toBeUndefined();
     expect(mediaMocks.play).toHaveBeenCalled();
@@ -3094,8 +3112,8 @@ describe("temporary playlist workflow", () => {
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".danger-button")?.click();
     });
-    expect(playerTitle()).toBe("播放队列为空");
-    expect(playerMeta()).toContain("请先将歌曲加入临时歌单");
+    expect(playerTitle()).toBe("示例歌曲一");
+    expect(playerMeta()).toContain("播放序列 1 / 3");
 
     await act(async () => {
       root.unmount();
@@ -3132,6 +3150,9 @@ describe("temporary playlist workflow", () => {
     });
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+    await act(async () => {
+      findButton(container, "播放")?.click();
     });
 
     const firstAudio = container.querySelector<HTMLAudioElement>("audio");

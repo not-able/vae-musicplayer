@@ -269,7 +269,8 @@ function isSamePlaybackOccurrence(
   return (
     first.queueItemId === second.queueItemId &&
     first.trackId === second.trackId &&
-    first.repeatIndex === second.repeatIndex
+    first.repeatIndex === second.repeatIndex &&
+    first.sourcePlaylistId === second.sourcePlaylistId
   );
 }
 

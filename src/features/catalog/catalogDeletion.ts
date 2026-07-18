@@ -2,10 +2,10 @@ import type {
   CatalogData,
   EntityId,
   LocalAudioFileRecord,
-  TemporaryPlaylist,
+  PlaylistLibrary,
   UserCatalogChanges
 } from "../../types";
-import { removeTracksFromTemporaryPlaylist } from "../../utils/playlist";
+import { removeTracksFromPlaylistLibrary } from "../playlist/playlistLibrary";
 import { mergeCatalogChanges } from "./catalogMerge";
 
 export type CatalogDeletionTarget =
@@ -22,20 +22,20 @@ export interface CatalogDeletionPreview {
 
 export interface CatalogDeletionPlan extends CatalogDeletionPreview {
   nextCatalogChanges: UserCatalogChanges;
-  nextPlaylist: TemporaryPlaylist;
+  nextPlaylistLibrary: PlaylistLibrary;
 }
 
 export function createCatalogDeletionPlan({
   defaultCatalog,
   changes,
-  playlist,
+  playlistLibrary,
   audioBindings,
   target,
   updatedAt
 }: {
   defaultCatalog: CatalogData;
   changes: UserCatalogChanges;
-  playlist: TemporaryPlaylist;
+  playlistLibrary: PlaylistLibrary;
   audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
   target: CatalogDeletionTarget;
   updatedAt: string;
@@ -69,10 +69,12 @@ export function createCatalogDeletionPlan({
     trackIds,
     isDefaultTarget
   );
-  const nextPlaylist = removeTracksFromTemporaryPlaylist(playlist, trackIds, updatedAt);
-  const playlistItemCount = playlist.itemIds.filter((itemId) =>
-    trackIds.has(playlist.itemsById[itemId]?.trackId ?? "")
-  ).length;
+  const nextPlaylistLibrary = removeTracksFromPlaylistLibrary(
+    playlistLibrary,
+    trackIds,
+    updatedAt
+  );
+  const playlistItemCount = getPlaylistItemCount(playlistLibrary, trackIds);
   const audioBindingCount = sortedTrackIds.filter((trackId) =>
     audioBindings.has(trackId)
   ).length;
@@ -85,8 +87,31 @@ export function createCatalogDeletionPlan({
     playlistItemCount,
     audioBindingCount,
     nextCatalogChanges,
-    nextPlaylist
+    nextPlaylistLibrary
   };
+}
+
+function getPlaylistItemCount(
+  playlistLibrary: PlaylistLibrary,
+  trackIds: ReadonlySet<EntityId>
+): number {
+  const documents = [
+    playlistLibrary.temporaryPlaylist,
+    ...playlistLibrary.savedPlaylistIds.flatMap((playlistId) => {
+      const playlist = playlistLibrary.savedPlaylistsById[playlistId];
+
+      return playlist ? [playlist] : [];
+    })
+  ];
+
+  return documents.reduce(
+    (count, playlist) =>
+      count +
+      playlist.itemIds.filter((itemId) =>
+        trackIds.has(playlist.itemsById[itemId]?.trackId ?? "")
+      ).length,
+    0
+  );
 }
 
 function removeCatalogEntries(

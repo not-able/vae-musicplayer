@@ -17,6 +17,7 @@ export type {
 
 export type {
   PlaySequenceEntry,
+  PlaybackSource,
   PlaylistDocument,
   PlaylistLibrary,
   PlaylistItem,

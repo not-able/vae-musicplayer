@@ -9,6 +9,10 @@ import {
 } from "../features/player/playerReducer";
 import type { PlaySequenceEntry, TemporaryPlaylist } from "../types";
 import {
+  copyPlaylistToSaved,
+  createPlaylistLibrary
+} from "../features/playlist/playlistLibrary";
+import {
   addTrackToPlaylist,
   createTemporaryPlaylist,
   expandPlaylistToPlaySequence,
@@ -283,7 +287,7 @@ describe("player reducer", () => {
 });
 
 describe("app player integration", () => {
-  it("hydrates playlist and player atomically at the first paused occurrence", () => {
+  it("hydrates the temporary draft and creates a paused playback snapshot", () => {
     const previousPlaylist = addTrackToPlaylist(createEmptyPlaylist(), {
       trackId: "track_previous",
       itemId: "item_previous",
@@ -316,9 +320,12 @@ describe("app player integration", () => {
     });
 
     expect(previousState.player.status).toBe("playing");
-    expect(hydratedState.playlist).toBe(restoredPlaylist);
+    expect(hydratedState.playlist).toEqual(restoredPlaylist);
     expect(hydratedState.player.playSequence).toEqual(
-      expandPlaylistToPlaySequence(restoredPlaylist)
+      expandPlaylistToPlaySequence(restoredPlaylist).map((entry) => ({
+        ...entry,
+        sourcePlaylistId: restoredPlaylist.id
+      }))
     );
     expect(hydratedState.player.playSequence).toHaveLength(4);
     expect(hydratedState.player.currentIndex).toBe(0);
@@ -332,7 +339,7 @@ describe("app player integration", () => {
     expect(hydratedState.player.playbackRevision).toBe(0);
   });
 
-  it("updates the player sequence atomically with playlist repeatCount", () => {
+  it("creates a playback snapshot only through an explicit start action", () => {
     const initialState = createAppState(createEmptyPlaylist());
     const addedState = appReducer(initialState, {
       type: "playlist",
@@ -344,9 +351,8 @@ describe("app player integration", () => {
       }
     });
 
-    expect(addedState.player.status).toBe("paused");
-    expect(addedState.player.playSequence).toHaveLength(1);
-    expect(addedState.player.currentEntry?.trackId).toBe("track_001");
+    expect(addedState.player.status).toBe("empty");
+    expect(addedState.player.playSequence).toEqual([]);
 
     const repeatedState = appReducer(addedState, {
       type: "playlist",
@@ -359,13 +365,20 @@ describe("app player integration", () => {
     });
 
     expect(repeatedState.playlist.itemsById.item_001.repeatCount).toBe(3);
-    expect(repeatedState.player.playSequence).toHaveLength(3);
-    expect(repeatedState.player.currentEntry).toMatchObject({
-      repeatIndex: 1,
-      repeatTotal: 3
+    expect(repeatedState.player.playSequence).toEqual([]);
+
+    const startedState = appReducer(repeatedState, {
+      type: "start-playback-from-selection"
     });
 
-    const playingState = appReducer(repeatedState, {
+    expect(startedState.player.playSequence).toHaveLength(3);
+    expect(startedState.player.currentEntry).toMatchObject({
+      repeatIndex: 1,
+      repeatTotal: 3,
+      sourcePlaylistId: "playlist_player_test"
+    });
+
+    const playingState = appReducer(startedState, {
       type: "player",
       action: { type: "play" }
     });
@@ -379,11 +392,74 @@ describe("app player integration", () => {
       type: "playlist",
       action: { type: "clear", updatedAt }
     });
-    expect(clearedState.player.status).toBe("empty");
-    expect(clearedState.player.playSequence).toEqual([]);
+    expect(clearedState.playlist.itemIds).toEqual([]);
+    expect(clearedState.player).toBe(advancedState.player);
   });
 
-  it("continues with the first surviving occurrence after repeatCount shrinks", () => {
+  it("keeps playback snapshot A stable while selecting and editing saved playlist B", () => {
+    const temporaryPlaylist = createEmptyPlaylist();
+    const playlistA = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    const playlistB = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+    const withA = copyPlaylistToSaved(createPlaylistLibrary({ temporaryPlaylist }), {
+      sourcePlaylist: playlistA,
+      savedPlaylistId: "playlist_a",
+      name: "A",
+      createdAt
+    });
+    const library = copyPlaylistToSaved(withA, {
+      sourcePlaylist: playlistB,
+      savedPlaylistId: "playlist_b",
+      name: "B",
+      createdAt
+    });
+    let state = createAppState(library);
+
+    state = appReducer(state, {
+      type: "select-playlist",
+      selection: { kind: "saved", playlistId: "playlist_a" }
+    });
+    state = appReducer(state, { type: "start-playback-from-selection" });
+    const snapshotA = state.player;
+
+    state = appReducer(state, {
+      type: "select-playlist",
+      selection: { kind: "saved", playlistId: "playlist_b" }
+    });
+    state = appReducer(state, {
+      type: "playlist",
+      action: {
+        type: "set-repeat-count",
+        itemId: "item_b",
+        repeatCount: 3,
+        updatedAt
+      }
+    });
+
+    expect(state.playlist.itemsById.item_b.repeatCount).toBe(3);
+    expect(state.player).toBe(snapshotA);
+    expect(state.playbackSource).toEqual({
+      kind: "saved-playlist",
+      playlistId: "playlist_a"
+    });
+
+    const startedB = appReducer(state, { type: "start-playback-from-selection" });
+
+    expect(startedB.player.playSequence).toHaveLength(3);
+    expect(startedB.playbackSource).toEqual({
+      kind: "saved-playlist",
+      playlistId: "playlist_b"
+    });
+  });
+
+  it("does not change an active snapshot when its source document repeatCount shrinks", () => {
     let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
       trackId: "track_a",
       itemId: "item_a",
@@ -414,7 +490,7 @@ describe("app player integration", () => {
       repeatIndex: 3
     });
 
-    const syncedState = appReducer(state, {
+    const editedState = appReducer(state, {
       type: "playlist",
       action: {
         type: "set-repeat-count",
@@ -424,16 +500,11 @@ describe("app player integration", () => {
       }
     });
 
-    expect(syncedState.player.currentEntry).toMatchObject({
-      queueItemId: "item_b",
-      trackId: "track_b"
-    });
-    expect(syncedState.player.currentIndex).toBe(1);
-    expect(syncedState.player.status).toBe("playing");
-    expect(syncedState.player.playbackRevision).toBe(state.player.playbackRevision + 1);
+    expect(editedState.playlist.itemsById.item_a.repeatCount).toBe(1);
+    expect(editedState.player).toBe(state.player);
   });
 
-  it("continues after a removed middle item without skipping a survivor", () => {
+  it("does not change an active snapshot when an editor removes a middle item", () => {
     let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
       trackId: "track_a",
       itemId: "item_a",
@@ -469,20 +540,16 @@ describe("app player integration", () => {
       repeatIndex: 2
     });
 
-    const syncedState = appReducer(state, {
+    const editedState = appReducer(state, {
       type: "playlist",
       action: { type: "remove-item", itemId: "item_b", updatedAt }
     });
 
-    expect(syncedState.player.currentEntry).toMatchObject({
-      queueItemId: "item_c",
-      trackId: "track_c"
-    });
-    expect(syncedState.player.currentIndex).toBe(1);
-    expect(syncedState.player.status).toBe("playing");
+    expect(editedState.playlist.itemsById.item_b).toBeUndefined();
+    expect(editedState.player).toBe(state.player);
   });
 
-  it("ends when the removed current item has no surviving successor", () => {
+  it("keeps playing a snapshot even if its current item is removed from the editor", () => {
     let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
       trackId: "track_a",
       itemId: "item_a",
@@ -503,15 +570,13 @@ describe("app player integration", () => {
 
     expect(state.player.currentEntry?.queueItemId).toBe("item_b");
 
-    const syncedState = appReducer(state, {
+    const editedState = appReducer(state, {
       type: "playlist",
       action: { type: "remove-item", itemId: "item_b", updatedAt }
     });
 
-    expect(syncedState.player.status).toBe("ended");
-    expect(syncedState.player.currentIndex).toBe(0);
-    expect(syncedState.player.currentEntry?.queueItemId).toBe("item_a");
-    expect(syncedState.player.playbackRevision).toBe(state.player.playbackRevision + 1);
+    expect(editedState.playlist.itemsById.item_b).toBeUndefined();
+    expect(editedState.player).toBe(state.player);
   });
 
   it("keeps the current occurrence through a real move-item action", () => {
@@ -544,7 +609,7 @@ describe("app player integration", () => {
     });
 
     expect(movedState.playlist.itemIds).toEqual(["item_b", "item_a", "item_c"]);
-    expect(movedState.player.currentIndex).toBe(0);
+    expect(movedState.player.currentIndex).toBe(1);
     expect(movedState.player.currentEntry?.queueItemId).toBe("item_b");
     expect(movedState.player.status).toBe("paused");
     expect(movedState.player.playbackRevision).toBe(revisionBeforeMove);

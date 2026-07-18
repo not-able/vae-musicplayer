@@ -6,6 +6,7 @@ import type {
   PlaylistLibrary,
   PlaylistSelection
 } from "../../types";
+import { removeTracksFromTemporaryPlaylist } from "../../utils/playlist";
 
 export interface CreatePlaylistLibraryInput {
   temporaryPlaylist: PlaylistDocument;
@@ -105,6 +106,47 @@ export function deleteSavedPlaylist(
     savedPlaylistIds: library.savedPlaylistIds.filter(
       (playlistId) => playlistId !== savedPlaylistId
     ),
+    savedPlaylistsById
+  };
+}
+
+export function removeTracksFromPlaylistLibrary(
+  library: PlaylistLibrary,
+  trackIds: ReadonlySet<EntityId>,
+  updatedAt: ISODateString
+): PlaylistLibrary {
+  const temporaryPlaylist = removeTracksFromTemporaryPlaylist(
+    library.temporaryPlaylist,
+    trackIds,
+    updatedAt
+  );
+  let savedPlaylistChanged = false;
+  const savedPlaylistsById: Record<EntityId, PlaylistDocument> = {};
+
+  for (const savedPlaylistId of library.savedPlaylistIds) {
+    const savedPlaylist = library.savedPlaylistsById[savedPlaylistId];
+
+    if (!savedPlaylist) {
+      throw new Error(`Saved playlist ${savedPlaylistId} is missing.`);
+    }
+
+    const nextSavedPlaylist = removeTracksFromTemporaryPlaylist(
+      savedPlaylist,
+      trackIds,
+      updatedAt
+    );
+
+    savedPlaylistsById[savedPlaylistId] = nextSavedPlaylist;
+    savedPlaylistChanged ||= nextSavedPlaylist !== savedPlaylist;
+  }
+
+  if (temporaryPlaylist === library.temporaryPlaylist && !savedPlaylistChanged) {
+    return library;
+  }
+
+  return {
+    ...library,
+    temporaryPlaylist,
     savedPlaylistsById
   };
 }

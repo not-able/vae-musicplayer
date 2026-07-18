@@ -27,6 +27,11 @@ export interface PlaylistLibrary {
 export type PlaylistSelection =
   { kind: "temporary" } | { kind: "saved"; playlistId: EntityId };
 
+export type PlaybackSource =
+  | { kind: "temporary-playlist" }
+  | { kind: "saved-playlist"; playlistId: EntityId }
+  | { kind: "album-track-preview"; trackId: EntityId };
+
 export interface PlaylistItem {
   id: EntityId;
   trackId: EntityId;
@@ -68,4 +73,5 @@ export interface PlaySequenceEntry {
   trackId: EntityId;
   repeatIndex: number;
   repeatTotal: number;
+  sourcePlaylistId?: EntityId;
 }

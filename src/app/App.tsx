@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef } from "react";
+import { useCallback, useMemo, useReducer, useRef } from "react";
 
 import { appReducer, createAppState } from "./appReducer";
 import { PageShell } from "../components/PageShell";
@@ -21,14 +21,16 @@ import type { PlayerAction } from "../features/player/playerReducer";
 import { useLocalAudioPlayback } from "../features/player/useLocalAudioPlayback";
 import { TemporaryPlaylistPanel } from "../features/playlist/TemporaryPlaylistPanel";
 import type { TemporaryPlaylistAction } from "../features/playlist/playlistReducer";
+import type { PlaylistLibraryRepository } from "../features/playlist/playlistLibraryRepository";
+import { createLegacyTemporaryPlaylistRepositoryAdapter } from "../features/playlist/playlistLibraryRepository";
 import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
-import { usePersistedPlaylist } from "../features/playlist/usePersistedPlaylist";
+import { usePersistedPlaylistLibrary } from "../features/playlist/usePersistedPlaylistLibrary";
 import { indexedDbLocalAudioRepository } from "../infra/storage/indexedDbLocalAudioRepository";
 import { localStorageCatalogRepository } from "../infra/storage/localStorageCatalogRepository";
 import { localStorageCatalogDeletionIntentRepository } from "../infra/storage/localStorageCatalogDeletionIntentRepository";
-import { localStoragePlaylistRepository } from "../infra/storage/localStoragePlaylistRepository";
+import { localStoragePlaylistLibraryRepository } from "../infra/storage/localStoragePlaylistLibraryRepository";
 import { localStoragePlayerSettingsRepository } from "../infra/storage/localStoragePlayerSettingsRepository";
-import type { EntityId, PlaySequenceEntry, TemporaryPlaylist } from "../types";
+import type { EntityId, PlaySequenceEntry, PlaylistLibrary } from "../types";
 import type { PlayerSettingsRepository } from "../features/player/playerSettingsRepository";
 import { createTemporaryPlaylist } from "../utils/playlist";
 
@@ -70,6 +72,7 @@ interface AppProps {
   catalogRepository?: LocalCatalogRepository;
   catalogEntityIdFactory?: CatalogEntityIdFactory;
   localAudioRepository?: LocalAudioFileRepository;
+  playlistLibraryRepository?: PlaylistLibraryRepository;
   playlistRepository?: TemporaryPlaylistRepository;
   playerSettingsRepository?: PlayerSettingsRepository;
   deletionIntentRepository?: CatalogDeletionIntentRepository;
@@ -80,34 +83,42 @@ export function App({
   catalogRepository = localStorageCatalogRepository,
   catalogEntityIdFactory,
   localAudioRepository = indexedDbLocalAudioRepository,
-  playlistRepository = localStoragePlaylistRepository,
+  playlistLibraryRepository = localStoragePlaylistLibraryRepository,
+  playlistRepository,
   playerSettingsRepository = localStoragePlayerSettingsRepository,
   deletionIntentRepository = localStorageCatalogDeletionIntentRepository,
   playlistItemIdFactory = createPlaylistItemId
 }: AppProps) {
-  const [{ playlist, player }, dispatch] = useReducer(
+  const [{ playlist, playlistLibrary, player }, dispatch] = useReducer(
     appReducer,
     undefined,
     createInitialState
   );
   const audioRef = useRef<HTMLAudioElement>(null);
+  const persistedPlaylistLibraryRepository = useMemo(
+    () =>
+      playlistRepository
+        ? createLegacyTemporaryPlaylistRepositoryAdapter(playlistRepository)
+        : playlistLibraryRepository,
+    [playlistLibraryRepository, playlistRepository]
+  );
   const catalogLibrary = useCatalogLibrary(
     mockCatalog,
     catalogRepository,
     catalogEntityIdFactory
   );
   const catalog = catalogLibrary.catalog;
-  const hydratePlaylist = useCallback(
-    (restoredPlaylist: TemporaryPlaylist) =>
-      dispatch({ type: "hydrate-playlist", playlist: restoredPlaylist }),
+  const hydratePlaylistLibrary = useCallback(
+    (restoredLibrary: PlaylistLibrary) =>
+      dispatch({ type: "hydrate-playlist-library", library: restoredLibrary }),
     []
   );
-  const playlistPersistence = usePersistedPlaylist({
-    playlist,
+  const playlistPersistence = usePersistedPlaylistLibrary({
+    library: playlistLibrary,
     tracks: catalog.tracks,
     catalogStatus: catalogLibrary.status,
-    repository: playlistRepository,
-    onHydrate: hydratePlaylist
+    repository: persistedPlaylistLibraryRepository,
+    onHydrate: hydratePlaylistLibrary
   });
   const localAudioLibrary = useLocalAudioLibrary(localAudioRepository);
   const dispatchPlayer = useCallback(
@@ -127,8 +138,8 @@ export function App({
       catalogLibrary.applyPersistedChanges(intent.nextCatalogChanges);
       localAudioLibrary.forgetAudioBindings(intent.trackIds);
       dispatch({
-        type: "replace-playlist-after-catalog-deletion",
-        playlist: intent.nextPlaylist,
+        type: "replace-playlist-library-after-catalog-deletion",
+        library: intent.nextPlaylistLibrary,
         removedTrackIds: intent.trackIds
       });
     },
@@ -146,9 +157,9 @@ export function App({
     defaultCatalog: mockCatalog,
     catalogChanges: catalogLibrary.changes,
     catalogStatus: catalogLibrary.status,
-    playlist,
+    playlistLibrary,
     playlistIsReady: playlistPersistence.status === "ready",
-    playlistRepository,
+    playlistRepository: persistedPlaylistLibraryRepository,
     audioBindings: localAudioLibrary.bindingsByTrackId,
     audioStatus: localAudioLibrary.status,
     audioRepository: localAudioRepository,
@@ -178,6 +189,19 @@ export function App({
     localAudioLibrary.bindingsByTrackId.get(playTargetEntry.trackId)?.status ===
       "available"
   );
+
+  const canStartCurrentPlaylist = playlist.itemIds.length > 0;
+
+  function requestPlayerPlay() {
+    if (player.status === "empty") {
+      if (canStartCurrentPlaylist) {
+        dispatch({ type: "start-playback-from-selection", autoplay: true });
+      }
+      return;
+    }
+
+    localAudioPlayback.requestPlay();
+  }
 
   function dispatchPlaylist(action: TemporaryPlaylistAction) {
     if (!playlistPersistence.canMutate) {
@@ -344,13 +368,14 @@ export function App({
         currentAudioBindingStatus={currentAudioBinding?.status}
         isCurrentAudioBound={Boolean(currentAudioBinding)}
         canPlayTarget={canPlayTarget}
+        canStartCurrentPlaylist={canStartCurrentPlaylist}
         audioLibraryStatus={localAudioLibrary.status}
         playbackError={localAudioPlayback.errorMessage}
         settingsError={localAudioPlayback.settingsError}
         playerSettings={localAudioPlayback.settings}
         playerSettingsStatus={localAudioPlayback.settingsStatus}
         playbackProgress={localAudioPlayback.progress}
-        onPlay={localAudioPlayback.requestPlay}
+        onPlay={requestPlayerPlay}
         onPause={localAudioPlayback.requestPause}
         onNext={() => {
           localAudioPlayback.clearError();

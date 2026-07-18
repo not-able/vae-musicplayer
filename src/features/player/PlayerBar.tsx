@@ -16,6 +16,7 @@ interface PlayerBarProps {
   currentAudioBindingStatus?: AudioMappingStatus;
   isCurrentAudioBound: boolean;
   canPlayTarget: boolean;
+  canStartCurrentPlaylist?: boolean;
   audioLibraryStatus: LocalAudioLibraryStatus;
   playbackError?: string;
   settingsError?: string;
@@ -39,6 +40,7 @@ export function PlayerBar({
   currentAudioBindingStatus,
   isCurrentAudioBound,
   canPlayTarget,
+  canStartCurrentPlaylist = false,
   audioLibraryStatus,
   playbackError,
   settingsError,
@@ -132,7 +134,7 @@ export function PlayerBar({
         <button
           className="primary-player-action"
           type="button"
-          disabled={isEmpty || (!isPlaying && !canPlayTarget)}
+          disabled={isEmpty ? !canStartCurrentPlaylist : !isPlaying && !canPlayTarget}
           aria-label={isPlaying ? "暂停" : playButtonLabel}
           onClick={isPlaying ? onPause : onPlay}
         >

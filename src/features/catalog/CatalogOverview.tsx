@@ -124,47 +124,29 @@ export function CatalogOverview({
   importTools
 }: CatalogOverviewProps) {
   const albums = useMemo(() => getSortedAlbums(catalog), [catalog]);
-  const [albumSelection, setAlbumSelection] = useState(() => ({
-    catalog,
-    albumId: albums[0]?.id
-  }));
+  const [selectedAlbumId, setSelectedAlbumId] = useState(() => albums[0]?.id);
   const [draggingAlbumId, setDraggingAlbumId] = useState<EntityId>();
   const [draggingTrackId, setDraggingTrackId] = useState<EntityId>();
   const [editorTarget, setEditorTarget] = useState<CatalogEditorTarget>();
   const [pendingDeletion, setPendingDeletion] = useState<CatalogDeletionPreview>();
   const [deletionDialogError, setDeletionDialogError] = useState<string>();
-  const selectedAlbumId =
-    albumSelection.catalog === catalog ||
-    albums.some((album) => album.id === albumSelection.albumId)
-      ? albumSelection.albumId
-      : albums[0]?.id;
   const selectedAlbum =
     albums.find((album) => album.id === selectedAlbumId) ?? albums[0];
 
-  if (albumSelection.catalog !== catalog) {
-    setAlbumSelection({
-      catalog,
-      albumId: selectedAlbum?.id
-    });
-
-    const targetAlbumId =
-      editorTarget && editorTarget.kind !== "create-album"
-        ? editorTarget.albumId
-        : undefined;
-    const targetTrackExists =
-      editorTarget?.kind !== "edit-track" ||
-      catalog.tracks.some(
-        (track) =>
-          track.id === editorTarget.trackId && track.albumId === editorTarget.albumId
-      );
-
+  useEffect(() => {
     if (
-      (targetAlbumId && !catalog.albums.some((album) => album.id === targetAlbumId)) ||
-      !targetTrackExists
+      selectedAlbumId !== undefined &&
+      !albums.some((album) => album.id === selectedAlbumId)
     ) {
-      setEditorTarget(undefined);
+      queueMicrotask(() => {
+        setSelectedAlbumId((currentAlbumId) =>
+          albums.some((album) => album.id === currentAlbumId)
+            ? currentAlbumId
+            : albums[0]?.id
+        );
+      });
     }
-  }
+  }, [albums, selectedAlbumId]);
 
   function startAlbumDrag(event: DragEvent<HTMLButtonElement>, albumId: EntityId) {
     writeAlbumDragData(event.dataTransfer, albumId);
@@ -177,18 +159,12 @@ export function CatalogOverview({
   }
 
   function handleAlbumCreated(albumId: EntityId): void {
-    setAlbumSelection({
-      catalog,
-      albumId
-    });
+    setSelectedAlbumId(albumId);
     setEditorTarget(undefined);
   }
 
   function selectAlbum(albumId: EntityId): void {
-    setAlbumSelection({
-      catalog,
-      albumId
-    });
+    setSelectedAlbumId(albumId);
     setEditorTarget(undefined);
   }
 

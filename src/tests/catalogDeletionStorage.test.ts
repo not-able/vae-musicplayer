@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { CatalogDeletionIntent } from "../features/catalog/catalogDeletionRepository";
+import {
+  CATALOG_DELETION_INTENT_SCHEMA_VERSION,
+  type CatalogDeletionIntent
+} from "../features/catalog/catalogDeletionRepository";
 import { createEmptyUserCatalogChanges } from "../features/catalog/catalogMutations";
+import { createPlaylistLibrary } from "../features/playlist/playlistLibrary";
 import {
   createLocalStorageCatalogDeletionIntentRepository,
   LOCAL_CATALOG_DELETION_INTENT_STORAGE_KEY
@@ -52,12 +56,12 @@ describe("catalog deletion intent storage", () => {
       }
     );
     const intent: CatalogDeletionIntent = {
-      schemaVersion: 1,
+      schemaVersion: CATALOG_DELETION_INTENT_SCHEMA_VERSION,
       id: "catalog_deletion_test",
       createdAt,
       trackIds: ["track_sample_001"],
       nextCatalogChanges: createEmptyUserCatalogChanges(),
-      nextPlaylist: playlist
+      nextPlaylistLibrary: createPlaylistLibrary({ temporaryPlaylist: playlist })
     };
     const storage = new MemoryStorage();
     const repository = createLocalStorageCatalogDeletionIntentRepository(storage);

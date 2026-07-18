@@ -1,11 +1,11 @@
 import type {
   EntityId,
   ISODateString,
-  TemporaryPlaylist,
+  PlaylistLibrary,
   UserCatalogChanges
 } from "../../types";
 
-export const CATALOG_DELETION_INTENT_SCHEMA_VERSION = 1 as const;
+export const CATALOG_DELETION_INTENT_SCHEMA_VERSION = 2 as const;
 
 export interface CatalogDeletionIntent {
   schemaVersion: typeof CATALOG_DELETION_INTENT_SCHEMA_VERSION;
@@ -13,7 +13,7 @@ export interface CatalogDeletionIntent {
   createdAt: ISODateString;
   trackIds: EntityId[];
   nextCatalogChanges: UserCatalogChanges;
-  nextPlaylist: TemporaryPlaylist;
+  nextPlaylistLibrary: PlaylistLibrary;
 }
 
 export interface CatalogDeletionIntentRepository {

@@ -9,6 +9,10 @@ import {
   completeCatalogDeletion,
   startCatalogDeletion
 } from "../features/catalog/catalogDeletionExecution";
+import {
+  copyPlaylistToSaved,
+  createPlaylistLibrary
+} from "../features/playlist/playlistLibrary";
 import type {
   CatalogDeletionIntent,
   CatalogDeletionIntentRepository
@@ -21,9 +25,10 @@ import {
 } from "../features/catalog/catalogMutations";
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
-import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
+import type { PlaylistLibraryRepository } from "../features/playlist/playlistLibraryRepository";
 import type {
   LocalAudioFileRecord,
+  PlaylistLibrary,
   TemporaryPlaylist,
   UserCatalogChanges
 } from "../types";
@@ -93,12 +98,14 @@ describe("catalog deletion plans", () => {
     const plan = createCatalogDeletionPlan({
       defaultCatalog: mockCatalog,
       changes,
-      playlist: createPlaylist([
-        "track_sample_001",
-        "track_user_delete",
-        "track_user_delete",
-        "track_sample_002"
-      ]),
+      playlistLibrary: createPlaylistLibrary({
+        temporaryPlaylist: createPlaylist([
+          "track_sample_001",
+          "track_user_delete",
+          "track_user_delete",
+          "track_sample_002"
+        ])
+      }),
       audioBindings: new Map([
         ["track_user_delete", createAudioRecord("track_user_delete")]
       ]),
@@ -110,7 +117,10 @@ describe("catalog deletion plans", () => {
     expect(plan.trackCount).toBe(1);
     expect(plan.playlistItemCount).toBe(2);
     expect(plan.audioBindingCount).toBe(1);
-    expect(plan.nextPlaylist.itemIds).toEqual(["item_1", "item_4"]);
+    expect(plan.nextPlaylistLibrary.temporaryPlaylist.itemIds).toEqual([
+      "item_1",
+      "item_4"
+    ]);
     expect(plan.nextCatalogChanges.addedAlbums).toEqual([]);
     expect(plan.nextCatalogChanges.addedTracks).toEqual([]);
     expect(
@@ -118,6 +128,41 @@ describe("catalog deletion plans", () => {
         (album) => album.id === "album_user_delete"
       )
     ).toBe(false);
+  });
+
+  it("removes deleted tracks from the temporary playlist and every saved playlist", () => {
+    const temporaryPlaylist = createPlaylist([
+      "track_user_delete",
+      "track_sample_001",
+      "track_user_delete"
+    ]);
+    const playlistLibrary = copyPlaylistToSaved(
+      createPlaylistLibrary({ temporaryPlaylist }),
+      {
+        sourcePlaylist: createPlaylist([
+          "track_sample_002",
+          "track_user_delete",
+          "track_user_delete"
+        ]),
+        savedPlaylistId: "playlist_saved_delete_test",
+        name: "删除覆盖测试",
+        createdAt: timestamp
+      }
+    );
+    const plan = createCatalogDeletionPlan({
+      defaultCatalog: mockCatalog,
+      changes: createUserAlbumChanges(),
+      playlistLibrary,
+      audioBindings: new Map(),
+      target: { kind: "track", id: "track_user_delete" },
+      updatedAt: timestamp
+    });
+
+    expect(plan.playlistItemCount).toBe(4);
+    expect(plan.nextPlaylistLibrary.temporaryPlaylist.itemIds).toEqual(["item_2"]);
+    expect(
+      plan.nextPlaylistLibrary.savedPlaylistsById.playlist_saved_delete_test?.itemIds
+    ).toEqual(["item_1"]);
   });
 
   it("deletes a built-in album locally and clears its user additions without a restore path", () => {
@@ -135,11 +180,13 @@ describe("catalog deletion plans", () => {
     const plan = createCatalogDeletionPlan({
       defaultCatalog: mockCatalog,
       changes,
-      playlist: createPlaylist([
-        "track_sample_001",
-        "track_user_added_to_default",
-        "track_sample_002"
-      ]),
+      playlistLibrary: createPlaylistLibrary({
+        temporaryPlaylist: createPlaylist([
+          "track_sample_001",
+          "track_user_added_to_default",
+          "track_sample_002"
+        ])
+      }),
       audioBindings: new Map(),
       target: { kind: "album", id: "album_sample_001" },
       updatedAt: timestamp
@@ -168,7 +215,7 @@ describe("catalog deletion recovery", () => {
   it("keeps the intent after a failed step and safely replays the idempotent final state", async () => {
     const plan = createDeletionPlanForRecovery();
     let storedChanges = createUserAlbumChanges();
-    let storedPlaylist = plan.nextPlaylist;
+    let storedPlaylistLibrary = plan.nextPlaylistLibrary;
     let storedIntent: CatalogDeletionIntent | null = null;
     let shouldFailAudioRemoval = true;
     const catalogRepository = {
@@ -179,12 +226,12 @@ describe("catalog deletion recovery", () => {
       clear: vi.fn(async () => undefined)
     } satisfies LocalCatalogRepository;
     const playlistRepository = {
-      load: vi.fn(async () => storedPlaylist),
-      save: vi.fn(async (playlist: TemporaryPlaylist) => {
-        storedPlaylist = playlist;
+      load: vi.fn(async () => storedPlaylistLibrary),
+      save: vi.fn(async (library: PlaylistLibrary) => {
+        storedPlaylistLibrary = library;
       }),
       clear: vi.fn(async () => undefined)
-    } satisfies TemporaryPlaylistRepository;
+    } satisfies PlaylistLibraryRepository;
     const audioRepository = {
       list: vi.fn(async () => []),
       save: vi.fn(async () => undefined),
@@ -218,7 +265,7 @@ describe("catalog deletion recovery", () => {
 
     expect(unfinishedIntent?.id).toBe("catalog_deletion_test");
     expect(storedChanges).toEqual(plan.nextCatalogChanges);
-    expect(storedPlaylist).toEqual(plan.nextPlaylist);
+    expect(storedPlaylistLibrary).toEqual(plan.nextPlaylistLibrary);
 
     shouldFailAudioRemoval = false;
     if (!unfinishedIntent) {
@@ -229,7 +276,7 @@ describe("catalog deletion recovery", () => {
     expect(audioRepository.remove).toHaveBeenCalledTimes(2);
     expect(storedIntent).toBeNull();
     expect(storedChanges).toEqual(plan.nextCatalogChanges);
-    expect(storedPlaylist).toEqual(plan.nextPlaylist);
+    expect(storedPlaylistLibrary).toEqual(plan.nextPlaylistLibrary);
   });
 });
 
@@ -237,7 +284,9 @@ function createDeletionPlanForRecovery(): CatalogDeletionPlan {
   return createCatalogDeletionPlan({
     defaultCatalog: mockCatalog,
     changes: createUserAlbumChanges(),
-    playlist: createPlaylist(["track_user_delete", "track_sample_001"]),
+    playlistLibrary: createPlaylistLibrary({
+      temporaryPlaylist: createPlaylist(["track_user_delete", "track_sample_001"])
+    }),
     audioBindings: new Map([
       ["track_user_delete", createAudioRecord("track_user_delete")]
     ]),
