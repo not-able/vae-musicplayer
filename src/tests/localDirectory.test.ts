@@ -5,6 +5,8 @@ import {
   normalizeDirectoryCandidateText,
   scanLocalDirectory
 } from "../features/local-library/localDirectoryScanner";
+import { matchLocalDirectoryCandidates } from "../features/local-library/localTrackMatcher";
+import type { CatalogData, LocalAudioFileRecord } from "../types";
 
 function createDirectoryFile(
   relativePath: string,
@@ -21,6 +23,102 @@ function createDirectoryFile(
   });
 
   return file;
+}
+
+function createMatcherCatalog(): CatalogData {
+  return {
+    schemaVersion: 1,
+    artists: [
+      { id: "artist_vae", name: "许嵩" },
+      { id: "artist_other", name: "其他歌手" }
+    ],
+    albums: [
+      {
+        id: "album_alpha",
+        artistId: "artist_vae",
+        title: "专辑甲",
+        type: "album",
+        sortOrder: 1,
+        trackIds: [
+          "track_exact",
+          "track_bound",
+          "track_duplicate_alpha",
+          "track_review"
+        ]
+      },
+      {
+        id: "album_beta",
+        artistId: "artist_vae",
+        title: "专辑乙",
+        type: "album",
+        sortOrder: 2,
+        trackIds: ["track_duplicate_beta"]
+      },
+      {
+        id: "album_other",
+        artistId: "artist_other",
+        title: "其他专辑",
+        type: "album",
+        sortOrder: 3,
+        trackIds: ["track_duplicate_other"]
+      }
+    ],
+    tracks: [
+      {
+        id: "track_exact",
+        artistId: "artist_vae",
+        albumId: "album_alpha",
+        title: "Ｍｉｘ　Song"
+      },
+      {
+        id: "track_bound",
+        artistId: "artist_vae",
+        albumId: "album_alpha",
+        title: "已绑定"
+      },
+      {
+        id: "track_duplicate_alpha",
+        artistId: "artist_vae",
+        albumId: "album_alpha",
+        title: "重名"
+      },
+      {
+        id: "track_review",
+        artistId: "artist_vae",
+        albumId: "album_alpha",
+        title: "不确定-候选"
+      },
+      {
+        id: "track_duplicate_beta",
+        artistId: "artist_vae",
+        albumId: "album_beta",
+        title: "重名"
+      },
+      {
+        id: "track_duplicate_other",
+        artistId: "artist_other",
+        albumId: "album_other",
+        title: "重名"
+      }
+    ]
+  };
+}
+
+function createAudioBinding(trackId: string): LocalAudioFileRecord {
+  const file = new File(["self-created test bytes"], "bound.mp3", {
+    type: "audio/mpeg"
+  });
+
+  return {
+    id: `local_audio_${trackId}`,
+    trackId,
+    fileName: file.name,
+    fileType: file.type,
+    fileSize: file.size,
+    status: "available",
+    updatedAt: "2026-07-18T00:00:00.000Z",
+    file
+  };
 }
 
 describe("local directory scanner", () => {
@@ -240,5 +338,172 @@ describe("local directory scanner", () => {
         reason: "unsupported_extension"
       }
     ]);
+  });
+});
+
+describe("local track matcher", () => {
+  it("returns exact, candidate, conflict, unmatched, bound and review states without writing", () => {
+    const candidates = scanLocalDirectory(
+      [
+        createDirectoryFile("专辑甲/mix song.mp3"),
+        createDirectoryFile("专辑甲/已绑定.mp3"),
+        createDirectoryFile("无关/重名.mp3"),
+        createDirectoryFile("专辑乙/重名.flac"),
+        createDirectoryFile("目录/其他歌手-重名.m4a"),
+        createDirectoryFile("专辑甲/不确定-候选.mp3"),
+        createDirectoryFile("专辑甲/不存在.mp3"),
+        createDirectoryFile("专辑甲/.wav")
+      ],
+      { knownArtistNames: ["其他歌手"] }
+    ).candidates;
+    const result = matchLocalDirectoryCandidates({
+      catalog: createMatcherCatalog(),
+      candidates,
+      audioBindingsByTrackId: new Map([
+        ["track_bound", createAudioBinding("track_bound")]
+      ])
+    });
+
+    expect(result.matches.map((match) => match.status)).toEqual([
+      "exact",
+      "already_bound",
+      "conflict",
+      "candidate",
+      "candidate",
+      "needs_review",
+      "unmatched",
+      "needs_review"
+    ]);
+    expect(result.matches.map((match) => match.matchingTrackIds)).toEqual([
+      ["track_exact"],
+      ["track_bound"],
+      ["track_duplicate_alpha", "track_duplicate_beta", "track_duplicate_other"],
+      ["track_duplicate_beta"],
+      ["track_duplicate_other"],
+      [],
+      [],
+      []
+    ]);
+    expect(result.matches.map((match) => match.titleMatchingTrackIds)).toEqual([
+      ["track_exact"],
+      ["track_bound"],
+      ["track_duplicate_alpha", "track_duplicate_beta", "track_duplicate_other"],
+      ["track_duplicate_alpha", "track_duplicate_beta", "track_duplicate_other"],
+      ["track_duplicate_alpha", "track_duplicate_beta", "track_duplicate_other"],
+      [],
+      [],
+      []
+    ]);
+    expect(result.matches.map((match) => match.suggestedTrackId)).toEqual([
+      "track_exact",
+      undefined,
+      undefined,
+      "track_duplicate_beta",
+      "track_duplicate_other",
+      undefined,
+      undefined,
+      undefined
+    ]);
+    expect(result.matches.map((match) => match.matchedBy)).toEqual([
+      ["title"],
+      ["title"],
+      ["title"],
+      ["title", "album"],
+      ["title", "artist"],
+      [],
+      [],
+      []
+    ]);
+    expect(result.matches.map((match) => match.reasons)).toEqual([
+      ["exact_normalized_title"],
+      ["already_bound"],
+      ["ambiguous_track_title"],
+      ["narrowed_by_catalog_metadata"],
+      ["narrowed_by_catalog_metadata", "album_mismatch"],
+      ["scanner_needs_review"],
+      ["no_exact_title"],
+      ["scanner_needs_review"]
+    ]);
+    expect(result.matches[0].candidate).toBe(candidates[0]);
+  });
+
+  it("marks duplicate file candidates as a conflict instead of choosing one format", () => {
+    const candidates = scanLocalDirectory([
+      createDirectoryFile("专辑甲/mix song.mp3"),
+      createDirectoryFile("专辑甲/mix song.flac")
+    ]).candidates;
+    const result = matchLocalDirectoryCandidates({
+      catalog: createMatcherCatalog(),
+      candidates,
+      audioBindingsByTrackId: new Map()
+    });
+
+    expect(result.matches.map((match) => match.status)).toEqual([
+      "conflict",
+      "conflict"
+    ]);
+    expect(result.matches.map((match) => match.matchingTrackIds)).toEqual([
+      ["track_exact"],
+      ["track_exact"]
+    ]);
+    expect(result.matches.map((match) => match.suggestedTrackId)).toEqual([
+      undefined,
+      undefined
+    ]);
+    expect(result.matches.map((match) => match.conflictingCandidateIndexes)).toEqual([
+      [0, 1],
+      [0, 1]
+    ]);
+    expect(result.matches.map((match) => match.reasons)).toEqual([
+      ["exact_normalized_title", "duplicate_candidate_track"],
+      ["exact_normalized_title", "duplicate_candidate_track"]
+    ]);
+  });
+
+  it("does not turn version-like or mismatched album titles into exact matches", () => {
+    const candidates = scanLocalDirectory([
+      createDirectoryFile("专辑甲/Mix Song Live.mp3"),
+      createDirectoryFile("不匹配专辑/mix song.flac")
+    ]).candidates;
+    const result = matchLocalDirectoryCandidates({
+      catalog: createMatcherCatalog(),
+      candidates,
+      audioBindingsByTrackId: new Map()
+    });
+
+    expect(result.matches.map((match) => match.status)).toEqual([
+      "unmatched",
+      "candidate"
+    ]);
+    expect(result.matches[0].reasons).toEqual(["no_exact_title"]);
+    expect(result.matches[1]).toMatchObject({
+      matchingTrackIds: ["track_exact"],
+      suggestedTrackId: "track_exact",
+      matchedBy: ["title"],
+      reasons: ["exact_normalized_title", "album_mismatch"]
+    });
+  });
+
+  it("does not promote a candidate with scanner issues to an exact match", () => {
+    const scannedCandidate = scanLocalDirectory([
+      createDirectoryFile("专辑甲/mix song.mp3")
+    ]).candidates[0];
+    const candidateWithIssue = {
+      ...scannedCandidate,
+      issues: ["ambiguous_compact_hyphen"] as const
+    };
+    const result = matchLocalDirectoryCandidates({
+      catalog: createMatcherCatalog(),
+      candidates: [candidateWithIssue],
+      audioBindingsByTrackId: new Map()
+    });
+
+    expect(result.matches[0]).toMatchObject({
+      status: "needs_review",
+      titleMatchingTrackIds: [],
+      matchingTrackIds: [],
+      reasons: ["scanner_needs_review"]
+    });
+    expect(result.matches[0].suggestedTrackId).toBeUndefined();
   });
 });
