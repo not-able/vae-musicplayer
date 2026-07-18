@@ -7,7 +7,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { EntityId, TemporaryPlaylist, Track } from "../../types";
+import type {
+  EntityId,
+  PlaybackSource,
+  PlaylistDocument,
+  PlaylistSelection,
+  TemporaryPlaylist,
+  Track
+} from "../../types";
 import {
   hasAlbumDragData,
   hasPlaylistItemDragData,
@@ -34,6 +41,13 @@ interface TemporaryPlaylistPanelProps {
   persistenceLoadingMessage?: string;
   persistenceNotice?: string;
   persistenceError?: string;
+  selectedPlaylist: PlaylistSelection;
+  savedPlaylists: readonly PlaylistDocument[];
+  playbackSource: PlaybackSource | null;
+  onSelectPlaylist: (selection: PlaylistSelection) => void;
+  onCreateSavedPlaylist: (name: string) => void;
+  onRenameSavedPlaylist: (playlistId: EntityId, name: string) => void;
+  onDeleteSavedPlaylist: (playlistId: EntityId) => void;
   onRepeatCountChange: (itemId: EntityId, repeatCount: number) => void;
   onRemove: (itemId: EntityId) => void;
   onClear: () => void;
@@ -52,6 +66,13 @@ export function TemporaryPlaylistPanel({
   persistenceLoadingMessage,
   persistenceNotice,
   persistenceError,
+  selectedPlaylist,
+  savedPlaylists,
+  playbackSource,
+  onSelectPlaylist,
+  onCreateSavedPlaylist,
+  onRenameSavedPlaylist,
+  onDeleteSavedPlaylist,
   onRepeatCountChange,
   onRemove,
   onClear,
@@ -64,6 +85,16 @@ export function TemporaryPlaylistPanel({
   const [queuePreviewToIndex, setQueuePreviewToIndex] = useState<number>();
   const [isQueueDragOutside, setIsQueueDragOutside] = useState(false);
   const [openQueueMenuItemId, setOpenQueueMenuItemId] = useState<EntityId>();
+  const [openSavedPlaylistMenuId, setOpenSavedPlaylistMenuId] = useState<EntityId>();
+  const [playlistNameDialog, setPlaylistNameDialog] = useState<
+    | { kind: "create"; initialName: string; returnFocusTarget: HTMLElement | null }
+    | {
+        kind: "rename";
+        playlistId: EntityId;
+        initialName: string;
+        returnFocusTarget: HTMLElement | null;
+      }
+  >();
   const catalogDragEnterDepth = useRef(0);
   const draggingQueueItemIdRef = useRef<EntityId | undefined>(undefined);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -176,6 +207,29 @@ export function TemporaryPlaylistPanel({
     setDraggingQueueItemId(undefined);
     setQueuePreviewToIndex(undefined);
     setIsQueueDragOutside(false);
+  }
+
+  function submitPlaylistName(name: string) {
+    if (!playlistNameDialog) {
+      return;
+    }
+
+    if (playlistNameDialog.kind === "create") {
+      onCreateSavedPlaylist(name);
+    } else {
+      onRenameSavedPlaylist(playlistNameDialog.playlistId, name);
+    }
+
+    setPlaylistNameDialog(undefined);
+  }
+
+  function openPlaylistNameDialog(
+    nextDialog:
+      | { kind: "create"; initialName: string }
+      | { kind: "rename"; playlistId: EntityId; initialName: string },
+    returnFocusTarget: HTMLElement | null
+  ) {
+    setPlaylistNameDialog({ ...nextDialog, returnFocusTarget });
   }
 
   function handleDragEnter(event: ReactDragEvent<HTMLDivElement>) {
@@ -333,7 +387,7 @@ export function TemporaryPlaylistPanel({
     <div
       className={panelClassName}
       ref={panelRef}
-      aria-label="临时歌单放置区域"
+      aria-label={`${playlist.name}放置区域`}
       aria-busy={persistenceStatus === "loading" || undefined}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -394,121 +448,604 @@ export function TemporaryPlaylistPanel({
         </div>
       </div>
 
-      {playlist.itemIds.length > 0 ? (
-        <div
-          className="queue-list"
-          ref={queueListRef}
-          role="list"
-          aria-label="临时歌单歌曲"
-          aria-describedby="playlist-drag-help"
-          tabIndex={0}
-        >
-          {playlist.itemIds.map((itemId, index) => {
-            const item = playlist.itemsById[itemId];
+      <div className="playlist-content-layout">
+        <div className="playlist-queue-content">
+          {playlist.itemIds.length > 0 ? (
+            <div
+              className="queue-list"
+              ref={queueListRef}
+              role="list"
+              aria-label={`${playlist.name}歌曲`}
+              aria-describedby="playlist-drag-help"
+              tabIndex={0}
+            >
+              {playlist.itemIds.map((itemId, index) => {
+                const item = playlist.itemsById[itemId];
 
-            if (!item) {
-              return null;
-            }
-
-            const track = tracksById.get(item.trackId);
-            const isPreviewSource =
-              Boolean(queueOrderPreview) && draggingQueueItemId === itemId;
-            const queueItemClassName = [
-              "queue-item",
-              draggingQueueItemId === itemId && "is-dragging",
-              isPreviewSource && "is-preview-source"
-            ]
-              .filter(Boolean)
-              .join(" ");
-
-            return (
-              <article
-                className={queueItemClassName}
-                key={itemId}
-                data-queue-item-id={itemId}
-                role="listitem"
-                aria-hidden={isPreviewSource || undefined}
-                style={
-                  queuePreviewOrderById
-                    ? { order: queuePreviewOrderById.get(itemId) }
-                    : undefined
+                if (!item) {
+                  return null;
                 }
-              >
-                <div className="queue-item-main">
-                  <div
-                    className="queue-item-copy"
-                    draggable={canMutate}
-                    title={`拖动${track?.title ?? "歌曲"}调整顺序或移出歌单`}
-                    onDragStart={(event) => handleQueueItemDragStart(event, itemId)}
-                    onDragEnd={resetQueueDragState}
+
+                const track = tracksById.get(item.trackId);
+                const isPreviewSource =
+                  Boolean(queueOrderPreview) && draggingQueueItemId === itemId;
+                const queueItemClassName = [
+                  "queue-item",
+                  draggingQueueItemId === itemId && "is-dragging",
+                  isPreviewSource && "is-preview-source"
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+
+                return (
+                  <article
+                    className={queueItemClassName}
+                    key={itemId}
+                    data-queue-item-id={itemId}
+                    role="listitem"
+                    aria-hidden={isPreviewSource || undefined}
+                    style={
+                      queuePreviewOrderById
+                        ? { order: queuePreviewOrderById.get(itemId) }
+                        : undefined
+                    }
                   >
+                    <div className="queue-item-main">
+                      <div
+                        className="queue-item-copy"
+                        draggable={canMutate}
+                        title={`拖动${track?.title ?? "歌曲"}调整顺序或移出歌单`}
+                        onDragStart={(event) => handleQueueItemDragStart(event, itemId)}
+                        onDragEnd={resetQueueDragState}
+                      >
+                        <span className="queue-drag-handle" aria-hidden="true">
+                          ⠿
+                        </span>
+                        <h3>{track?.title ?? "未知歌曲"}</h3>
+                      </div>
+
+                      <span
+                        className="queue-repeat-count"
+                        aria-label={`播放 ${item.repeatCount} 次`}
+                      >
+                        ×{item.repeatCount}
+                      </span>
+
+                      <QueueItemActionsMenu
+                        itemId={itemId}
+                        trackTitle={track?.title ?? "歌曲"}
+                        repeatCount={item.repeatCount}
+                        isOpen={canMutate && openQueueMenuItemId === itemId}
+                        isDisabled={!canMutate}
+                        isFirst={index === 0}
+                        isLast={index === playlist.itemIds.length - 1}
+                        onOpenChange={(isOpen) =>
+                          setOpenQueueMenuItemId(isOpen ? itemId : undefined)
+                        }
+                        onRepeatCountChange={onRepeatCountChange}
+                        onMoveToTop={() => onMove(itemId, 0)}
+                        onMoveUp={() => onMove(itemId, index - 1)}
+                        onMoveDown={() => onMove(itemId, index + 1)}
+                        onRemove={() => onRemove(itemId)}
+                      />
+                    </div>
+                  </article>
+                );
+              })}
+              {queueOrderPreview && draggingQueueItemId && queuePreviewOrderById && (
+                <article
+                  className="queue-item queue-item-order-ghost"
+                  role="listitem"
+                  aria-label={`排序预览：${getPlaylistItemTitle(
+                    draggingQueueItemId,
+                    playlist,
+                    tracksById
+                  )}将位于第${queuePreviewOrderById.get(draggingQueueItemId)! + 1}首`}
+                  style={{ order: queuePreviewOrderById.get(draggingQueueItemId) }}
+                >
+                  <div className="queue-item-copy">
                     <span className="queue-drag-handle" aria-hidden="true">
                       ⠿
                     </span>
-                    <h3>{track?.title ?? "未知歌曲"}</h3>
+                    <h3>
+                      {getPlaylistItemTitle(draggingQueueItemId, playlist, tracksById)}
+                    </h3>
                   </div>
-
-                  <span
-                    className="queue-repeat-count"
-                    aria-label={`播放 ${item.repeatCount} 次`}
-                  >
-                    ×{item.repeatCount}
-                  </span>
-
-                  <QueueItemActionsMenu
-                    itemId={itemId}
-                    trackTitle={track?.title ?? "歌曲"}
-                    repeatCount={item.repeatCount}
-                    isOpen={canMutate && openQueueMenuItemId === itemId}
-                    isDisabled={!canMutate}
-                    isFirst={index === 0}
-                    isLast={index === playlist.itemIds.length - 1}
-                    onOpenChange={(isOpen) =>
-                      setOpenQueueMenuItemId(isOpen ? itemId : undefined)
-                    }
-                    onRepeatCountChange={onRepeatCountChange}
-                    onMoveToTop={() => onMove(itemId, 0)}
-                    onMoveUp={() => onMove(itemId, index - 1)}
-                    onMoveDown={() => onMove(itemId, index + 1)}
-                    onRemove={() => onRemove(itemId)}
-                  />
-                </div>
-              </article>
-            );
-          })}
-          {queueOrderPreview && draggingQueueItemId && queuePreviewOrderById && (
-            <article
-              className="queue-item queue-item-order-ghost"
-              role="listitem"
-              aria-label={`排序预览：${getPlaylistItemTitle(
-                draggingQueueItemId,
-                playlist,
-                tracksById
-              )}将位于第${queuePreviewOrderById.get(draggingQueueItemId)! + 1}首`}
-              style={{ order: queuePreviewOrderById.get(draggingQueueItemId) }}
-            >
-              <div className="queue-item-copy">
-                <span className="queue-drag-handle" aria-hidden="true">
-                  ⠿
-                </span>
-                <h3>
-                  {getPlaylistItemTitle(draggingQueueItemId, playlist, tracksById)}
-                </h3>
-              </div>
-              <p className="queue-item-order-ghost-note">
-                松开后排在第 {queuePreviewOrderById.get(draggingQueueItemId)! + 1} 首
-              </p>
-            </article>
+                  <p className="queue-item-order-ghost-note">
+                    松开后排在第 {queuePreviewOrderById.get(draggingQueueItemId)! + 1}{" "}
+                    首
+                  </p>
+                </article>
+              )}
+            </div>
+          ) : (
+            <div className="queue-empty">
+              <strong>{playlist.name}为空</strong>
+              <p>从专辑目录加入单曲或整张专辑。</p>
+            </div>
           )}
         </div>
-      ) : (
-        <div className="queue-empty">
-          <strong>临时歌单为空</strong>
-          <p>从专辑目录加入单曲或整张专辑。</p>
-        </div>
+        <PlaylistLibraryRail
+          selectedPlaylist={selectedPlaylist}
+          savedPlaylists={savedPlaylists}
+          playbackSource={playbackSource}
+          canMutate={canMutate}
+          openMenuPlaylistId={openSavedPlaylistMenuId}
+          onOpenMenuChange={(playlistId) => setOpenSavedPlaylistMenuId(playlistId)}
+          onSelectPlaylist={onSelectPlaylist}
+          onCreate={(trigger) =>
+            openPlaylistNameDialog({ kind: "create", initialName: "" }, trigger)
+          }
+          onRename={(savedPlaylist, trigger) =>
+            openPlaylistNameDialog(
+              {
+                kind: "rename",
+                playlistId: savedPlaylist.id,
+                initialName: savedPlaylist.name
+              },
+              trigger
+            )
+          }
+          onDelete={onDeleteSavedPlaylist}
+        />
+      </div>
+      {playlistNameDialog && (
+        <PlaylistNameDialog
+          mode={playlistNameDialog.kind}
+          initialName={playlistNameDialog.initialName}
+          returnFocusTarget={playlistNameDialog.returnFocusTarget}
+          onClose={() => setPlaylistNameDialog(undefined)}
+          onSubmit={submitPlaylistName}
+        />
       )}
     </div>
   );
+}
+
+interface PlaylistLibraryRailProps {
+  selectedPlaylist: PlaylistSelection;
+  savedPlaylists: readonly PlaylistDocument[];
+  playbackSource: PlaybackSource | null;
+  canMutate: boolean;
+  openMenuPlaylistId?: EntityId;
+  onOpenMenuChange: (playlistId: EntityId | undefined) => void;
+  onSelectPlaylist: (selection: PlaylistSelection) => void;
+  onCreate: (trigger: HTMLButtonElement) => void;
+  onRename: (playlist: PlaylistDocument, trigger: HTMLElement | null) => void;
+  onDelete: (playlistId: EntityId) => void;
+}
+
+function PlaylistLibraryRail({
+  selectedPlaylist,
+  savedPlaylists,
+  playbackSource,
+  canMutate,
+  openMenuPlaylistId,
+  onOpenMenuChange,
+  onSelectPlaylist,
+  onCreate,
+  onRename,
+  onDelete
+}: PlaylistLibraryRailProps) {
+  const temporaryTileRef = useRef<HTMLButtonElement>(null);
+  const temporaryIsSelected = selectedPlaylist.kind === "temporary";
+  const temporaryIsPlaying = playbackSource?.kind === "temporary-playlist";
+
+  function deleteSavedPlaylist(playlistId: EntityId) {
+    const wasSelected =
+      selectedPlaylist.kind === "saved" && selectedPlaylist.playlistId === playlistId;
+
+    onDelete(playlistId);
+
+    if (wasSelected) {
+      queueMicrotask(() => temporaryTileRef.current?.focus());
+    }
+  }
+
+  return (
+    <nav className="playlist-library-rail" aria-label="歌单收藏">
+      <button
+        className="playlist-library-tile playlist-library-create"
+        type="button"
+        disabled={!canMutate}
+        aria-label="新建已保存歌单"
+        title="新建已保存歌单"
+        onClick={(event) => onCreate(event.currentTarget)}
+      >
+        <span aria-hidden="true">＋</span>
+      </button>
+      <button
+        className={getPlaylistTileClassName(
+          temporaryIsSelected,
+          temporaryIsPlaying,
+          true
+        )}
+        ref={temporaryTileRef}
+        type="button"
+        aria-current={temporaryIsSelected ? "true" : undefined}
+        aria-label="打开临时歌单"
+        title="临时歌单"
+        onClick={() => onSelectPlaylist({ kind: "temporary" })}
+      >
+        <span aria-hidden="true">临</span>
+        {temporaryIsPlaying && <span className="playlist-playing-marker">▶</span>}
+      </button>
+      {savedPlaylists.map((savedPlaylist) => {
+        const isSelected =
+          selectedPlaylist.kind === "saved" &&
+          selectedPlaylist.playlistId === savedPlaylist.id;
+        const isPlaying =
+          playbackSource?.kind === "saved-playlist" &&
+          playbackSource.playlistId === savedPlaylist.id;
+
+        return (
+          <div className="playlist-library-saved-tile" key={savedPlaylist.id}>
+            <button
+              className={getPlaylistTileClassName(isSelected, isPlaying)}
+              type="button"
+              aria-current={isSelected ? "true" : undefined}
+              aria-label={`打开已保存歌单：${savedPlaylist.name}`}
+              title={savedPlaylist.name}
+              onClick={() =>
+                onSelectPlaylist({ kind: "saved", playlistId: savedPlaylist.id })
+              }
+            >
+              <span aria-hidden="true">{getPlaylistTileLabel(savedPlaylist.name)}</span>
+              {isPlaying && <span className="playlist-playing-marker">▶</span>}
+            </button>
+            <SavedPlaylistActionsMenu
+              playlist={savedPlaylist}
+              isOpen={openMenuPlaylistId === savedPlaylist.id}
+              isDisabled={!canMutate}
+              onOpenChange={(isOpen) =>
+                onOpenMenuChange(isOpen ? savedPlaylist.id : undefined)
+              }
+              onRename={(trigger) => onRename(savedPlaylist, trigger)}
+              onDelete={() => deleteSavedPlaylist(savedPlaylist.id)}
+            />
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+function getPlaylistTileClassName(
+  isSelected: boolean,
+  isPlaying: boolean,
+  isTemporary = false
+): string {
+  return [
+    "playlist-library-tile",
+    isTemporary && "is-temporary",
+    isSelected && "is-selected",
+    isPlaying && "is-playing"
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function getPlaylistTileLabel(name: string): string {
+  return Array.from(name.trim()).slice(0, 2).join("") || "歌单";
+}
+
+interface SavedPlaylistActionsMenuProps {
+  playlist: PlaylistDocument;
+  isOpen: boolean;
+  isDisabled: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onRename: (trigger: HTMLElement | null) => void;
+  onDelete: () => void;
+}
+
+interface SavedPlaylistMenuPosition {
+  top: number;
+  left: number;
+  openAbove: boolean;
+}
+
+function SavedPlaylistActionsMenu({
+  playlist,
+  isOpen,
+  isDisabled,
+  onOpenChange,
+  onRename,
+  onDelete
+}: SavedPlaylistActionsMenuProps) {
+  const popoverId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<SavedPlaylistMenuPosition>();
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function closeForViewportChange() {
+      onOpenChange(false);
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !triggerRef.current?.contains(event.target) &&
+        !popoverRef.current?.contains(event.target)
+      ) {
+        onOpenChange(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onOpenChange(false);
+        triggerRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("scroll", closeForViewportChange, true);
+    window.addEventListener("resize", closeForViewportChange);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("scroll", closeForViewportChange, true);
+      window.removeEventListener("resize", closeForViewportChange);
+    };
+  }, [isOpen, onOpenChange]);
+
+  function toggleMenu() {
+    if (isOpen) {
+      onOpenChange(false);
+      return;
+    }
+
+    const anchorBounds = triggerRef.current?.getBoundingClientRect();
+
+    if (!anchorBounds) {
+      return;
+    }
+
+    setPosition(getSavedPlaylistMenuPosition(anchorBounds));
+    onOpenChange(true);
+  }
+
+  function runAction(action: (trigger: HTMLElement | null) => void) {
+    onOpenChange(false);
+    action(triggerRef.current);
+  }
+
+  return (
+    <>
+      <button
+        className="icon-button saved-playlist-menu-trigger"
+        ref={triggerRef}
+        type="button"
+        disabled={isDisabled}
+        aria-label={`打开${playlist.name}的更多操作`}
+        aria-controls={popoverId}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        title="更多操作"
+        onClick={toggleMenu}
+      >
+        ⋯
+      </button>
+      {isOpen &&
+        position &&
+        createPortal(
+          <div
+            className="saved-playlist-menu-popover"
+            id={popoverId}
+            ref={popoverRef}
+            role="dialog"
+            aria-label={`${playlist.name}的歌单操作`}
+            style={{
+              top: position.top,
+              left: position.left,
+              transform: position.openAbove ? "translateY(-100%)" : undefined
+            }}
+          >
+            <button type="button" onClick={() => runAction(onRename)}>
+              重命名
+            </button>
+            <button
+              className="saved-playlist-menu-delete"
+              type="button"
+              onClick={() => runAction(onDelete)}
+            >
+              删除
+            </button>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+function getSavedPlaylistMenuPosition(
+  anchorBounds: DOMRect
+): SavedPlaylistMenuPosition {
+  const viewportPadding = 8;
+  const menuGap = 6;
+  const menuWidth = 148;
+  const estimatedMenuHeight = 82;
+  const availableBelow = window.innerHeight - anchorBounds.bottom;
+  const openAbove =
+    availableBelow < estimatedMenuHeight + viewportPadding &&
+    anchorBounds.top >= estimatedMenuHeight + viewportPadding;
+  const maximumLeft = Math.max(
+    viewportPadding,
+    window.innerWidth - menuWidth - viewportPadding
+  );
+
+  return {
+    top: openAbove ? anchorBounds.top - menuGap : anchorBounds.bottom + menuGap,
+    left: Math.min(
+      Math.max(viewportPadding, anchorBounds.right - menuWidth),
+      maximumLeft
+    ),
+    openAbove
+  };
+}
+
+interface PlaylistNameDialogProps {
+  mode: "create" | "rename";
+  initialName: string;
+  returnFocusTarget: HTMLElement | null;
+  onClose: () => void;
+  onSubmit: (name: string) => void;
+}
+
+function PlaylistNameDialog({
+  mode,
+  initialName,
+  returnFocusTarget,
+  onClose,
+  onSubmit
+}: PlaylistNameDialogProps) {
+  const titleId = useId();
+  const inputId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [name, setName] = useState(initialName);
+  const [errorMessage, setErrorMessage] = useState<string>();
+  const title = mode === "create" ? "保存当前歌单" : "重命名已保存歌单";
+
+  useEffect(() => {
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0);
+
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleDocumentKeyDown);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+      returnFocusTarget?.focus();
+    };
+  }, [onClose, returnFocusTarget]);
+
+  function submit() {
+    const normalizedName = name.trim();
+
+    if (normalizedName.length === 0) {
+      setErrorMessage("请输入歌单名称。");
+      return;
+    }
+
+    onSubmit(normalizedName);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const focusableElements = getFocusableElements(dialogRef.current);
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements.at(-1);
+
+    if (!firstElement || !lastElement) {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  }
+
+  return createPortal(
+    <div
+      className="playlist-name-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className="playlist-name-dialog"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="playlist-name-dialog-heading">
+          <div>
+            <p className="eyebrow">歌单收藏</p>
+            <h3 id={titleId}>{title}</h3>
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={`关闭${title}`}
+            title="关闭"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <label className="playlist-name-field" htmlFor={inputId}>
+          歌单名称
+          <input
+            id={inputId}
+            ref={inputRef}
+            type="text"
+            value={name}
+            maxLength={48}
+            autoComplete="off"
+            aria-invalid={Boolean(errorMessage)}
+            aria-describedby={errorMessage ? `${inputId}-error` : undefined}
+            onChange={(event) => {
+              setName(event.currentTarget.value);
+              setErrorMessage(undefined);
+            }}
+          />
+        </label>
+        {errorMessage && (
+          <p className="playlist-name-error" id={`${inputId}-error`} role="alert">
+            {errorMessage}
+          </p>
+        )}
+        <div className="playlist-name-dialog-actions">
+          <button className="text-button" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button className="primary-button" type="button" onClick={submit}>
+            确认
+          </button>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
+  if (!container) {
+    return [];
+  }
+
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      "button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex='-1'])"
+    )
+  ).filter((element) => !element.hasAttribute("hidden"));
 }
 
 interface RepeatCountControlProps {

@@ -13,11 +13,13 @@ import type { LocalCatalogRepository } from "../features/catalog/localCatalogRep
 import { createLocalAudioFileRecord } from "../features/local-library/localAudioFile";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
 import type { PlayerSettingsRepository } from "../features/player/playerSettingsRepository";
+import type { PlaylistLibraryRepository } from "../features/playlist/playlistLibraryRepository";
 import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
 import { LOCAL_TEMPORARY_PLAYLIST_STORAGE_KEY } from "../infra/storage/localStoragePlaylistRepository";
 import { LOCAL_PLAYLIST_LIBRARY_STORAGE_KEY } from "../infra/storage/localStoragePlaylistLibraryRepository";
 import type {
   LocalAudioFileRecord,
+  PlaylistLibrary,
   TemporaryPlaylist,
   UserCatalogChanges
 } from "../types";
@@ -33,8 +35,12 @@ import {
 } from "../utils/playlist";
 
 function findButton(container: HTMLElement, ariaLabel: string) {
+  const expectedAriaLabel = ariaLabel.endsWith("加入临时歌单")
+    ? `${ariaLabel.slice(0, -"临时歌单".length)}当前歌单`
+    : ariaLabel;
+
   return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
-    (button) => button.getAttribute("aria-label") === ariaLabel
+    (button) => button.getAttribute("aria-label") === expectedAriaLabel
   );
 }
 
@@ -628,7 +634,7 @@ describe("persistent temporary playlist integration", () => {
       "播放队列为空"
     );
     expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
-      "请先将歌曲加入临时歌单"
+      "请先将歌曲加入当前歌单"
     );
     expect(container.querySelector(".player-status")?.textContent).toContain(
       "等待播放队列"
@@ -870,7 +876,7 @@ describe("persistent temporary playlist integration", () => {
     expect(container.querySelector(".queue-item h3")?.textContent).toBe("用户歌曲");
     expect(container.querySelector(".queue-repeat-count")?.textContent).toBe("×2");
     expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
-      "请先将歌曲加入临时歌单"
+      "请先将歌曲加入当前歌单"
     );
     expect(repository.save).not.toHaveBeenCalled();
     expect(repository.clear).not.toHaveBeenCalled();
@@ -1312,6 +1318,160 @@ describe("persistent temporary playlist integration", () => {
 
     await act(async () => {
       restoredRoot.unmount();
+    });
+    container.remove();
+  });
+});
+
+describe("saved playlist library rail", () => {
+  it("creates, switches, renames, and deletes saved playlists without replacing playback", async () => {
+    let storedLibrary: PlaylistLibrary | null = null;
+    const playlistLibraryRepository = {
+      load: vi.fn(async () => storedLibrary),
+      save: vi.fn(async (library) => {
+        storedLibrary = structuredClone(library);
+      }),
+      clear: vi.fn(async () => undefined)
+    } satisfies PlaylistLibraryRepository;
+    const getStoredLibrary = (): PlaylistLibrary | null => storedLibrary;
+    const savedPlaylistIdFactory = vi.fn(() => "playlist_saved_evening");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          localAudioRepository: createMemoryLocalAudioRepository(),
+          playlistLibraryRepository,
+          savedPlaylistIdFactory
+        })
+      );
+    });
+
+    const createButton = findButton(container, "新建已保存歌单");
+
+    expect(createButton).toBeDefined();
+    expect(container.querySelector(".playlist-library-rail")).not.toBeNull();
+    expect(findButton(container, "打开临时歌单")?.getAttribute("aria-current")).toBe(
+      "true"
+    );
+
+    await act(async () => {
+      findButton(container, "将示例歌曲一加入当前歌单")?.click();
+    });
+    await act(async () => {
+      findButton(container, "播放")?.click();
+    });
+
+    expect(
+      container.querySelector(".playlist-library-tile.is-temporary.is-playing")
+    ).not.toBeNull();
+
+    await act(async () => {
+      createButton?.click();
+    });
+
+    const createInput = document.body.querySelector<HTMLInputElement>(
+      ".playlist-name-dialog input"
+    );
+
+    expect(createInput).not.toBeNull();
+
+    await act(async () => {
+      findButtonByText(document.body, "确认")?.click();
+    });
+
+    expect(document.body.querySelector(".playlist-name-error")?.textContent).toContain(
+      "请输入歌单名称"
+    );
+
+    await act(async () => {
+      changeInputValue(createInput as HTMLInputElement, "  夜行  ");
+      findButtonByText(document.body, "确认")?.click();
+    });
+
+    expect(savedPlaylistIdFactory).toHaveBeenCalledOnce();
+    expect(container.querySelector("#playlist-heading")?.textContent).toBe("夜行");
+    expect(
+      findButton(container, "打开已保存歌单：夜行")?.getAttribute("aria-current")
+    ).toBe("true");
+    expect(
+      container.querySelector(".playlist-library-tile.is-temporary.is-playing")
+    ).not.toBeNull();
+
+    await act(async () => {
+      findButton(container, "将示例歌曲二加入当前歌单")?.click();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲一", "示例歌曲二"]);
+
+    await act(async () => {
+      findButton(container, "打开临时歌单")?.click();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".queue-item h3"), (heading) =>
+        heading.textContent?.trim()
+      )
+    ).toEqual(["示例歌曲一"]);
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲一"
+    );
+
+    await act(async () => {
+      findButton(container, "打开已保存歌单：夜行")?.click();
+      findButton(container, "打开夜行的更多操作")?.click();
+    });
+    await act(async () => {
+      findButtonByText(document.body, "重命名")?.click();
+    });
+
+    const renameInput = document.body.querySelector<HTMLInputElement>(
+      ".playlist-name-dialog input"
+    );
+
+    await act(async () => {
+      changeInputValue(renameInput as HTMLInputElement, "晚风");
+      findButtonByText(document.body, "确认")?.click();
+    });
+
+    expect(findButton(container, "打开已保存歌单：夜行")).toBeUndefined();
+    expect(findButton(container, "打开已保存歌单：晚风")).toBeDefined();
+
+    await act(async () => {
+      createButton?.click();
+    });
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+
+    expect(document.body.querySelector(".playlist-name-dialog")).toBeNull();
+    expect(document.activeElement).toBe(createButton);
+
+    await act(async () => {
+      findButton(container, "打开晚风的更多操作")?.click();
+    });
+    await act(async () => {
+      findButtonByText(document.body, "删除")?.click();
+    });
+
+    expect(findButton(container, "打开已保存歌单：晚风")).toBeUndefined();
+    expect(findButton(container, "打开临时歌单")?.getAttribute("aria-current")).toBe(
+      "true"
+    );
+    expect(document.activeElement).toBe(findButton(container, "打开临时歌单"));
+    expect(
+      container.querySelector(".playlist-library-tile.is-temporary.is-playing")
+    ).not.toBeNull();
+    expect(getStoredLibrary()?.savedPlaylistIds).toEqual([]);
+
+    await act(async () => {
+      root.unmount();
     });
     container.remove();
   });

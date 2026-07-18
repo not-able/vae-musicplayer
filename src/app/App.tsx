@@ -50,6 +50,10 @@ function createPlaylistItemId(): string {
   return `queue_item_${crypto.randomUUID()}`;
 }
 
+function createSavedPlaylistId(): string {
+  return `playlist_saved_${crypto.randomUUID()}`;
+}
+
 function createAudioElementKey(
   entry: PlaySequenceEntry | undefined,
   playbackRevision: number,
@@ -77,6 +81,7 @@ interface AppProps {
   playerSettingsRepository?: PlayerSettingsRepository;
   deletionIntentRepository?: CatalogDeletionIntentRepository;
   playlistItemIdFactory?: () => EntityId;
+  savedPlaylistIdFactory?: () => EntityId;
 }
 
 export function App({
@@ -87,13 +92,13 @@ export function App({
   playlistRepository,
   playerSettingsRepository = localStoragePlayerSettingsRepository,
   deletionIntentRepository = localStorageCatalogDeletionIntentRepository,
-  playlistItemIdFactory = createPlaylistItemId
+  playlistItemIdFactory = createPlaylistItemId,
+  savedPlaylistIdFactory = createSavedPlaylistId
 }: AppProps) {
-  const [{ playlist, playlistLibrary, player }, dispatch] = useReducer(
-    appReducer,
-    undefined,
-    createInitialState
-  );
+  const [
+    { playlist, playlistLibrary, selectedPlaylist, player, playbackSource },
+    dispatch
+  ] = useReducer(appReducer, undefined, createInitialState);
   const audioRef = useRef<HTMLAudioElement>(null);
   const persistedPlaylistLibraryRepository = useMemo(
     () =>
@@ -254,6 +259,40 @@ export function App({
     });
   }
 
+  function createSavedPlaylist(name: string) {
+    if (!playlistPersistence.canMutate) {
+      return;
+    }
+
+    dispatch({
+      type: "create-saved-playlist",
+      playlistId: savedPlaylistIdFactory(),
+      name,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  function renameSavedPlaylist(playlistId: EntityId, name: string) {
+    if (!playlistPersistence.canMutate) {
+      return;
+    }
+
+    dispatch({
+      type: "rename-saved-playlist",
+      playlistId,
+      name,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  function deleteSavedPlaylist(playlistId: EntityId) {
+    if (!playlistPersistence.canMutate) {
+      return;
+    }
+
+    dispatch({ type: "delete-saved-playlist", playlistId });
+  }
+
   return (
     <PageShell>
       <main className="app-layout" id="main-content" tabIndex={-1}>
@@ -278,6 +317,7 @@ export function App({
             pendingAudioTrackIds={localAudioLibrary.pendingTrackIds}
             audioLibraryStatus={localAudioLibrary.status}
             audioLibraryError={localAudioLibrary.errorMessage}
+            playlistTargetLabel="当前歌单"
             onAddTrack={addTrack}
             onAddAlbum={addAlbum}
             onCreateAlbum={catalogLibrary.createAlbum}
@@ -326,6 +366,19 @@ export function App({
             persistenceLoadingMessage={playlistPersistence.loadingMessage}
             persistenceNotice={playlistPersistence.noticeMessage}
             persistenceError={playlistPersistence.errorMessage}
+            selectedPlaylist={selectedPlaylist}
+            savedPlaylists={playlistLibrary.savedPlaylistIds.flatMap((playlistId) => {
+              const savedPlaylist = playlistLibrary.savedPlaylistsById[playlistId];
+
+              return savedPlaylist ? [savedPlaylist] : [];
+            })}
+            playbackSource={playbackSource}
+            onSelectPlaylist={(selection) =>
+              dispatch({ type: "select-playlist", selection })
+            }
+            onCreateSavedPlaylist={createSavedPlaylist}
+            onRenameSavedPlaylist={renameSavedPlaylist}
+            onDeleteSavedPlaylist={deleteSavedPlaylist}
             onRepeatCountChange={(itemId, repeatCount) =>
               dispatchPlaylist({
                 type: "set-repeat-count",

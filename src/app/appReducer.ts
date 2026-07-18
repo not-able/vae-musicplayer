@@ -7,7 +7,10 @@ import {
   type PlayerState
 } from "../features/player/playerReducer";
 import {
+  copyPlaylistToSaved,
+  deleteSavedPlaylist,
   getSelectedPlaylist,
+  renameSavedPlaylist,
   selectPlaylist
 } from "../features/playlist/playlistLibrary";
 import { createPlaylistPlaybackSnapshot } from "../features/playlist/playlistPlaybackSnapshot";
@@ -47,6 +50,19 @@ export type AppAction =
       removedTrackIds: readonly EntityId[];
     }
   | { type: "select-playlist"; selection: PlaylistSelection }
+  | {
+      type: "create-saved-playlist";
+      playlistId: EntityId;
+      name: string;
+      createdAt: string;
+    }
+  | {
+      type: "rename-saved-playlist";
+      playlistId: EntityId;
+      name: string;
+      updatedAt: string;
+    }
+  | { type: "delete-saved-playlist"; playlistId: EntityId }
   | { type: "start-playback-from-selection"; autoplay?: boolean }
   | { type: "playlist"; action: TemporaryPlaylistAction }
   | { type: "player"; action: PlayerAction };
@@ -107,6 +123,63 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         selectedPlaylist,
         playlist: getSelectedPlaylist(state.playlistLibrary, selectedPlaylist)
+      };
+    }
+    case "create-saved-playlist": {
+      const playlistLibrary = copyPlaylistToSaved(state.playlistLibrary, {
+        sourcePlaylist: state.playlist,
+        savedPlaylistId: action.playlistId,
+        name: action.name,
+        createdAt: action.createdAt
+      });
+      const selectedPlaylist: PlaylistSelection = {
+        kind: "saved",
+        playlistId: action.playlistId
+      };
+
+      return {
+        ...state,
+        playlistLibrary,
+        selectedPlaylist,
+        playlist: getSelectedPlaylist(playlistLibrary, selectedPlaylist)
+      };
+    }
+    case "rename-saved-playlist": {
+      const playlistLibrary = renameSavedPlaylist(state.playlistLibrary, {
+        savedPlaylistId: action.playlistId,
+        name: action.name,
+        updatedAt: action.updatedAt
+      });
+
+      return playlistLibrary === state.playlistLibrary
+        ? state
+        : {
+            ...state,
+            playlistLibrary,
+            playlist: getSelectedPlaylist(playlistLibrary, state.selectedPlaylist)
+          };
+    }
+    case "delete-saved-playlist": {
+      const playlistLibrary = deleteSavedPlaylist(
+        state.playlistLibrary,
+        action.playlistId
+      );
+
+      if (playlistLibrary === state.playlistLibrary) {
+        return state;
+      }
+
+      const selectedPlaylist =
+        state.selectedPlaylist.kind === "saved" &&
+        state.selectedPlaylist.playlistId === action.playlistId
+          ? ({ kind: "temporary" } satisfies PlaylistSelection)
+          : state.selectedPlaylist;
+
+      return {
+        ...state,
+        playlistLibrary,
+        selectedPlaylist,
+        playlist: getSelectedPlaylist(playlistLibrary, selectedPlaylist)
       };
     }
     case "start-playback-from-selection": {

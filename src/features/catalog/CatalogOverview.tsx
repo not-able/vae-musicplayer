@@ -48,6 +48,7 @@ interface CatalogOverviewProps {
   pendingAudioTrackIds: ReadonlySet<EntityId>;
   audioLibraryStatus: LocalAudioLibraryStatus;
   audioLibraryError?: string;
+  playlistTargetLabel?: string;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
   onCreateAlbum: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
@@ -105,6 +106,7 @@ export function CatalogOverview({
   pendingAudioTrackIds,
   audioLibraryStatus,
   audioLibraryError,
+  playlistTargetLabel = "临时歌单",
   onAddTrack,
   onAddAlbum,
   onCreateAlbum,
@@ -304,6 +306,7 @@ export function CatalogOverview({
             audioBindings={audioBindings}
             pendingAudioTrackIds={pendingAudioTrackIds}
             audioLibraryStatus={audioLibraryStatus}
+            playlistTargetLabel={playlistTargetLabel}
             draggingTrackId={draggingTrackId}
             catalogLibraryStatus={catalogLibraryStatus}
             isSavingAlbum={isSavingAlbum}
@@ -410,6 +413,7 @@ interface AlbumDetailProps {
   audioBindings: ReadonlyMap<EntityId, LocalAudioFileRecord>;
   pendingAudioTrackIds: ReadonlySet<EntityId>;
   audioLibraryStatus: LocalAudioLibraryStatus;
+  playlistTargetLabel: string;
   draggingTrackId?: EntityId;
   catalogLibraryStatus: CatalogLibraryStatus;
   isSavingAlbum: boolean;
@@ -448,6 +452,7 @@ function AlbumDetail({
   audioBindings,
   pendingAudioTrackIds,
   audioLibraryStatus,
+  playlistTargetLabel,
   draggingTrackId,
   catalogLibraryStatus,
   isSavingAlbum,
@@ -505,9 +510,11 @@ function AlbumDetail({
           <button
             className="secondary-button add-album-button"
             type="button"
+            aria-label={`将${album.title}整张加入${playlistTargetLabel}`}
+            title={`整张加入${playlistTargetLabel}`}
             onClick={() => onAddAlbum(album.id)}
           >
-            整张加入
+            整张加入{playlistTargetLabel}
           </button>
           <AlbumActionsMenu
             albumId={album.id}
@@ -581,6 +588,7 @@ function AlbumDetail({
               album={album}
               audioBinding={audioBindings.get(track.id)}
               audioLibraryStatus={audioLibraryStatus}
+              playlistTargetLabel={playlistTargetLabel}
               isAudioPending={pendingAudioTrackIds.has(track.id)}
               isDragging={track.id === draggingTrackId}
               canEdit={canOpenEditor}
@@ -795,6 +803,7 @@ interface TrackRowProps {
   album: Album;
   audioBinding?: LocalAudioFileRecord;
   audioLibraryStatus: LocalAudioLibraryStatus;
+  playlistTargetLabel: string;
   isAudioPending: boolean;
   isDragging: boolean;
   canEdit: boolean;
@@ -814,6 +823,7 @@ function TrackRow({
   album,
   audioBinding,
   audioLibraryStatus,
+  playlistTargetLabel,
   isAudioPending,
   isDragging,
   canEdit,
@@ -836,7 +846,7 @@ function TrackRow({
       <div
         className="track-drag-source"
         draggable
-        title={`拖动${track.title}到临时歌单`}
+        title={`拖动${track.title}到${playlistTargetLabel}`}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
@@ -881,8 +891,8 @@ function TrackRow({
         <button
           className="icon-button add-track-button"
           type="button"
-          aria-label={`将${track.title}加入临时歌单`}
-          title="加入临时歌单"
+          aria-label={`将${track.title}加入${playlistTargetLabel}`}
+          title={`加入${playlistTargetLabel}`}
           onClick={onAdd}
         >
           +
@@ -1156,7 +1166,7 @@ function CatalogDeletionDialog({
       </p>
       <ul>
         <li>{preview.trackCount} 首歌曲</li>
-        <li>{preview.playlistItemCount} 个临时歌单项（含重复项）</li>
+        <li>{preview.playlistItemCount} 个歌单项（含重复项）</li>
         <li>{preview.audioBindingCount} 个本地音频绑定</li>
       </ul>
       {errorMessage && (

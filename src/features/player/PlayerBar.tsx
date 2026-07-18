@@ -100,7 +100,7 @@ export function PlayerBar({
         <p className="player-sequence-meta">
           {state.currentEntry && state.currentIndex !== null
             ? `播放序列 ${state.currentIndex + 1} / ${state.playSequence.length} · 本项第 ${state.currentEntry.repeatIndex} / ${state.currentEntry.repeatTotal} 次`
-            : "请先将歌曲加入临时歌单"}
+            : "请先将歌曲加入当前歌单"}
         </p>
         {!isEmpty && (
           <p
