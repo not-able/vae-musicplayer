@@ -1,6 +1,6 @@
 import type { EntityId, ISODateString, LocalAudioFileRecord } from "../../types";
 
-const SUPPORTED_AUDIO_EXTENSIONS = new Set([
+export const LOCAL_AUDIO_FILE_EXTENSIONS = [
   "aac",
   "flac",
   "m4a",
@@ -8,18 +8,35 @@ const SUPPORTED_AUDIO_EXTENSIONS = new Set([
   "ogg",
   "opus",
   "wav"
-]);
+] as const;
 
-export const LOCAL_AUDIO_FILE_ACCEPT = "audio/*,.aac,.flac,.m4a,.mp3,.ogg,.opus,.wav";
+export type LocalAudioFileExtension = (typeof LOCAL_AUDIO_FILE_EXTENSIONS)[number];
+
+const SUPPORTED_AUDIO_EXTENSIONS = new Set<string>(LOCAL_AUDIO_FILE_EXTENSIONS);
+
+export const LOCAL_AUDIO_FILE_ACCEPT = [
+  "audio/*",
+  ...LOCAL_AUDIO_FILE_EXTENSIONS.map((extension) => `.${extension}`)
+].join(",");
+
+export function getLocalAudioFileExtension(
+  fileName: string
+): LocalAudioFileExtension | undefined {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+
+  if (extension && SUPPORTED_AUDIO_EXTENSIONS.has(extension)) {
+    return extension as LocalAudioFileExtension;
+  }
+
+  return undefined;
+}
 
 export function getLocalAudioFileValidationError(file: File): string | undefined {
   if (file.type.startsWith("audio/")) {
     return undefined;
   }
 
-  const extension = file.name.split(".").pop()?.toLowerCase();
-
-  if (extension && SUPPORTED_AUDIO_EXTENSIONS.has(extension)) {
+  if (getLocalAudioFileExtension(file.name)) {
     return undefined;
   }
 
