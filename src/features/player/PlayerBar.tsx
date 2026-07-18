@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import type { Track } from "../../types";
+import type { AudioMappingStatus, Track } from "../../types";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import type { PlayerState, PlayerStatus } from "./playerReducer";
 import type { PlayerSettings } from "./playerSettingsRepository";
@@ -13,6 +13,7 @@ interface PlayerBarProps {
   state: PlayerState;
   tracks: readonly Track[];
   currentAudioFileName?: string;
+  currentAudioBindingStatus?: AudioMappingStatus;
   isCurrentAudioBound: boolean;
   canPlayTarget: boolean;
   audioLibraryStatus: LocalAudioLibraryStatus;
@@ -35,6 +36,7 @@ export function PlayerBar({
   state,
   tracks,
   currentAudioFileName,
+  currentAudioBindingStatus,
   isCurrentAudioBound,
   canPlayTarget,
   audioLibraryStatus,
@@ -60,6 +62,7 @@ export function PlayerBar({
     isEmpty,
     isCurrentAudioBound,
     currentAudioFileName,
+    currentAudioBindingStatus,
     audioLibraryStatus
   });
   const playerStatusLabel =
@@ -88,7 +91,7 @@ export function PlayerBar({
   return (
     <footer className="player-bar" aria-label="本地音频播放器">
       <div className="player-now-playing">
-        <p className="eyebrow">Local Player</p>
+        <p className="eyebrow">本地播放器</p>
         <strong>
           {isEmpty ? "播放队列为空" : (currentTrack?.title ?? "未知歌曲")}
         </strong>
@@ -213,6 +216,7 @@ interface AudioStatusLabelInput {
   isEmpty: boolean;
   isCurrentAudioBound: boolean;
   currentAudioFileName?: string;
+  currentAudioBindingStatus?: AudioMappingStatus;
   audioLibraryStatus: LocalAudioLibraryStatus;
 }
 
@@ -220,6 +224,7 @@ function getAudioStatusLabel({
   isEmpty,
   isCurrentAudioBound,
   currentAudioFileName,
+  currentAudioBindingStatus,
   audioLibraryStatus
 }: AudioStatusLabelInput): string {
   if (isEmpty) {
@@ -236,6 +241,18 @@ function getAudioStatusLabel({
 
   if (!isCurrentAudioBound) {
     return "未绑定音频文件";
+  }
+
+  if (currentAudioBindingStatus === "permission_required") {
+    return currentAudioFileName
+      ? `需要重新授权：${currentAudioFileName}`
+      : "本地原文件需要重新授权";
+  }
+
+  if (currentAudioBindingStatus === "missing") {
+    return currentAudioFileName
+      ? `原文件不可用：${currentAudioFileName}`
+      : "本地原文件不可用";
   }
 
   return currentAudioFileName ? `已绑定：${currentAudioFileName}` : "已绑定本地音频";

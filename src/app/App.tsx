@@ -233,7 +233,7 @@ export function App({
 
   return (
     <PageShell>
-      <main className="app-layout">
+      <main className="app-layout" id="main-content" tabIndex={-1}>
         <section className="workspace" aria-labelledby="catalog-heading">
           <XuSongCatalogImport
             catalog={catalog}
@@ -351,6 +351,7 @@ export function App({
         state={player}
         tracks={catalog.tracks}
         currentAudioFileName={currentAudioBinding?.fileName}
+        currentAudioBindingStatus={currentAudioBinding?.status}
         isCurrentAudioBound={Boolean(currentAudioBinding)}
         canPlayTarget={canPlayTarget}
         audioLibraryStatus={localAudioLibrary.status}
