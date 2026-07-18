@@ -48,6 +48,7 @@ interface TemporaryPlaylistPanelProps {
   onCreateSavedPlaylist: (name: string) => void;
   onRenameSavedPlaylist: (playlistId: EntityId, name: string) => void;
   onDeleteSavedPlaylist: (playlistId: EntityId) => void;
+  onPlayItem: (itemId: EntityId) => void;
   onRepeatCountChange: (itemId: EntityId, repeatCount: number) => void;
   onRemove: (itemId: EntityId) => void;
   onClear: () => void;
@@ -73,6 +74,7 @@ export function TemporaryPlaylistPanel({
   onCreateSavedPlaylist,
   onRenameSavedPlaylist,
   onDeleteSavedPlaylist,
+  onPlayItem,
   onRepeatCountChange,
   onRemove,
   onClear,
@@ -510,6 +512,16 @@ export function TemporaryPlaylistPanel({
                       >
                         ×{item.repeatCount}
                       </span>
+
+                      <button
+                        className="icon-button quick-play-button"
+                        type="button"
+                        aria-label={`播放${track?.title ?? "歌曲"}`}
+                        title="播放"
+                        onClick={() => onPlayItem(itemId)}
+                      >
+                        ▶
+                      </button>
 
                       <QueueItemActionsMenu
                         itemId={itemId}

@@ -51,6 +51,7 @@ interface CatalogOverviewProps {
   playlistTargetLabel?: string;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
+  onPlayTrack?: (trackId: EntityId) => void;
   onCreateAlbum: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
   onCreateTrack: (
     albumId: EntityId,
@@ -109,6 +110,7 @@ export function CatalogOverview({
   playlistTargetLabel = "临时歌单",
   onAddTrack,
   onAddAlbum,
+  onPlayTrack = () => undefined,
   onCreateAlbum,
   onCreateTrack,
   onUpdateAlbum,
@@ -323,6 +325,7 @@ export function CatalogOverview({
             resettableTrackIds={resettableTrackIds}
             onAddTrack={onAddTrack}
             onAddAlbum={onAddAlbum}
+            onPlayTrack={onPlayTrack}
             onOpenAlbumEditor={() =>
               setEditorTarget({
                 kind: "edit-album",
@@ -424,6 +427,7 @@ interface AlbumDetailProps {
   resettableTrackIds: ReadonlySet<EntityId>;
   onAddTrack: (trackId: EntityId) => void;
   onAddAlbum: (albumId: EntityId) => void;
+  onPlayTrack: (trackId: EntityId) => void;
   onOpenAlbumEditor: () => void;
   onOpenCreateTrack: () => void;
   onOpenTrackEditor: (trackId: EntityId) => void;
@@ -463,6 +467,7 @@ function AlbumDetail({
   resettableTrackIds,
   onAddTrack,
   onAddAlbum,
+  onPlayTrack,
   onOpenAlbumEditor,
   onOpenCreateTrack,
   onOpenTrackEditor,
@@ -594,6 +599,7 @@ function AlbumDetail({
               canEdit={canOpenEditor}
               onEdit={() => onOpenTrackEditor(track.id)}
               onAdd={() => onAddTrack(track.id)}
+              onPlay={() => onPlayTrack(track.id)}
               onBindAudio={(file) => onBindAudio(track.id, file)}
               onRequestAudioAccess={() => onRequestAudioAccess(track.id)}
               onUnbindAudio={() => onUnbindAudio(track.id)}
@@ -809,6 +815,7 @@ interface TrackRowProps {
   canEdit: boolean;
   onEdit: () => void;
   onAdd: () => void;
+  onPlay: () => void;
   onBindAudio: (file: File) => Promise<boolean>;
   onRequestAudioAccess: () => Promise<boolean>;
   onUnbindAudio: () => Promise<boolean>;
@@ -829,6 +836,7 @@ function TrackRow({
   canEdit,
   onEdit,
   onAdd,
+  onPlay,
   onBindAudio,
   onRequestAudioAccess,
   onUnbindAudio,
@@ -888,6 +896,15 @@ function TrackRow({
           onUnbindAudio={onUnbindAudio}
           onRequestDeletion={onRequestDeletion}
         />
+        <button
+          className="icon-button quick-play-button"
+          type="button"
+          aria-label={`播放${track.title}`}
+          title="播放"
+          onClick={onPlay}
+        >
+          ▶
+        </button>
         <button
           className="icon-button add-track-button"
           type="button"

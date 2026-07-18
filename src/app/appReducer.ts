@@ -13,7 +13,11 @@ import {
   renameSavedPlaylist,
   selectPlaylist
 } from "../features/playlist/playlistLibrary";
-import { createPlaylistPlaybackSnapshot } from "../features/playlist/playlistPlaybackSnapshot";
+import {
+  createPlaylistPlaybackSnapshot,
+  createSingleTrackPlaybackSnapshot,
+  type PlaylistPlaybackSnapshot
+} from "../features/playlist/playlistPlaybackSnapshot";
 import {
   temporaryPlaylistReducer,
   type TemporaryPlaylistAction
@@ -63,7 +67,12 @@ export type AppAction =
       updatedAt: string;
     }
   | { type: "delete-saved-playlist"; playlistId: EntityId }
-  | { type: "start-playback-from-selection"; autoplay?: boolean }
+  | {
+      type: "start-playback-from-selection";
+      autoplay?: boolean;
+      startItemId?: EntityId;
+    }
+  | { type: "start-single-track-preview"; trackId: EntityId; autoplay?: boolean }
   | { type: "playlist"; action: TemporaryPlaylistAction }
   | { type: "player"; action: PlayerAction };
 
@@ -185,23 +194,17 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "start-playback-from-selection": {
       const snapshot = createPlaylistPlaybackSnapshot(
         state.playlist,
-        state.selectedPlaylist
+        state.selectedPlaylist,
+        action.startItemId
       );
-      const replacementPlayer = createPlayerState(snapshot.playSequence);
-
-      return {
-        ...state,
-        player: {
-          ...replacementPlayer,
-          status:
-            action.autoplay && replacementPlayer.status !== "empty"
-              ? "playing"
-              : replacementPlayer.status,
-          playbackRevision: state.player.playbackRevision + 1
-        },
-        playbackSource: snapshot.source
-      };
+      return startPlaybackSnapshot(state, snapshot, action.autoplay);
     }
+    case "start-single-track-preview":
+      return startPlaybackSnapshot(
+        state,
+        createSingleTrackPlaybackSnapshot(action.trackId),
+        action.autoplay
+      );
     case "playlist": {
       const playlist = temporaryPlaylistReducer(state.playlist, action.action);
 
@@ -234,6 +237,27 @@ function createHydratedAppState(playlistLibrary: PlaylistLibrary): AppState {
     playlist: getSelectedPlaylist(playlistLibrary, selectedPlaylist),
     player: createPlayerState(),
     playbackSource: null
+  };
+}
+
+function startPlaybackSnapshot(
+  state: AppState,
+  snapshot: PlaylistPlaybackSnapshot,
+  autoplay?: boolean
+): AppState {
+  const replacementPlayer = createPlayerState(snapshot.playSequence);
+
+  return {
+    ...state,
+    player: {
+      ...replacementPlayer,
+      status:
+        autoplay && replacementPlayer.status !== "empty"
+          ? "playing"
+          : replacementPlayer.status,
+      playbackRevision: state.player.playbackRevision + 1
+    },
+    playbackSource: snapshot.source
   };
 }
 

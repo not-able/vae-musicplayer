@@ -1483,6 +1483,20 @@ a:focus-visible {
   font-size: 18px;
 }
 
+.quick-play-button.icon-button {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
+  border-color: transparent;
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+.quick-play-button.icon-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #e5f0ec;
+}
+
 .queue-menu-trigger[aria-expanded="true"],
 .album-menu-trigger[aria-expanded="true"],
 .track-menu-trigger[aria-expanded="true"] {

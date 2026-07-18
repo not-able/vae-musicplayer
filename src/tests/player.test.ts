@@ -459,6 +459,79 @@ describe("app player integration", () => {
     });
   });
 
+  it("starts a selected playlist item from its first occurrence and previews catalog tracks once", () => {
+    let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    playlist = updatePlaylistItemRepeatCount(playlist, "item_a", 2, updatedAt);
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+    playlist = updatePlaylistItemRepeatCount(playlist, "item_b", 3, updatedAt);
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_c",
+      itemId: "item_c",
+      addedAt: updatedAt
+    });
+
+    const initialState = createAppState(playlist);
+    const fromSecondItem = appReducer(initialState, {
+      type: "start-playback-from-selection",
+      startItemId: "item_b"
+    });
+
+    expect(fromSecondItem.player.playSequence).toEqual([
+      expect.objectContaining({
+        queueItemId: "item_b",
+        trackId: "track_b",
+        repeatIndex: 1,
+        repeatTotal: 3
+      }),
+      expect.objectContaining({
+        queueItemId: "item_b",
+        trackId: "track_b",
+        repeatIndex: 2,
+        repeatTotal: 3
+      }),
+      expect.objectContaining({
+        queueItemId: "item_b",
+        trackId: "track_b",
+        repeatIndex: 3,
+        repeatTotal: 3
+      }),
+      expect.objectContaining({
+        queueItemId: "item_c",
+        trackId: "track_c",
+        repeatIndex: 1,
+        repeatTotal: 1
+      })
+    ]);
+    expect(fromSecondItem.playlist).toBe(initialState.playlist);
+
+    const singleTrackPreview = appReducer(fromSecondItem, {
+      type: "start-single-track-preview",
+      trackId: "track_preview"
+    });
+
+    expect(singleTrackPreview.player.playSequence).toEqual([
+      {
+        queueItemId: "album-track-preview:track_preview",
+        trackId: "track_preview",
+        repeatIndex: 1,
+        repeatTotal: 1
+      }
+    ]);
+    expect(singleTrackPreview.playbackSource).toEqual({
+      kind: "album-track-preview",
+      trackId: "track_preview"
+    });
+    expect(singleTrackPreview.playlist).toBe(initialState.playlist);
+  });
+
   it("does not change an active snapshot when its source document repeatCount shrinks", () => {
     let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
       trackId: "track_a",

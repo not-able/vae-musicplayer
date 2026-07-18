@@ -293,6 +293,28 @@ export function App({
     dispatch({ type: "delete-saved-playlist", playlistId });
   }
 
+  function playCatalogTrack(trackId: EntityId) {
+    if (!catalog.tracks.some((track) => track.id === trackId)) {
+      return;
+    }
+
+    localAudioPlayback.clearError();
+    dispatch({ type: "start-single-track-preview", trackId, autoplay: true });
+  }
+
+  function playPlaylistItem(itemId: EntityId) {
+    if (!playlist.itemsById[itemId]) {
+      return;
+    }
+
+    localAudioPlayback.clearError();
+    dispatch({
+      type: "start-playback-from-selection",
+      startItemId: itemId,
+      autoplay: true
+    });
+  }
+
   return (
     <PageShell>
       <main className="app-layout" id="main-content" tabIndex={-1}>
@@ -320,6 +342,7 @@ export function App({
             playlistTargetLabel="当前歌单"
             onAddTrack={addTrack}
             onAddAlbum={addAlbum}
+            onPlayTrack={playCatalogTrack}
             onCreateAlbum={catalogLibrary.createAlbum}
             onCreateTrack={catalogLibrary.createTrack}
             onUpdateAlbum={catalogLibrary.updateAlbum}
@@ -379,6 +402,7 @@ export function App({
             onCreateSavedPlaylist={createSavedPlaylist}
             onRenameSavedPlaylist={renameSavedPlaylist}
             onDeleteSavedPlaylist={deleteSavedPlaylist}
+            onPlayItem={playPlaylistItem}
             onRepeatCountChange={(itemId, repeatCount) =>
               dispatchPlaylist({
                 type: "set-repeat-count",

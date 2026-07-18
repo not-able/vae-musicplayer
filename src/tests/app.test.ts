@@ -1477,6 +1477,136 @@ describe("saved playlist library rail", () => {
   });
 });
 
+describe("quick playback actions", () => {
+  it("plays a catalog track once and starts a playlist item from its first occurrence", async () => {
+    const firstFile = new File(["first test file"], "sample-one.mp3", {
+      type: "audio/mpeg"
+    });
+    const secondFile = new File(["second test file"], "sample-two.ogg", {
+      type: "audio/ogg"
+    });
+    const localAudioRepository = createMemoryLocalAudioRepository([
+      createLocalAudioFileRecord(
+        "track_sample_001",
+        firstFile,
+        "2026-07-18T00:00:00.000Z"
+      ),
+      createLocalAudioFileRecord(
+        "track_sample_002",
+        secondFile,
+        "2026-07-18T00:00:00.000Z"
+      )
+    ]);
+    const mediaMocks = installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(App, { localAudioRepository }));
+    });
+
+    await act(async () => {
+      findButton(container, "播放示例歌曲二")?.click();
+    });
+
+    expect(container.querySelectorAll(".queue-item")).toHaveLength(0);
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲二"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "播放序列 1 / 1"
+    );
+    expect(mediaMocks.createObjectURL).toHaveBeenLastCalledWith(secondFile);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".add-album-button")?.click();
+    });
+    await act(async () => {
+      findButton(container, "打开示例歌曲一的更多操作")?.click();
+    });
+    await act(async () => {
+      findButton(document.body, "增加示例歌曲一的播放次数")?.click();
+    });
+
+    const firstQueueQuickPlay = container.querySelector<HTMLButtonElement>(
+      '[data-queue-item-id] button[aria-label="播放示例歌曲一"]'
+    );
+
+    await act(async () => {
+      firstQueueQuickPlay?.click();
+    });
+
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲一"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "播放序列 1 / 3"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "本项第 1 / 2 次"
+    );
+
+    await act(async () => {
+      findButton(container, "下一首")?.click();
+    });
+
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "播放序列 2 / 3"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "本项第 2 / 2 次"
+    );
+
+    await act(async () => {
+      findButton(container, "播放示例歌曲二")?.click();
+    });
+
+    expect(container.querySelectorAll(".queue-item")).toHaveLength(2);
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲二"
+    );
+    expect(container.querySelector(".player-sequence-meta")?.textContent).toContain(
+      "播放序列 1 / 1"
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps the quick-play snapshot and reports the existing error for unbound audio", async () => {
+    const mediaMocks = installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, { localAudioRepository: createMemoryLocalAudioRepository() })
+      );
+    });
+    await act(async () => {
+      findButton(container, "播放示例歌曲一")?.click();
+    });
+
+    expect(container.querySelectorAll(".queue-item")).toHaveLength(0);
+    expect(container.querySelector(".player-now-playing strong")?.textContent).toBe(
+      "示例歌曲一"
+    );
+    expect(container.querySelector(".player-audio-binding")?.textContent).toBe(
+      "未绑定音频文件"
+    );
+    expect(mediaMocks.play).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
+
 describe("persistent catalog integration", () => {
   it("shows the built-in catalog immediately and keeps existing behavior for empty changes", async () => {
     const deferred = createDeferred<UserCatalogChanges>();
