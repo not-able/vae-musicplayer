@@ -6,7 +6,12 @@ import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
 import { getAlbumTracks } from "../features/catalog/catalog";
 import type { CatalogEntityIdFactory } from "../features/catalog/catalogMutations";
+import type {
+  CatalogDeletionIntent,
+  CatalogDeletionIntentRepository
+} from "../features/catalog/catalogDeletionRepository";
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
+import { useCatalogDeletion } from "../features/catalog/useCatalogDeletion";
 import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
 import { useLocalAudioLibrary } from "../features/local-library/useLocalAudioLibrary";
@@ -19,6 +24,7 @@ import type { TemporaryPlaylistRepository } from "../features/playlist/playlistR
 import { usePersistedPlaylist } from "../features/playlist/usePersistedPlaylist";
 import { indexedDbLocalAudioRepository } from "../infra/storage/indexedDbLocalAudioRepository";
 import { localStorageCatalogRepository } from "../infra/storage/localStorageCatalogRepository";
+import { localStorageCatalogDeletionIntentRepository } from "../infra/storage/localStorageCatalogDeletionIntentRepository";
 import { localStoragePlaylistRepository } from "../infra/storage/localStoragePlaylistRepository";
 import type { EntityId, PlaySequenceEntry, TemporaryPlaylist } from "../types";
 import { createTemporaryPlaylist } from "../utils/playlist";
@@ -62,6 +68,7 @@ interface AppProps {
   catalogEntityIdFactory?: CatalogEntityIdFactory;
   localAudioRepository?: LocalAudioFileRepository;
   playlistRepository?: TemporaryPlaylistRepository;
+  deletionIntentRepository?: CatalogDeletionIntentRepository;
   playlistItemIdFactory?: () => EntityId;
 }
 
@@ -70,6 +77,7 @@ export function App({
   catalogEntityIdFactory,
   localAudioRepository = indexedDbLocalAudioRepository,
   playlistRepository = localStoragePlaylistRepository,
+  deletionIntentRepository = localStorageCatalogDeletionIntentRepository,
   playlistItemIdFactory = createPlaylistItemId
 }: AppProps) {
   const [{ playlist, player }, dispatch] = useReducer(
@@ -107,6 +115,41 @@ export function App({
     libraryStatus: localAudioLibrary.status,
     dispatchPlayer,
     audioRef
+  });
+  const handleCatalogDeletionCommit = useCallback(
+    (intent: CatalogDeletionIntent) => {
+      catalogLibrary.applyPersistedChanges(intent.nextCatalogChanges);
+      localAudioLibrary.forgetAudioBindings(intent.trackIds);
+      dispatch({
+        type: "replace-playlist-after-catalog-deletion",
+        playlist: intent.nextPlaylist,
+        removedTrackIds: intent.trackIds
+      });
+    },
+    [catalogLibrary, localAudioLibrary]
+  );
+  const pauseAffectedPlayback = useCallback(
+    (trackIds: readonly EntityId[]) => {
+      if (player.currentEntry && trackIds.includes(player.currentEntry.trackId)) {
+        localAudioPlayback.stopAndRelease();
+      }
+    },
+    [localAudioPlayback, player.currentEntry]
+  );
+  const catalogDeletion = useCatalogDeletion({
+    defaultCatalog: mockCatalog,
+    catalogChanges: catalogLibrary.changes,
+    catalogStatus: catalogLibrary.status,
+    playlist,
+    playlistIsReady: playlistPersistence.status === "ready",
+    playlistRepository,
+    audioBindings: localAudioLibrary.bindingsByTrackId,
+    audioStatus: localAudioLibrary.status,
+    audioRepository: localAudioRepository,
+    catalogRepository,
+    intentRepository: deletionIntentRepository,
+    onBeforeDelete: pauseAffectedPlayback,
+    onCommitted: handleCatalogDeletionCommit
   });
   const currentAudioBinding = player.currentEntry
     ? localAudioLibrary.bindingsByTrackId.get(player.currentEntry.trackId)
@@ -188,8 +231,8 @@ export function App({
             catalog={catalog}
             catalogLibraryStatus={catalogLibrary.status}
             catalogLibraryError={catalogLibrary.errorMessage}
-            isSavingAlbum={catalogLibrary.isSavingAlbum}
-            isSavingTrack={catalogLibrary.isSavingTrack}
+            isSavingAlbum={catalogLibrary.isSavingAlbum || catalogDeletion.isDeleting}
+            isSavingTrack={catalogLibrary.isSavingTrack || catalogDeletion.isDeleting}
             resettableAlbumIds={catalogLibrary.resettableAlbumIds}
             resettableTrackIds={catalogLibrary.resettableTrackIds}
             audioBindings={localAudioLibrary.bindingsByTrackId}
@@ -204,6 +247,13 @@ export function App({
             onUpdateTrack={catalogLibrary.updateTrack}
             onResetAlbum={catalogLibrary.resetAlbum}
             onResetTrack={catalogLibrary.resetTrack}
+            hiddenDefaultEntityCount={catalogLibrary.hiddenDefaultEntityCount}
+            canDelete={catalogDeletion.canDelete}
+            isDeleting={catalogDeletion.isDeleting}
+            deletionError={catalogDeletion.errorMessage}
+            onPreviewDeletion={catalogDeletion.previewDeletion}
+            onDeleteCatalogTarget={catalogDeletion.deleteTarget}
+            onRestoreHiddenDefaults={catalogLibrary.restoreHiddenDefaultCatalog}
             onBindAudio={localAudioLibrary.bindAudioFile}
             onUnbindAudio={localAudioLibrary.unbindAudioFile}
           />

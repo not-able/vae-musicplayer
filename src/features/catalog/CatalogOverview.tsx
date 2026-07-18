@@ -23,6 +23,8 @@ import type {
   CatalogTrackDraft,
   CatalogTrackUpdateDraft
 } from "./useCatalogLibrary";
+import type { CatalogDeletionPreview, CatalogDeletionTarget } from "./catalogDeletion";
+import type { CatalogDeletionResult } from "./useCatalogDeletion";
 
 interface CatalogOverviewProps {
   catalog: CatalogData;
@@ -55,6 +57,17 @@ interface CatalogOverviewProps {
   onResetTrack: (trackId: EntityId) => Promise<CatalogMutationResult>;
   onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
   onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
+  hiddenDefaultEntityCount?: number;
+  canDelete?: boolean;
+  isDeleting?: boolean;
+  deletionError?: string;
+  onPreviewDeletion?: (
+    target: CatalogDeletionTarget
+  ) => CatalogDeletionPreview | undefined;
+  onDeleteCatalogTarget?: (
+    target: CatalogDeletionTarget
+  ) => Promise<CatalogDeletionResult>;
+  onRestoreHiddenDefaults?: () => Promise<CatalogMutationResult>;
 }
 
 const albumTypeLabels: Record<AlbumType, string> = {
@@ -91,7 +104,14 @@ export function CatalogOverview({
   onResetAlbum,
   onResetTrack,
   onBindAudio,
-  onUnbindAudio
+  onUnbindAudio,
+  hiddenDefaultEntityCount = 0,
+  canDelete = false,
+  isDeleting = false,
+  deletionError,
+  onPreviewDeletion,
+  onDeleteCatalogTarget,
+  onRestoreHiddenDefaults
 }: CatalogOverviewProps) {
   const albums = useMemo(() => getSortedAlbums(catalog), [catalog]);
   const [albumSelection, setAlbumSelection] = useState(() => ({
@@ -101,6 +121,8 @@ export function CatalogOverview({
   const [draggingAlbumId, setDraggingAlbumId] = useState<EntityId>();
   const [draggingTrackId, setDraggingTrackId] = useState<EntityId>();
   const [editorTarget, setEditorTarget] = useState<CatalogEditorTarget>();
+  const [pendingDeletion, setPendingDeletion] = useState<CatalogDeletionPreview>();
+  const [deletionDialogError, setDeletionDialogError] = useState<string>();
   const selectedAlbumId =
     albumSelection.catalog === catalog ||
     albums.some((album) => album.id === albumSelection.albumId)
@@ -160,6 +182,33 @@ export function CatalogOverview({
     setEditorTarget(undefined);
   }
 
+  function requestDeletion(target: CatalogDeletionTarget): void {
+    const preview = onPreviewDeletion?.(target);
+
+    if (!preview) {
+      return;
+    }
+
+    setDeletionDialogError(undefined);
+    setPendingDeletion(preview);
+  }
+
+  async function confirmDeletion(): Promise<void> {
+    if (!pendingDeletion || !onDeleteCatalogTarget) {
+      return;
+    }
+
+    const result = await onDeleteCatalogTarget(pendingDeletion.target);
+
+    if (result.ok) {
+      setPendingDeletion(undefined);
+      setDeletionDialogError(undefined);
+      return;
+    }
+
+    setDeletionDialogError(result.errorMessage ?? "目录删除失败，请稍后重试。");
+  }
+
   return (
     <div className="catalog">
       <div className="section-heading catalog-heading">
@@ -184,6 +233,16 @@ export function CatalogOverview({
             新增专辑
           </button>
           <span className="pill">{catalog.schemaVersion} 版元数据</span>
+          {hiddenDefaultEntityCount > 0 && onRestoreHiddenDefaults && (
+            <button
+              className="text-button"
+              type="button"
+              disabled={isSavingAlbum || isSavingTrack || isDeleting}
+              onClick={() => void onRestoreHiddenDefaults()}
+            >
+              恢复 {hiddenDefaultEntityCount} 项隐藏内置目录
+            </button>
+          )}
         </div>
       </div>
 
@@ -207,6 +266,11 @@ export function CatalogOverview({
         {audioLibraryError && (
           <p className="local-audio-error" role="status">
             {audioLibraryError}
+          </p>
+        )}
+        {deletionError && (
+          <p className="local-audio-error catalog-library-error" role="status">
+            {deletionError}
           </p>
         )}
       </div>
@@ -307,6 +371,8 @@ export function CatalogOverview({
             onSaved={() => setEditorTarget(undefined)}
             onBindAudio={onBindAudio}
             onUnbindAudio={onUnbindAudio}
+            canDelete={canDelete && !isDeleting}
+            onRequestDeletion={requestDeletion}
             onTrackDragStart={startTrackDrag}
             onTrackDragEnd={() => setDraggingTrackId(undefined)}
           />
@@ -315,6 +381,21 @@ export function CatalogOverview({
         <div className="catalog-empty">
           <p className="muted">尚未维护专辑数据，可以先新增一张空专辑。</p>
         </div>
+      )}
+
+      {pendingDeletion && (
+        <CatalogDeletionDialog
+          preview={pendingDeletion}
+          isDeleting={isDeleting}
+          errorMessage={deletionDialogError}
+          onCancel={() => {
+            if (!isDeleting) {
+              setPendingDeletion(undefined);
+              setDeletionDialogError(undefined);
+            }
+          }}
+          onConfirm={() => void confirmDeletion()}
+        />
       )}
     </div>
   );
@@ -376,6 +457,8 @@ interface AlbumDetailProps {
   onSaved: () => void;
   onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
   onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
+  canDelete: boolean;
+  onRequestDeletion: (target: CatalogDeletionTarget) => void;
   onTrackDragStart: (event: DragEvent<HTMLDivElement>, trackId: EntityId) => void;
   onTrackDragEnd: () => void;
 }
@@ -408,6 +491,8 @@ function AlbumDetail({
   onSaved,
   onBindAudio,
   onUnbindAudio,
+  canDelete,
+  onRequestDeletion,
   onTrackDragStart,
   onTrackDragEnd
 }: AlbumDetailProps) {
@@ -445,6 +530,16 @@ function AlbumDetail({
           >
             编辑专辑
           </button>
+          {canDelete && (
+            <button
+              className="text-button"
+              type="button"
+              aria-label={`删除或隐藏${album.title}`}
+              onClick={() => onRequestDeletion({ kind: "album", id: album.id })}
+            >
+              删除/隐藏
+            </button>
+          )}
           <button
             className="secondary-button add-track-metadata-button"
             type="button"
@@ -526,6 +621,10 @@ function AlbumDetail({
               onAdd={() => onAddTrack(track.id)}
               onBindAudio={(file) => onBindAudio(track.id, file)}
               onUnbindAudio={() => onUnbindAudio(track.id)}
+              canDelete={canDelete}
+              onRequestDeletion={() =>
+                onRequestDeletion({ kind: "track", id: track.id })
+              }
               onDragStart={(event) => onTrackDragStart(event, track.id)}
               onDragEnd={onTrackDragEnd}
             />
@@ -550,6 +649,8 @@ interface TrackRowProps {
   onAdd: () => void;
   onBindAudio: (file: File) => Promise<boolean>;
   onUnbindAudio: () => Promise<boolean>;
+  canDelete: boolean;
+  onRequestDeletion: () => void;
   onDragStart: (event: DragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
 }
@@ -566,6 +667,8 @@ function TrackRow({
   onAdd,
   onBindAudio,
   onUnbindAudio,
+  canDelete,
+  onRequestDeletion,
   onDragStart,
   onDragEnd
 }: TrackRowProps) {
@@ -617,6 +720,16 @@ function TrackRow({
         >
           编辑
         </button>
+        {canDelete && (
+          <button
+            className="text-button"
+            type="button"
+            aria-label={`删除或隐藏${track.title}`}
+            onClick={onRequestDeletion}
+          >
+            删除
+          </button>
+        )}
         <span
           className={`binding-status ${audioBinding ? "is-bound" : "is-unbound"}`}
           title={bindingStatusLabel}
@@ -660,6 +773,67 @@ function TrackRow({
         </button>
       </div>
     </li>
+  );
+}
+
+interface CatalogDeletionDialogProps {
+  preview: CatalogDeletionPreview;
+  isDeleting: boolean;
+  errorMessage?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function CatalogDeletionDialog({
+  preview,
+  isDeleting,
+  errorMessage,
+  onCancel,
+  onConfirm
+}: CatalogDeletionDialogProps) {
+  const actionLabel = preview.action === "hide" ? "隐藏" : "删除";
+
+  return (
+    <section className="catalog-deletion-dialog" role="dialog" aria-modal="true">
+      <h3>{actionLabel}确认</h3>
+      <p>
+        即将{actionLabel}“{preview.targetTitle}”。此操作会移除浏览器中的相关歌单项和
+        本地音频绑定，无法撤销。
+      </p>
+      <ul>
+        <li>{preview.trackCount} 首歌曲</li>
+        <li>{preview.playlistItemCount} 个临时歌单项（含重复项）</li>
+        <li>{preview.audioBindingCount} 个本地音频绑定</li>
+      </ul>
+      {preview.action === "hide" && (
+        <p>
+          内置目录仅在本浏览器中隐藏，可随后恢复默认显示；已清理的歌单和音频不会恢复。
+        </p>
+      )}
+      {errorMessage && (
+        <p className="catalog-editor-save-error" role="alert">
+          {errorMessage}
+        </p>
+      )}
+      <div className="catalog-editor-actions">
+        <button
+          className="text-button"
+          type="button"
+          disabled={isDeleting}
+          onClick={onCancel}
+        >
+          取消
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={isDeleting}
+          onClick={onConfirm}
+        >
+          {isDeleting ? "处理中…" : `确认${actionLabel}`}
+        </button>
+      </div>
+    </section>
   );
 }
 

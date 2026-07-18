@@ -17,6 +17,7 @@ export interface LocalAudioLibrary {
   errorMessage?: string;
   bindAudioFile: (trackId: EntityId, file: File) => Promise<boolean>;
   unbindAudioFile: (trackId: EntityId) => Promise<boolean>;
+  forgetAudioBindings: (trackIds: readonly EntityId[]) => void;
 }
 
 export function useLocalAudioLibrary(
@@ -131,6 +132,31 @@ export function useLocalAudioLibrary(
     [repository]
   );
 
+  const forgetAudioBindings = useCallback((trackIds: readonly EntityId[]) => {
+    if (trackIds.length === 0) {
+      return;
+    }
+
+    setBindingsByTrackId((currentBindings) => {
+      const nextBindings = new Map(currentBindings);
+
+      for (const trackId of trackIds) {
+        nextBindings.delete(trackId);
+      }
+
+      return nextBindings;
+    });
+    setBindingRevisionsByTrackId((currentRevisions) => {
+      let nextRevisions = currentRevisions;
+
+      for (const trackId of trackIds) {
+        nextRevisions = incrementBindingRevision(nextRevisions, trackId);
+      }
+
+      return nextRevisions;
+    });
+  }, []);
+
   return {
     bindingsByTrackId,
     bindingRevisionsByTrackId,
@@ -138,7 +164,8 @@ export function useLocalAudioLibrary(
     status,
     errorMessage,
     bindAudioFile,
-    unbindAudioFile
+    unbindAudioFile,
+    forgetAudioBindings
   };
 }
 

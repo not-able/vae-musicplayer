@@ -89,7 +89,9 @@ function createCompleteChanges(): UserCatalogChanges {
     },
     albumTrackIdAdditions: {
       album_sample_001: ["track_user_002"]
-    }
+    },
+    hiddenDefaultAlbumIds: [],
+    hiddenDefaultTrackIds: []
   };
 }
 

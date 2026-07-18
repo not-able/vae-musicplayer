@@ -208,6 +208,39 @@ export function clearTemporaryPlaylist(
   };
 }
 
+export function removeTracksFromTemporaryPlaylist(
+  playlist: TemporaryPlaylist,
+  trackIds: ReadonlySet<EntityId>,
+  updatedAt: ISODateString
+): TemporaryPlaylist {
+  const itemIds = playlist.itemIds.filter((itemId) => {
+    const item = playlist.itemsById[itemId];
+
+    return item !== undefined && !trackIds.has(item.trackId);
+  });
+
+  if (itemIds.length === playlist.itemIds.length) {
+    return playlist;
+  }
+
+  const itemsById: Record<EntityId, PlaylistItem> = {};
+
+  for (const itemId of itemIds) {
+    const item = playlist.itemsById[itemId];
+
+    if (item) {
+      itemsById[itemId] = item;
+    }
+  }
+
+  return {
+    ...playlist,
+    itemIds,
+    itemsById,
+    updatedAt
+  };
+}
+
 export function movePlaylistItem(
   playlist: TemporaryPlaylist,
   itemId: EntityId,

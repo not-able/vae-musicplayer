@@ -170,6 +170,30 @@ function assertOptionalPositiveInteger(
   }
 }
 
+function getHiddenDefaultIds(
+  ids: readonly EntityId[],
+  defaultIds: ReadonlySet<EntityId>,
+  entityName: string
+): ReadonlySet<EntityId> {
+  const result = new Set<EntityId>();
+
+  for (const id of ids) {
+    if (typeof id !== "string" || id.trim().length === 0) {
+      throw new Error(`Hidden default ${entityName} IDs must be non-blank strings.`);
+    }
+    if (!defaultIds.has(id)) {
+      throw new Error(`Only built-in ${entityName} records can be hidden: ${id}.`);
+    }
+    if (result.has(id)) {
+      throw new Error(`Hidden default ${entityName} IDs must not repeat: ${id}.`);
+    }
+
+    result.add(id);
+  }
+
+  return result;
+}
+
 function assertCatalogIntegrity(catalog: CatalogData): void {
   const entityIds = new Set<EntityId>();
 
@@ -253,6 +277,16 @@ export function mergeCatalogChanges(
   ];
   const albumIds = new Set(albums.map((album) => album.id));
   const trackIds = new Set(tracks.map((track) => track.id));
+  const hiddenDefaultAlbumIds = getHiddenDefaultIds(
+    changes.hiddenDefaultAlbumIds,
+    new Set(defaultCatalog.albums.map((album) => album.id)),
+    "album"
+  );
+  const hiddenDefaultTrackIds = getHiddenDefaultIds(
+    changes.hiddenDefaultTrackIds,
+    new Set(defaultCatalog.tracks.map((track) => track.id)),
+    "track"
+  );
 
   for (const albumId of Object.keys(changes.albumOverrides)) {
     if (!albumIds.has(albumId)) {
@@ -272,28 +306,45 @@ export function mergeCatalogChanges(
     }
   }
 
+  const visibleAlbumIds = new Set(
+    albums
+      .filter((album) => !hiddenDefaultAlbumIds.has(album.id))
+      .map((album) => album.id)
+  );
+  const visibleTrackIds = new Set(
+    tracks
+      .filter(
+        (track) =>
+          visibleAlbumIds.has(track.albumId) && !hiddenDefaultTrackIds.has(track.id)
+      )
+      .map((track) => track.id)
+  );
   const mergedCatalog: CatalogData = {
     schemaVersion: defaultCatalog.schemaVersion,
     artists: defaultCatalog.artists.map(cloneArtist),
-    albums: albums.map((album) => {
-      const overriddenAlbum = applyAlbumOverrides(
-        album,
-        changes.albumOverrides[album.id]
-      );
-      const addedTrackIds = changes.albumTrackIdAdditions[album.id] ?? [];
+    albums: albums
+      .filter((album) => visibleAlbumIds.has(album.id))
+      .map((album) => {
+        const overriddenAlbum = applyAlbumOverrides(
+          album,
+          changes.albumOverrides[album.id]
+        );
+        const addedTrackIds = changes.albumTrackIdAdditions[album.id] ?? [];
 
-      if (!addedTrackIds.every((trackId) => typeof trackId === "string")) {
-        throw new Error("Album track ID additions must be string arrays.");
-      }
+        if (!addedTrackIds.every((trackId) => typeof trackId === "string")) {
+          throw new Error("Album track ID additions must be string arrays.");
+        }
 
-      return {
-        ...overriddenAlbum,
-        trackIds: [...overriddenAlbum.trackIds, ...addedTrackIds]
-      };
-    }),
-    tracks: tracks.map((track) =>
-      applyTrackOverrides(track, changes.trackOverrides[track.id])
-    )
+        return {
+          ...overriddenAlbum,
+          trackIds: [...overriddenAlbum.trackIds, ...addedTrackIds].filter((trackId) =>
+            visibleTrackIds.has(trackId)
+          )
+        };
+      }),
+    tracks: tracks
+      .filter((track) => visibleTrackIds.has(track.id))
+      .map((track) => applyTrackOverrides(track, changes.trackOverrides[track.id]))
   };
 
   assertCatalogIntegrity(mergedCatalog);

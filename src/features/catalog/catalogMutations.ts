@@ -289,7 +289,26 @@ export function createEmptyUserCatalogChanges(): UserCatalogChanges {
     addedTracks: [],
     albumOverrides: {},
     trackOverrides: {},
-    albumTrackIdAdditions: {}
+    albumTrackIdAdditions: {},
+    hiddenDefaultAlbumIds: [],
+    hiddenDefaultTrackIds: []
+  };
+}
+
+export function restoreHiddenDefaultCatalog(
+  changes: UserCatalogChanges
+): UserCatalogChanges {
+  if (
+    changes.hiddenDefaultAlbumIds.length === 0 &&
+    changes.hiddenDefaultTrackIds.length === 0
+  ) {
+    return changes;
+  }
+
+  return {
+    ...changes,
+    hiddenDefaultAlbumIds: [],
+    hiddenDefaultTrackIds: []
   };
 }
 

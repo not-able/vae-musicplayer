@@ -12,6 +12,7 @@ import {
   addTrackToPlaylist,
   createTemporaryPlaylist,
   expandPlaylistToPlaySequence,
+  removeTracksFromTemporaryPlaylist,
   updatePlaylistItemRepeatCount
 } from "../utils/playlist";
 
@@ -586,5 +587,45 @@ describe("app player integration", () => {
 
     expect(advancedState.player.currentEntry?.queueItemId).toBe("item_c");
     expect(advancedState.player.status).toBe("playing");
+  });
+
+  it("stops at the first surviving item when catalog deletion removes the current source", () => {
+    let playlist = addTrackToPlaylist(createEmptyPlaylist(), {
+      trackId: "track_a",
+      itemId: "item_a",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_b",
+      itemId: "item_b",
+      addedAt: updatedAt
+    });
+    playlist = addTrackToPlaylist(playlist, {
+      trackId: "track_c",
+      itemId: "item_c",
+      addedAt: updatedAt
+    });
+
+    let state = createAppState(playlist);
+    state = appReducer(state, { type: "player", action: { type: "next" } });
+    state = appReducer(state, { type: "player", action: { type: "play" } });
+    const revisionBeforeDeletion = state.player.playbackRevision;
+    const nextPlaylist = removeTracksFromTemporaryPlaylist(
+      playlist,
+      new Set(["track_b"]),
+      updatedAt
+    );
+
+    const deletedState = appReducer(state, {
+      type: "replace-playlist-after-catalog-deletion",
+      playlist: nextPlaylist,
+      removedTrackIds: ["track_b"]
+    });
+
+    expect(deletedState.playlist.itemIds).toEqual(["item_a", "item_c"]);
+    expect(deletedState.player.currentEntry?.queueItemId).toBe("item_a");
+    expect(deletedState.player.currentIndex).toBe(0);
+    expect(deletedState.player.status).toBe("paused");
+    expect(deletedState.player.playbackRevision).toBe(revisionBeforeDeletion + 1);
   });
 });

@@ -1,6 +1,7 @@
 import {
   createPlayerState,
   playerReducer,
+  stopPlayerAfterCurrentEntryRemoved,
   syncPlayerSequence,
   type PlayerAction,
   type PlayerState
@@ -9,7 +10,7 @@ import {
   temporaryPlaylistReducer,
   type TemporaryPlaylistAction
 } from "../features/playlist/playlistReducer";
-import type { TemporaryPlaylist } from "../types";
+import type { EntityId, TemporaryPlaylist } from "../types";
 import { expandPlaylistToPlaySequence } from "../utils/playlist";
 
 export interface AppState {
@@ -19,6 +20,11 @@ export interface AppState {
 
 export type AppAction =
   | { type: "hydrate-playlist"; playlist: TemporaryPlaylist }
+  | {
+      type: "replace-playlist-after-catalog-deletion";
+      playlist: TemporaryPlaylist;
+      removedTrackIds: readonly EntityId[];
+    }
   | { type: "playlist"; action: TemporaryPlaylistAction }
   | { type: "player"; action: PlayerAction };
 
@@ -33,6 +39,20 @@ export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "hydrate-playlist":
       return createAppState(action.playlist);
+    case "replace-playlist-after-catalog-deletion": {
+      const playSequence = expandPlaylistToPlaySequence(action.playlist);
+      const currentTrackWasDeleted = Boolean(
+        state.player.currentEntry &&
+        action.removedTrackIds.includes(state.player.currentEntry.trackId)
+      );
+
+      return {
+        playlist: action.playlist,
+        player: currentTrackWasDeleted
+          ? stopPlayerAfterCurrentEntryRemoved(state.player, playSequence)
+          : syncPlayerSequence(state.player, playSequence)
+      };
+    }
     case "playlist": {
       const playlist = temporaryPlaylistReducer(state.playlist, action.action);
 

@@ -28,6 +28,7 @@ export interface LocalAudioPlaybackControls {
   requestPlay: () => void;
   requestPause: () => void;
   requestRestart: () => void;
+  stopAndRelease: () => void;
   handleAudioError: () => void;
   clearError: () => void;
 }
@@ -281,6 +282,11 @@ export function useLocalAudioPlayback({
     }
   }, [beginPlayback, bindingsByTrackId, dispatchPlayer, prepareSource, state]);
 
+  const stopAndRelease = useCallback(() => {
+    releasePreparedSource();
+    dispatchPlayer({ type: "pause" });
+  }, [dispatchPlayer, releasePreparedSource]);
+
   const handleAudioError = useCallback(() => {
     if (!preparedSourceRef.current) {
       return;
@@ -295,6 +301,7 @@ export function useLocalAudioPlayback({
     requestPlay,
     requestPause,
     requestRestart,
+    stopAndRelease,
     handleAudioError,
     clearError: () => setErrorMessage(undefined)
   };

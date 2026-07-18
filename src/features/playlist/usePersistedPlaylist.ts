@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { EntityId, PlaylistItem, TemporaryPlaylist, Track } from "../../types";
-import type { TemporaryPlaylistRepository } from "./playlistRepository";
+import {
+  saveTemporaryPlaylistInRepositoryOrder,
+  waitForTemporaryPlaylistRepositoryWrites,
+  type TemporaryPlaylistRepository
+} from "./playlistRepository";
 
 type CatalogStatus = "loading" | "ready" | "error";
 
@@ -412,7 +416,7 @@ function createPlaylistSaveQueue(
       pendingPlaylist = undefined;
 
       try {
-        await savePlaylistInRepositoryOrder(repository, playlist);
+        await saveTemporaryPlaylistInRepositoryOrder(repository, playlist);
 
         if (reportsResults) {
           onResult(true);
@@ -449,7 +453,7 @@ function createPlaylistSaveQueue(
         const finalPlaylist = pendingPlaylist;
 
         pendingPlaylist = undefined;
-        void savePlaylistInRepositoryOrder(repository, finalPlaylist).catch(
+        void saveTemporaryPlaylistInRepositoryOrder(repository, finalPlaylist).catch(
           () => undefined
         );
       }
@@ -460,27 +464,10 @@ function createPlaylistSaveQueue(
   };
 }
 
-const repositoryWriteTails = new WeakMap<TemporaryPlaylistRepository, Promise<void>>();
-
-function savePlaylistInRepositoryOrder(
-  repository: TemporaryPlaylistRepository,
-  playlist: TemporaryPlaylist
-): Promise<void> {
-  const previousWrite = repositoryWriteTails.get(repository) ?? Promise.resolve();
-  const currentWrite = previousWrite.then(() => repository.save(playlist));
-
-  repositoryWriteTails.set(
-    repository,
-    currentWrite.catch(() => undefined)
-  );
-
-  return currentWrite;
-}
-
 async function loadPlaylistAfterPendingWrites(
   repository: TemporaryPlaylistRepository
 ): Promise<TemporaryPlaylist | null> {
-  await repositoryWriteTails.get(repository);
+  await waitForTemporaryPlaylistRepositoryWrites(repository);
 
   return repository.load();
 }

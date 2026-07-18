@@ -250,6 +250,30 @@ button:disabled {
   color: var(--warning);
 }
 
+.catalog-deletion-dialog {
+  position: fixed;
+  z-index: 10;
+  top: 50%;
+  left: 50%;
+  width: min(440px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 48px rgb(24 38 32 / 22%);
+  padding: 22px;
+  background: var(--surface-strong);
+}
+
+.catalog-deletion-dialog h3,
+.catalog-deletion-dialog p,
+.catalog-deletion-dialog ul {
+  margin-top: 0;
+}
+
+.catalog-deletion-dialog ul {
+  padding-left: 20px;
+  color: var(--muted);
+}
+
 .catalog-browser {
   display: grid;
   grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);

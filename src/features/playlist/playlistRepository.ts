@@ -24,3 +24,26 @@ export class PlaylistRepositoryError extends Error {
     this.code = code;
   }
 }
+
+const repositoryWriteTails = new WeakMap<TemporaryPlaylistRepository, Promise<void>>();
+
+export function saveTemporaryPlaylistInRepositoryOrder(
+  repository: TemporaryPlaylistRepository,
+  playlist: TemporaryPlaylist
+): Promise<void> {
+  const previousWrite = repositoryWriteTails.get(repository) ?? Promise.resolve();
+  const currentWrite = previousWrite.then(() => repository.save(playlist));
+
+  repositoryWriteTails.set(
+    repository,
+    currentWrite.catch(() => undefined)
+  );
+
+  return currentWrite;
+}
+
+export async function waitForTemporaryPlaylistRepositoryWrites(
+  repository: TemporaryPlaylistRepository
+): Promise<void> {
+  await repositoryWriteTails.get(repository);
+}

@@ -27,7 +27,9 @@ const userCatalogChangeKeys = [
   "addedTracks",
   "albumOverrides",
   "trackOverrides",
-  "albumTrackIdAdditions"
+  "albumTrackIdAdditions",
+  "hiddenDefaultAlbumIds",
+  "hiddenDefaultTrackIds"
 ] as const;
 
 // v1 once persisted these fields. They remain accepted only so old records can
@@ -106,11 +108,11 @@ export function createLocalStorageCatalogRepository(
         );
       }
 
-      return decodeUserCatalogChanges(parsedChanges);
+      return parseUserCatalogChanges(parsedChanges);
     },
 
     async save(changes) {
-      const normalizedChanges = decodeUserCatalogChanges(changes);
+      const normalizedChanges = parseUserCatalogChanges(changes);
       let serializedChanges: string;
 
       try {
@@ -185,7 +187,7 @@ function resolveStorage(storageSource: StorageSource, operation: string): Storag
   return storage;
 }
 
-function decodeUserCatalogChanges(value: unknown): UserCatalogChanges {
+export function parseUserCatalogChanges(value: unknown): UserCatalogChanges {
   try {
     const record = decodePlainRecord(value, "用户目录数据");
     const schemaVersion = readRequired(record, "schemaVersion", "用户目录数据");
@@ -245,7 +247,19 @@ function decodeUserCatalogChangesV1(
       readRequired(record, "albumTrackIdAdditions", "用户目录数据"),
       "用户目录 albumTrackIdAdditions",
       (trackIds, path) => decodeStringArray(trackIds, path)
-    )
+    ),
+    hiddenDefaultAlbumIds: hasOwn(record, "hiddenDefaultAlbumIds")
+      ? decodeStringArray(
+          record.hiddenDefaultAlbumIds,
+          "用户目录 hiddenDefaultAlbumIds"
+        )
+      : [],
+    hiddenDefaultTrackIds: hasOwn(record, "hiddenDefaultTrackIds")
+      ? decodeStringArray(
+          record.hiddenDefaultTrackIds,
+          "用户目录 hiddenDefaultTrackIds"
+        )
+      : []
   };
 }
 

@@ -123,6 +123,28 @@ export function syncPlayerSequence(
   };
 }
 
+export function stopPlayerAfterCurrentEntryRemoved(
+  state: PlayerState,
+  playSequence: readonly PlaySequenceEntry[]
+): PlayerState {
+  const nextSequence = [...playSequence];
+
+  if (nextSequence.length === 0) {
+    return {
+      ...createEmptyPlayerState(),
+      playbackRevision: state.playbackRevision + 1
+    };
+  }
+
+  return {
+    playSequence: nextSequence,
+    currentIndex: 0,
+    currentEntry: nextSequence[0],
+    status: "paused",
+    playbackRevision: state.playbackRevision + 1
+  };
+}
+
 export function isPlayerEmpty(state: PlayerState): boolean {
   return state.status === "empty";
 }

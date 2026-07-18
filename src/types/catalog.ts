@@ -60,4 +60,10 @@ export interface UserCatalogChanges {
   albumOverrides: Partial<Record<EntityId, AlbumFieldOverrides>>;
   trackOverrides: Partial<Record<EntityId, TrackFieldOverrides>>;
   albumTrackIdAdditions: Partial<Record<EntityId, EntityId[]>>;
+  /**
+   * Built-in records stay in source control. A user "deletion" only hides
+   * those records locally so the default catalog can be restored later.
+   */
+  hiddenDefaultAlbumIds: EntityId[];
+  hiddenDefaultTrackIds: EntityId[];
 }
