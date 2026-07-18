@@ -176,7 +176,8 @@ export function App({
   const canPlayTarget = Boolean(
     playTargetEntry &&
     localAudioLibrary.status === "ready" &&
-    localAudioLibrary.bindingsByTrackId.has(playTargetEntry.trackId)
+    localAudioLibrary.bindingsByTrackId.get(playTargetEntry.trackId)?.status ===
+      "available"
   );
 
   function dispatchPlaylist(action: TemporaryPlaylistAction) {
@@ -297,6 +298,7 @@ export function App({
             onPreviewDeletion={catalogDeletion.previewDeletion}
             onDeleteCatalogTarget={catalogDeletion.deleteTarget}
             onBindAudio={localAudioLibrary.bindAudioFile}
+            onRequestAudioAccess={localAudioLibrary.requestAudioAccess}
             onUnbindAudio={localAudioLibrary.unbindAudioFile}
           />
         </section>

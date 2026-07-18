@@ -2,9 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { EntityId, LocalAudioFileRecord } from "../../types";
 import {
+  createLocalAudioFileHandleRecord,
   createLocalAudioFileRecord,
   getLocalAudioFileValidationError
 } from "./localAudioFile";
+import {
+  getFileHandleReadStatus,
+  requestFileHandleReadAccess
+} from "./fileSystemAccess";
 import type { LocalAudioFileRepository } from "./localAudioRepository";
 
 export type LocalAudioLibraryStatus = "loading" | "ready" | "error";
@@ -12,6 +17,7 @@ export type LocalAudioLibraryStatus = "loading" | "ready" | "error";
 export interface LocalAudioBindingRequest {
   trackId: EntityId;
   file: File;
+  fileHandle?: FileSystemFileHandle;
 }
 
 export interface LocalAudioBatchBindingFailure {
@@ -35,6 +41,7 @@ export interface LocalAudioLibrary {
   bindAudioFiles: (
     requests: readonly LocalAudioBindingRequest[]
   ) => Promise<LocalAudioBatchBindingResult>;
+  requestAudioAccess: (trackId: EntityId) => Promise<boolean>;
   unbindAudioFile: (trackId: EntityId) => Promise<boolean>;
   forgetAudioBindings: (trackIds: readonly EntityId[]) => void;
 }
@@ -63,16 +70,26 @@ export function useLocalAudioLibrary(
 
     void repository
       .list()
-      .then((records) => {
+      .then(async (records) => {
         if (!isActive) {
           return;
         }
 
-        const nextBindings = new Map(records.map((record) => [record.trackId, record]));
+        const restoredRecords = await Promise.all(
+          records.map(refreshRestoredAudioBinding)
+        );
+
+        if (!isActive) {
+          return;
+        }
+
+        const nextBindings = new Map(
+          restoredRecords.map((record) => [record.trackId, record])
+        );
         bindingsByTrackIdRef.current = nextBindings;
         setBindingsByTrackId(nextBindings);
         setBindingRevisionsByTrackId(
-          new Map(records.map((record) => [record.trackId, 1]))
+          new Map(restoredRecords.map((record) => [record.trackId, 1]))
         );
         setStatus("ready");
       })
@@ -108,11 +125,7 @@ export function useLocalAudioLibrary(
       setErrorMessage(undefined);
 
       try {
-        const record = createLocalAudioFileRecord(
-          trackId,
-          file,
-          new Date().toISOString()
-        );
+        const record = createBindingRecord(trackId, file, undefined);
 
         await repository.save(record);
         const nextBindings = new Map(bindingsByTrackIdRef.current);
@@ -218,10 +231,10 @@ export function useLocalAudioLibrary(
 
       try {
         for (const request of validRequests) {
-          const record = createLocalAudioFileRecord(
+          const record = createBindingRecord(
             request.trackId,
             request.file,
-            new Date().toISOString()
+            request.fileHandle
           );
 
           try {
@@ -317,6 +330,51 @@ export function useLocalAudioLibrary(
     [repository]
   );
 
+  const requestAudioAccess = useCallback(
+    async (trackId: EntityId): Promise<boolean> => {
+      const record = bindingsByTrackIdRef.current.get(trackId);
+
+      if (!record) {
+        setErrorMessage("未找到本地音频绑定，请重新绑定文件。");
+        return false;
+      }
+      if (record.storageMethod === "file-copy") {
+        return true;
+      }
+      if (claimedTrackIdsRef.current.has(trackId)) {
+        setErrorMessage("该歌曲正在更新本地音频，请等待当前操作完成。");
+        return false;
+      }
+
+      claimedTrackIdsRef.current.add(trackId);
+      setPendingTrackIds((currentIds) => addId(currentIds, trackId));
+      setErrorMessage(undefined);
+
+      try {
+        const status = await requestFileHandleReadAccess(record.fileHandle);
+        const updatedRecord = { ...record, status };
+        const nextBindings = new Map(bindingsByTrackIdRef.current);
+        nextBindings.set(trackId, updatedRecord);
+        bindingsByTrackIdRef.current = nextBindings;
+        setBindingsByTrackId(nextBindings);
+        setBindingRevisionsByTrackId((currentRevisions) =>
+          incrementBindingRevision(currentRevisions, trackId)
+        );
+
+        if (status !== "available") {
+          setErrorMessage("未获得读取原文件的权限，请重新选择或授权该目录。");
+          return false;
+        }
+
+        return true;
+      } finally {
+        claimedTrackIdsRef.current.delete(trackId);
+        setPendingTrackIds((currentIds) => removeId(currentIds, trackId));
+      }
+    },
+    []
+  );
+
   const forgetAudioBindings = useCallback((trackIds: readonly EntityId[]) => {
     if (trackIds.length === 0) {
       return;
@@ -355,8 +413,34 @@ export function useLocalAudioLibrary(
     errorMessage,
     bindAudioFile,
     bindAudioFiles,
+    requestAudioAccess,
     unbindAudioFile,
     forgetAudioBindings
+  };
+}
+
+function createBindingRecord(
+  trackId: EntityId,
+  file: File,
+  fileHandle: FileSystemFileHandle | undefined
+): LocalAudioFileRecord {
+  const updatedAt = new Date().toISOString();
+
+  return fileHandle
+    ? createLocalAudioFileHandleRecord(trackId, file, fileHandle, updatedAt)
+    : createLocalAudioFileRecord(trackId, file, updatedAt);
+}
+
+async function refreshRestoredAudioBinding(
+  record: LocalAudioFileRecord
+): Promise<LocalAudioFileRecord> {
+  if (record.storageMethod === "file-copy") {
+    return record;
+  }
+
+  return {
+    ...record,
+    status: await getFileHandleReadStatus(record.fileHandle)
   };
 }
 

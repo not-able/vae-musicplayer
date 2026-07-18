@@ -56,6 +56,7 @@ function createAudioRecord(trackId: string): LocalAudioFileRecord {
     fileSize: 4,
     status: "available",
     updatedAt: timestamp,
+    storageMethod: "file-copy",
     file: new File(["test"], `${trackId}.wav`, { type: "audio/wav" })
   };
 }

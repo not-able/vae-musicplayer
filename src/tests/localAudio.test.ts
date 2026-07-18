@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createLocalAudioFileHandleRecord,
   createLocalAudioFileRecord,
+  getLocalAudioFile,
   getLocalAudioFileValidationError
 } from "../features/local-library/localAudioFile";
 
@@ -45,8 +47,38 @@ describe("local audio files", () => {
       fileSize: file.size,
       status: "available",
       updatedAt: "2026-07-15T00:00:00.000Z",
+      storageMethod: "file-copy",
       file
     });
     expect(record).not.toHaveProperty("path");
+  });
+
+  it("creates a handle mapping without retaining a browser file copy", async () => {
+    const file = new File(["self-created test bytes"], "sample.flac", {
+      type: "audio/flac"
+    });
+    const fileHandle = {
+      kind: "file",
+      name: file.name,
+      getFile: async () => file,
+      isSameEntry: async () => true,
+      queryPermission: async () => "granted",
+      requestPermission: async () => "granted"
+    } as unknown as FileSystemFileHandle;
+    const record = createLocalAudioFileHandleRecord(
+      "track_sample_002",
+      file,
+      fileHandle,
+      "2026-07-18T00:00:00.000Z"
+    );
+
+    expect(record).toMatchObject({
+      trackId: "track_sample_002",
+      fileName: "sample.flac",
+      storageMethod: "file-handle",
+      fileHandle
+    });
+    expect(record).not.toHaveProperty("file");
+    await expect(getLocalAudioFile(record)).resolves.toBe(file);
   });
 });

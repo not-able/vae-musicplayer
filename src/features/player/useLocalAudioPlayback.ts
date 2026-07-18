@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import type { EntityId, LocalAudioFileRecord, PlaySequenceEntry } from "../../types";
+import { getLocalAudioFile } from "../local-library/localAudioFile";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import type { PlayerAction, PlayerState } from "./playerReducer";
 import {
@@ -70,6 +71,7 @@ export function useLocalAudioPlayback({
 }: UseLocalAudioPlaybackOptions): LocalAudioPlaybackControls {
   const preparedSourceRef = useRef<PreparedAudioSource | undefined>(undefined);
   const sourceTokenSequenceRef = useRef(0);
+  const playbackRequestRevisionRef = useRef(0);
   const [errorMessage, setErrorMessage] = useState<string>();
   const [progress, setProgress] = useState<LocalAudioPlaybackProgress>(
     EMPTY_PLAYBACK_PROGRESS
@@ -163,6 +165,7 @@ export function useLocalAudioPlayback({
   }, []);
 
   const releasePreparedSource = useCallback(() => {
+    sourceTokenSequenceRef.current += 1;
     const preparedSource = preparedSourceRef.current;
 
     if (!preparedSource) {
@@ -186,11 +189,11 @@ export function useLocalAudioPlayback({
   }, [resetProgress]);
 
   const prepareSource = useCallback(
-    (
+    async (
       entry: PlaySequenceEntry,
       record: LocalAudioFileRecord,
       playbackRevision: number
-    ): number | undefined => {
+    ): Promise<number | undefined> => {
       const audio = audioRef.current;
 
       if (!audio) {
@@ -210,8 +213,15 @@ export function useLocalAudioPlayback({
 
       releasePreparedSource();
 
-      const objectUrl = URL.createObjectURL(record.file);
       const sourceToken = sourceTokenSequenceRef.current + 1;
+      sourceTokenSequenceRef.current = sourceToken;
+      const file = await getLocalAudioFile(record);
+
+      if (sourceTokenSequenceRef.current !== sourceToken) {
+        return undefined;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
       const handleEnded = () => {
         if (preparedSourceRef.current?.sourceToken !== sourceToken) {
           return;
@@ -228,7 +238,6 @@ export function useLocalAudioPlayback({
         updateProgress(audio);
       };
 
-      sourceTokenSequenceRef.current = sourceToken;
       preparedSourceRef.current = {
         sourceKey,
         sourceToken,
@@ -300,7 +309,7 @@ export function useLocalAudioPlayback({
       ? bindingsByTrackId.get(targetEntry.trackId)
       : undefined;
 
-    if (!targetEntry || !targetRecord) {
+    if (!targetEntry || !targetRecord || targetRecord.status !== "available") {
       releasePreparedSource();
 
       if (targetEntry && libraryStatus === "ready" && state.status === "playing") {
@@ -310,18 +319,32 @@ export function useLocalAudioPlayback({
       return;
     }
 
-    try {
-      const sourceToken = prepareSource(targetEntry, targetRecord, targetRevision);
+    let isActive = true;
 
-      if (state.status === "playing" && sourceToken) {
-        beginPlayback(sourceToken);
-      } else {
-        audio.pause();
-      }
-    } catch {
-      queueMicrotask(() => setErrorMessage("无法读取本地音频文件，请重新绑定。"));
-      dispatchPlayer({ type: "pause" });
-    }
+    void prepareSource(targetEntry, targetRecord, targetRevision)
+      .then((sourceToken) => {
+        if (!isActive) {
+          return;
+        }
+
+        if (state.status === "playing" && sourceToken) {
+          beginPlayback(sourceToken);
+        } else {
+          audio.pause();
+        }
+      })
+      .catch(() => {
+        if (!isActive) {
+          return;
+        }
+
+        setErrorMessage("无法读取本地音频文件，请重新绑定。");
+        dispatchPlayer({ type: "pause" });
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [
     beginPlayback,
     audioRef,
@@ -340,46 +363,60 @@ export function useLocalAudioPlayback({
   }, [releasePreparedSource]);
 
   const requestPlay = useCallback(() => {
-    if (libraryStatus === "loading") {
-      setErrorMessage("正在读取本地音频映射，请稍候。");
-      return;
-    }
+    const requestRevision = playbackRequestRevisionRef.current + 1;
+    playbackRequestRevisionRef.current = requestRevision;
 
-    if (libraryStatus === "error") {
-      setErrorMessage("本地音频映射不可用，暂时无法播放。");
-      return;
-    }
-
-    const targetEntry = getPlayTargetEntry(state);
-    const targetRecord = targetEntry
-      ? bindingsByTrackId.get(targetEntry.trackId)
-      : undefined;
-
-    if (!targetEntry) {
-      return;
-    }
-
-    if (!targetRecord) {
-      setErrorMessage("未绑定音频文件");
-      return;
-    }
-
-    try {
-      const targetRevision =
-        state.status === "ended" ? state.playbackRevision + 1 : state.playbackRevision;
-      const sourceToken = prepareSource(targetEntry, targetRecord, targetRevision);
-
-      if (!sourceToken) {
-        setErrorMessage("播放器尚未准备完成，请重试。");
+    void (async () => {
+      if (libraryStatus === "loading") {
+        setErrorMessage("正在读取本地音频映射，请稍候。");
         return;
       }
 
-      setErrorMessage(undefined);
-      beginPlayback(sourceToken);
-      dispatchPlayer({ type: "play" });
-    } catch {
-      setErrorMessage("无法读取本地音频文件，请重新绑定。");
-    }
+      if (libraryStatus === "error") {
+        setErrorMessage("本地音频映射不可用，暂时无法播放。");
+        return;
+      }
+
+      const targetEntry = getPlayTargetEntry(state);
+      const targetRecord = targetEntry
+        ? bindingsByTrackId.get(targetEntry.trackId)
+        : undefined;
+
+      if (!targetEntry) {
+        return;
+      }
+
+      if (!targetRecord) {
+        setErrorMessage("未绑定音频文件");
+        return;
+      }
+      if (targetRecord.status !== "available") {
+        setErrorMessage("本地原文件需要重新授权后才能播放。");
+        return;
+      }
+
+      try {
+        const targetRevision =
+          state.status === "ended"
+            ? state.playbackRevision + 1
+            : state.playbackRevision;
+        const sourceToken = await prepareSource(
+          targetEntry,
+          targetRecord,
+          targetRevision
+        );
+
+        if (!sourceToken || playbackRequestRevisionRef.current !== requestRevision) {
+          return;
+        }
+
+        setErrorMessage(undefined);
+        beginPlayback(sourceToken);
+        dispatchPlayer({ type: "play" });
+      } catch {
+        setErrorMessage("无法读取本地音频文件，请重新绑定。");
+      }
+    })();
   }, [
     beginPlayback,
     bindingsByTrackId,
@@ -390,42 +427,56 @@ export function useLocalAudioPlayback({
   ]);
 
   const requestPause = useCallback(() => {
+    playbackRequestRevisionRef.current += 1;
     audioRef.current?.pause();
     dispatchPlayer({ type: "pause" });
   }, [audioRef, dispatchPlayer]);
 
   const requestRestart = useCallback(() => {
-    const currentEntry = state.currentEntry;
-    const currentRecord = currentEntry
-      ? bindingsByTrackId.get(currentEntry.trackId)
-      : undefined;
+    const requestRevision = playbackRequestRevisionRef.current + 1;
+    playbackRequestRevisionRef.current = requestRevision;
 
-    if (!currentEntry) {
-      return;
-    }
+    void (async () => {
+      const currentEntry = state.currentEntry;
+      const currentRecord = currentEntry
+        ? bindingsByTrackId.get(currentEntry.trackId)
+        : undefined;
 
-    if (!currentRecord) {
-      setErrorMessage("未绑定音频文件");
-      return;
-    }
-
-    try {
-      const sourceToken = prepareSource(
-        currentEntry,
-        currentRecord,
-        state.playbackRevision + 1
-      );
-
-      setErrorMessage(undefined);
-
-      if (state.status === "playing" && sourceToken) {
-        beginPlayback(sourceToken);
+      if (!currentEntry) {
+        return;
       }
 
-      dispatchPlayer({ type: "restart-current" });
-    } catch {
-      setErrorMessage("无法读取本地音频文件，请重新绑定。");
-    }
+      if (!currentRecord) {
+        setErrorMessage("未绑定音频文件");
+        return;
+      }
+      if (currentRecord.status !== "available") {
+        setErrorMessage("本地原文件需要重新授权后才能播放。");
+        return;
+      }
+
+      try {
+        const sourceToken = await prepareSource(
+          currentEntry,
+          currentRecord,
+          state.playbackRevision + 1
+        );
+
+        if (playbackRequestRevisionRef.current !== requestRevision) {
+          return;
+        }
+
+        setErrorMessage(undefined);
+
+        if (state.status === "playing" && sourceToken) {
+          beginPlayback(sourceToken);
+        }
+
+        dispatchPlayer({ type: "restart-current" });
+      } catch {
+        setErrorMessage("无法读取本地音频文件，请重新绑定。");
+      }
+    })();
   }, [beginPlayback, bindingsByTrackId, dispatchPlayer, prepareSource, state]);
 
   const requestSeek = useCallback(

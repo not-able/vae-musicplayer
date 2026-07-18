@@ -3,6 +3,12 @@ import {
   type LocalAudioFileExtension
 } from "./localAudioFile";
 
+export interface LocalDirectorySelectedFile {
+  file: File;
+  relativePath?: string;
+  fileHandle?: FileSystemFileHandle;
+}
+
 export type LocalDirectoryCandidateParseStatus = "parsed" | "needs_review";
 
 export interface LocalDirectoryScanOptions {
@@ -21,6 +27,7 @@ export type LocalDirectoryCandidateIssueCode =
 
 export interface LocalDirectoryAudioCandidate {
   file: File;
+  fileHandle?: FileSystemFileHandle;
   relativePath?: string;
   albumTitle?: string;
   fileName: string;
@@ -60,7 +67,7 @@ interface ParsedFileName {
 }
 
 export function scanLocalDirectory(
-  files: Iterable<File>,
+  files: Iterable<File | LocalDirectorySelectedFile>,
   options: LocalDirectoryScanOptions = {}
 ): LocalDirectoryScanResult {
   const candidates: LocalDirectoryAudioCandidate[] = [];
@@ -69,14 +76,18 @@ export function scanLocalDirectory(
   let totalFileCount = 0;
   const knownArtistNames = createKnownArtistNames(options);
 
-  for (const file of files) {
+  for (const selectedFile of files) {
+    const { file, fileHandle, relativePath } = toSelectedFile(selectedFile);
     totalFileCount += 1;
     const fileExtension = getLocalAudioFileExtension(file.name);
 
     if (!fileExtension) {
       ignoredFiles.push({
         fileName: file.name,
-        relativePath: getSafeOptionalWebkitRelativePath(file),
+        relativePath:
+          relativePath && isValidRelativePath(relativePath)
+            ? relativePath
+            : getSafeOptionalWebkitRelativePath(file),
         reason: "unsupported_extension"
       });
       continue;
@@ -94,12 +105,16 @@ export function scanLocalDirectory(
       parseStatus: "parsed",
       issues
     };
-    const relativePath = getWebkitRelativePath(file, issues);
+    const safeRelativePath = getRelativePath(file, relativePath, issues);
 
-    if (relativePath) {
-      candidate.relativePath = relativePath;
+    if (fileHandle) {
+      candidate.fileHandle = fileHandle;
+    }
+
+    if (safeRelativePath) {
+      candidate.relativePath = safeRelativePath;
       const albumTitle = normalizeDirectoryCandidateText(
-        relativePath.split("/").at(-2) ?? ""
+        safeRelativePath.split("/").at(-2) ?? ""
       );
 
       if (albumTitle) {
@@ -162,11 +177,18 @@ function getSafeOptionalWebkitRelativePath(file: File): string | undefined {
     : undefined;
 }
 
-function getWebkitRelativePath(
+function toSelectedFile(
+  selectedFile: File | LocalDirectorySelectedFile
+): LocalDirectorySelectedFile {
+  return selectedFile instanceof File ? { file: selectedFile } : selectedFile;
+}
+
+function getRelativePath(
   file: File,
+  selectedRelativePath: string | undefined,
   issues: LocalDirectoryCandidateIssueCode[]
 ): string | undefined {
-  const relativePath = file.webkitRelativePath;
+  const relativePath = selectedRelativePath ?? file.webkitRelativePath;
 
   if (!relativePath?.trim()) {
     issues.push("missing_relative_path");

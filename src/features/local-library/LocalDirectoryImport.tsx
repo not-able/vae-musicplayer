@@ -8,6 +8,11 @@ import type {
 } from "../catalog/useCatalogLibrary";
 import { LOCAL_AUDIO_FILE_ACCEPT } from "./localAudioFile";
 import {
+  pickDirectoryWithFileHandles,
+  supportsDirectoryHandleSelection,
+  type LocalDirectoryHandleFile
+} from "./fileSystemAccess";
+import {
   buildLocalDirectoryImportPlan,
   getDefaultDirectoryImportSelection
 } from "./localDirectoryImportPlan";
@@ -40,6 +45,8 @@ interface LocalDirectoryImportProps {
 }
 
 type DirectoryInputElement = HTMLInputElement;
+type DirectoryImportFile = File | LocalDirectoryHandleFile;
+type DirectoryImportStorageMethod = "file-copy" | "file-handle";
 
 interface ImportSummary {
   createdAlbumCount: number;
@@ -59,7 +66,10 @@ export function LocalDirectoryImport({
   onBindAudioFiles
 }: LocalDirectoryImportProps) {
   const directoryInputRef = useRef<DirectoryInputElement>(null);
-  const [files, setFiles] = useState<readonly File[]>([]);
+  const [files, setFiles] = useState<readonly DirectoryImportFile[]>([]);
+  const [storageMethod, setStorageMethod] =
+    useState<DirectoryImportStorageMethod>("file-copy");
+  const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
   const [defaultArtistName, setDefaultArtistName] = useState(
     () => catalog.artists[0]?.name ?? ""
   );
@@ -133,9 +143,19 @@ export function LocalDirectoryImport({
     (size, candidate) => size + candidate.file.size,
     0
   );
+  const boundStorageSummary = useMemo(
+    () => summarizeBoundStorage(audioBindingsByTrackId),
+    [audioBindingsByTrackId]
+  );
+  const supportsHandleSelection = supportsDirectoryHandleSelection();
   const canWrite =
     catalogStatus === "ready" && audioStatus === "ready" && !isCatalogSaving;
-  const canConfirm = canWrite && !isSaving && !summary && plan.selectedFileCount > 0;
+  const canConfirm =
+    canWrite &&
+    !isSaving &&
+    !isSelectingDirectory &&
+    !summary &&
+    plan.selectedFileCount > 0;
 
   function setDirectoryInput(input: DirectoryInputElement | null) {
     directoryInputRef.current = input;
@@ -156,10 +176,40 @@ export function LocalDirectoryImport({
     const nextFiles = Array.from(event.currentTarget.files ?? []);
 
     setFiles(nextFiles);
+    setStorageMethod("file-copy");
     resetSelection(nextFiles, defaultArtistName);
     setSelectionError(undefined);
     setSummary(undefined);
     event.currentTarget.value = "";
+  }
+
+  async function handleDirectoryHandleSelection() {
+    if (!canWrite || isSaving || isSelectingDirectory) {
+      return;
+    }
+
+    setIsSelectingDirectory(true);
+    setSelectionError(undefined);
+
+    try {
+      const selection = await pickDirectoryWithFileHandles();
+
+      setFiles(selection.files);
+      setStorageMethod("file-handle");
+      resetSelection(selection.files, defaultArtistName);
+      setSummary(undefined);
+      if (selection.unreadableFileCount > 0) {
+        setSelectionError(
+          `有 ${selection.unreadableFileCount} 个文件暂时无法读取，已跳过这些文件。`
+        );
+      }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setSelectionError("无法读取所选目录，请检查浏览器的本地文件权限后重试。");
+      }
+    } finally {
+      setIsSelectingDirectory(false);
+    }
   }
 
   function handleDefaultArtistNameChange(nextArtistName: string) {
@@ -169,7 +219,10 @@ export function LocalDirectoryImport({
     setSummary(undefined);
   }
 
-  function resetSelection(nextFiles: readonly File[], nextArtistName: string) {
+  function resetSelection(
+    nextFiles: readonly DirectoryImportFile[],
+    nextArtistName: string
+  ) {
     const nextScan = scanLocalDirectory(nextFiles, {
       defaultArtistName: nextArtistName,
       knownArtistNames
@@ -193,6 +246,7 @@ export function LocalDirectoryImport({
     }
 
     setFiles([]);
+    setStorageMethod("file-copy");
     setSelectedCandidateIndexes(new Set());
     setTargetTrackIdByCandidateIndex(new Map());
     setSelectedNewAlbumKeys(new Set());
@@ -274,7 +328,15 @@ export function LocalDirectoryImport({
           newAlbumBindingRequests = plan.selectedAlbumDrafts.flatMap((draft) =>
             draft.tracks.flatMap((track) => {
               const trackId = catalogResult.trackIdsBySourceId.get(track.sourceId);
-              return trackId ? [{ trackId, file: track.file }] : [];
+              return trackId
+                ? [
+                    {
+                      trackId,
+                      file: track.file,
+                      ...(track.fileHandle ? { fileHandle: track.fileHandle } : {})
+                    }
+                  ]
+                : [];
             })
           );
         } else {
@@ -287,7 +349,11 @@ export function LocalDirectoryImport({
       }
 
       const bindingRequests = [
-        ...plan.bindingRequests.map(({ trackId, file }) => ({ trackId, file })),
+        ...plan.bindingRequests.map(({ trackId, file, fileHandle }) => ({
+          trackId,
+          file,
+          ...(fileHandle ? { fileHandle } : {})
+        })),
         ...newAlbumBindingRequests
       ];
       const bindingResult =
@@ -337,16 +403,35 @@ export function LocalDirectoryImport({
             : "新专辑会归属到当前目录中唯一匹配的艺人。"}
         </p>
         <label className="audio-file-picker directory-import-picker">
-          选择音乐目录
+          选择音乐目录（复制文件）
           <input
             ref={setDirectoryInput}
             type="file"
             accept={LOCAL_AUDIO_FILE_ACCEPT}
             onChange={handleDirectorySelection}
-            disabled={isSaving || !canWrite}
+            disabled={isSaving || isSelectingDirectory || !canWrite}
             aria-label="选择本地音乐目录"
           />
         </label>
+        {supportsHandleSelection ? (
+          <button
+            type="button"
+            className="text-button directory-handle-picker"
+            disabled={isSaving || isSelectingDirectory || !canWrite}
+            onClick={() => void handleDirectoryHandleSelection()}
+          >
+            {isSelectingDirectory ? "正在读取目录…" : "选择目录（不复制，实验性）"}
+          </button>
+        ) : null}
+        <p className="directory-import-storage-summary" role="status">
+          已绑定{" "}
+          {boundStorageSummary.fileCopyCount + boundStorageSummary.fileHandleCount}{" "}
+          个文件： 浏览器副本 {boundStorageSummary.fileCopyCount} 个（
+          {formatFileSize(boundStorageSummary.fileCopySize)}），原文件引用{" "}
+          {boundStorageSummary.fileHandleCount} 个（
+          {formatFileSize(boundStorageSummary.fileHandleSize)}
+          ，不占用浏览器音频副本空间）。
+        </p>
         {!canWrite ? (
           <p className="directory-import-warning" role="status">
             目录或本地音频存储尚未准备好，暂不能导入。
@@ -357,6 +442,9 @@ export function LocalDirectoryImport({
       {files.length === 0 ? (
         <p className="directory-import-empty" role="status">
           选择单张专辑目录或音乐库根目录后，将按每个文件的直接父目录识别候选专辑。
+          {supportsHandleSelection
+            ? " 无复制模式会保存原文件引用，刷新后可能需要重新授权。"
+            : " 当前浏览器会使用复制到浏览器本地的兼容模式。"}
         </p>
       ) : (
         <div className="directory-import-preview" aria-busy={isSaving}>
@@ -366,6 +454,11 @@ export function LocalDirectoryImport({
             项。候选音频共 {formatFileSize(totalCandidateSize)}；已选择{" "}
             {plan.selectedFileCount} 个、
             {formatFileSize(plan.selectedFileSize)}。
+          </p>
+          <p className="directory-import-summary">
+            {storageMethod === "file-handle"
+              ? "本次将保存原文件引用，不会复制音频数据到浏览器。刷新后若权限失效，需要重新授权。"
+              : "本次会把确认的音频副本保存到浏览器本地，以兼容不支持原文件引用的浏览器。"}
           </p>
 
           {plan.albumGroups.length > 0 ? (
@@ -525,6 +618,32 @@ export function LocalDirectoryImport({
       )}
     </section>
   );
+}
+
+function summarizeBoundStorage(
+  audioBindingsByTrackId: ReadonlyMap<EntityId, LocalAudioFileRecord>
+): {
+  fileCopyCount: number;
+  fileCopySize: number;
+  fileHandleCount: number;
+  fileHandleSize: number;
+} {
+  let fileCopyCount = 0;
+  let fileCopySize = 0;
+  let fileHandleCount = 0;
+  let fileHandleSize = 0;
+
+  for (const binding of audioBindingsByTrackId.values()) {
+    if (binding.storageMethod === "file-handle") {
+      fileHandleCount += 1;
+      fileHandleSize += binding.fileSize ?? 0;
+    } else {
+      fileCopyCount += 1;
+      fileCopySize += binding.fileSize ?? 0;
+    }
+  }
+
+  return { fileCopyCount, fileCopySize, fileHandleCount, fileHandleSize };
 }
 
 function ImportResult({ summary }: { summary: ImportSummary }) {

@@ -13,6 +13,7 @@ export interface LocalDirectoryImportBindingRequest {
   candidateIndex: number;
   trackId: EntityId;
   file: File;
+  fileHandle?: FileSystemFileHandle;
 }
 
 export interface LocalDirectoryImportTrackDraft {
@@ -21,6 +22,7 @@ export interface LocalDirectoryImportTrackDraft {
   title: string;
   trackNumber: number;
   file: File;
+  fileHandle?: FileSystemFileHandle;
 }
 
 export interface LocalDirectoryImportAlbumDraft {
@@ -133,7 +135,8 @@ export function buildLocalDirectoryImportPlan({
       sourceId: getLocalDirectoryCandidateSourceId(match.candidateIndex),
       candidateIndex: match.candidateIndex,
       trackId: targetTrackId,
-      file: match.candidate.file
+      file: match.candidate.file,
+      ...(match.candidate.fileHandle ? { fileHandle: match.candidate.fileHandle } : {})
     });
   }
 
@@ -246,7 +249,10 @@ function createSelectedAlbumDrafts(
           candidateIndex: match.candidateIndex,
           title: match.candidate.trackTitle as string,
           trackNumber: index + 1,
-          file: match.candidate.file
+          file: match.candidate.file,
+          ...(match.candidate.fileHandle
+            ? { fileHandle: match.candidate.fileHandle }
+            : {})
         }));
 
       return {

@@ -65,6 +65,7 @@ interface CatalogOverviewProps {
   onResetAlbum: (albumId: EntityId) => Promise<CatalogMutationResult>;
   onResetTrack: (trackId: EntityId) => Promise<CatalogMutationResult>;
   onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
+  onRequestAudioAccess?: (trackId: EntityId) => Promise<boolean>;
   onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
   canDelete?: boolean;
   isDeleting?: boolean;
@@ -111,6 +112,7 @@ export function CatalogOverview({
   onResetAlbum,
   onResetTrack,
   onBindAudio,
+  onRequestAudioAccess = async () => false,
   onUnbindAudio,
   canDelete = false,
   isDeleting = false,
@@ -365,6 +367,7 @@ export function CatalogOverview({
             onResetTrack={onResetTrack}
             onSaved={() => setEditorTarget(undefined)}
             onBindAudio={onBindAudio}
+            onRequestAudioAccess={onRequestAudioAccess}
             onUnbindAudio={onUnbindAudio}
             canDelete={canDelete && !isDeleting}
             onRequestDeletion={requestDeletion}
@@ -451,6 +454,7 @@ interface AlbumDetailProps {
   onResetTrack: (trackId: EntityId) => Promise<CatalogMutationResult>;
   onSaved: () => void;
   onBindAudio: (trackId: EntityId, file: File) => Promise<boolean>;
+  onRequestAudioAccess: (trackId: EntityId) => Promise<boolean>;
   onUnbindAudio: (trackId: EntityId) => Promise<boolean>;
   canDelete: boolean;
   onRequestDeletion: (target: CatalogDeletionTarget) => void;
@@ -485,6 +489,7 @@ function AlbumDetail({
   onResetTrack,
   onSaved,
   onBindAudio,
+  onRequestAudioAccess,
   onUnbindAudio,
   canDelete,
   onRequestDeletion,
@@ -602,6 +607,7 @@ function AlbumDetail({
               onEdit={() => onOpenTrackEditor(track.id)}
               onAdd={() => onAddTrack(track.id)}
               onBindAudio={(file) => onBindAudio(track.id, file)}
+              onRequestAudioAccess={() => onRequestAudioAccess(track.id)}
               onUnbindAudio={() => onUnbindAudio(track.id)}
               canDelete={canDelete}
               onRequestDeletion={() =>
@@ -815,6 +821,7 @@ interface TrackRowProps {
   onEdit: () => void;
   onAdd: () => void;
   onBindAudio: (file: File) => Promise<boolean>;
+  onRequestAudioAccess: () => Promise<boolean>;
   onUnbindAudio: () => Promise<boolean>;
   canDelete: boolean;
   onRequestDeletion: () => void;
@@ -833,6 +840,7 @@ function TrackRow({
   onEdit,
   onAdd,
   onBindAudio,
+  onRequestAudioAccess,
   onUnbindAudio,
   canDelete,
   onRequestDeletion,
@@ -918,6 +926,18 @@ function TrackRow({
             onChange={handleAudioFileChange}
           />
         </label>
+        {audioBinding?.storageMethod === "file-handle" &&
+        audioBinding.status === "permission_required" ? (
+          <button
+            className="text-button"
+            type="button"
+            disabled={isAudioPending}
+            aria-label={`重新授权读取${track.title}的原文件`}
+            onClick={() => void onRequestAudioAccess()}
+          >
+            重新授权
+          </button>
+        ) : null}
         {audioBinding && (
           <button
             className="text-button unbind-audio-button"
@@ -1010,6 +1030,15 @@ function getBindingStatusLabel(
   }
 
   if (binding) {
+    if (binding.status === "permission_required") {
+      return `需要重新授权：${binding.fileName}`;
+    }
+    if (binding.status === "missing") {
+      return `原文件不可用：${binding.fileName}`;
+    }
+    if (binding.storageMethod === "file-handle") {
+      return `已引用原文件：${binding.fileName}`;
+    }
     return `已绑定：${binding.fileName}`;
   }
 

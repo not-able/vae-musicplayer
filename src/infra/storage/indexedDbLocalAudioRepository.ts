@@ -43,10 +43,10 @@ export function createIndexedDbLocalAudioRepository(
       const database = await getDatabase();
       const transaction = database.transaction(AUDIO_FILE_STORE, "readonly");
       const request = transaction.objectStore(AUDIO_FILE_STORE).getAll() as IDBRequest<
-        LocalAudioFileRecord[]
+        unknown[]
       >;
 
-      return requestToPromise(request);
+      return (await requestToPromise(request)).flatMap(normalizeStoredAudioRecord);
     },
     async save(record) {
       const database = await getDatabase();
@@ -59,6 +59,57 @@ export function createIndexedDbLocalAudioRepository(
       await runWriteTransaction(database, (store) => store.delete(trackId));
     }
   };
+}
+
+function normalizeStoredAudioRecord(value: unknown): LocalAudioFileRecord[] {
+  if (!isStoredAudioMapping(value)) {
+    return [];
+  }
+
+  if (value.storageMethod === "file-handle" && isFileHandle(value.fileHandle)) {
+    return [value as unknown as LocalAudioFileRecord];
+  }
+
+  if (isFile(value.file)) {
+    return [
+      {
+        ...value,
+        storageMethod: "file-copy",
+        file: value.file
+      } as LocalAudioFileRecord
+    ];
+  }
+
+  return [];
+}
+
+function isStoredAudioMapping(value: unknown): value is Record<string, unknown> & {
+  storageMethod?: unknown;
+  file?: unknown;
+  fileHandle?: unknown;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { trackId?: unknown }).trackId === "string" &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    typeof (value as { fileName?: unknown }).fileName === "string" &&
+    typeof (value as { updatedAt?: unknown }).updatedAt === "string"
+  );
+}
+
+function isFile(value: unknown): value is File {
+  return value instanceof File;
+}
+
+function isFileHandle(value: unknown): value is FileSystemFileHandle {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { getFile?: unknown }).getFile === "function" &&
+    typeof (value as { queryPermission?: unknown }).queryPermission === "function" &&
+    typeof (value as { requestPermission?: unknown }).requestPermission === "function"
+  );
 }
 
 export const indexedDbLocalAudioRepository = createIndexedDbLocalAudioRepository();

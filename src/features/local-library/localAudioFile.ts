@@ -1,4 +1,10 @@
-import type { EntityId, ISODateString, LocalAudioFileRecord } from "../../types";
+import type {
+  EntityId,
+  ISODateString,
+  LocalAudioFileCopyRecord,
+  LocalAudioFileHandleRecord,
+  LocalAudioFileRecord
+} from "../../types";
 
 export const LOCAL_AUDIO_FILE_EXTENSIONS = [
   "aac",
@@ -47,7 +53,7 @@ export function createLocalAudioFileRecord(
   trackId: EntityId,
   file: File,
   updatedAt: ISODateString
-): LocalAudioFileRecord {
+): LocalAudioFileCopyRecord {
   return {
     id: `local_audio_${trackId}`,
     trackId,
@@ -56,6 +62,32 @@ export function createLocalAudioFileRecord(
     fileSize: file.size,
     status: "available",
     updatedAt,
+    storageMethod: "file-copy",
     file
   };
+}
+
+export function createLocalAudioFileHandleRecord(
+  trackId: EntityId,
+  file: File,
+  fileHandle: FileSystemFileHandle,
+  updatedAt: ISODateString
+): LocalAudioFileHandleRecord {
+  return {
+    id: `local_audio_${trackId}`,
+    trackId,
+    fileName: file.name,
+    fileType: file.type || undefined,
+    fileSize: file.size,
+    status: "available",
+    updatedAt,
+    storageMethod: "file-handle",
+    fileHandle
+  };
+}
+
+export async function getLocalAudioFile(record: LocalAudioFileRecord): Promise<File> {
+  return record.storageMethod === "file-copy"
+    ? record.file
+    : record.fileHandle.getFile();
 }

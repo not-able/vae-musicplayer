@@ -28,8 +28,11 @@ export { TEMPORARY_PLAYLIST_SCHEMA_VERSION } from "./playlist";
 
 export type {
   AudioMappingStatus,
+  LocalAudioFileCopyRecord,
   LocalAudioFileMapping,
   LocalAudioFileRecord,
+  LocalAudioFileHandleRecord,
+  LocalAudioStorageMethod,
   PlaybackProviderDescriptor,
   PlaybackProviderType
 } from "./audio";

@@ -117,6 +117,7 @@ function createAudioBinding(trackId: string): LocalAudioFileRecord {
     fileSize: file.size,
     status: "available",
     updatedAt: "2026-07-18T00:00:00.000Z",
+    storageMethod: "file-copy",
     file
   };
 }
@@ -161,6 +162,37 @@ describe("local directory scanner", () => {
       ignoredFiles: [],
       errors: []
     });
+  });
+
+  it("preserves a selected file handle while using its safe relative path", () => {
+    const file = new File(["self-created test bytes"], "歌曲.mp3", {
+      type: "audio/mpeg"
+    });
+    const fileHandle = {
+      kind: "file",
+      name: file.name,
+      getFile: async () => file,
+      isSameEntry: async () => true,
+      queryPermission: async () => "granted",
+      requestPermission: async () => "granted"
+    } as unknown as FileSystemFileHandle;
+
+    const result = scanLocalDirectory([
+      {
+        file,
+        fileHandle,
+        relativePath: "专辑甲/歌曲.mp3"
+      }
+    ]);
+
+    expect(result.candidates[0]).toMatchObject({
+      file,
+      fileHandle,
+      relativePath: "专辑甲/歌曲.mp3",
+      albumTitle: "专辑甲",
+      trackTitle: "歌曲"
+    });
+    expect(result.errors).toEqual([]);
   });
 
   it("accepts every configured local audio extension regardless of filename case", () => {

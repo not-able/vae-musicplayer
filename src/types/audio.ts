@@ -5,20 +5,30 @@ export type PlaybackProviderType =
 
 export type AudioMappingStatus = "available" | "missing" | "permission_required";
 
+export type LocalAudioStorageMethod = "file-copy" | "file-handle";
+
 export interface LocalAudioFileMapping {
   id: EntityId;
   trackId: EntityId;
   fileName: string;
   fileType?: string;
   fileSize?: number;
-  fileHandleKey?: string;
   status: AudioMappingStatus;
   updatedAt: ISODateString;
 }
 
-export interface LocalAudioFileRecord extends LocalAudioFileMapping {
+export interface LocalAudioFileCopyRecord extends LocalAudioFileMapping {
+  storageMethod: "file-copy";
   file: File;
 }
+
+export interface LocalAudioFileHandleRecord extends LocalAudioFileMapping {
+  storageMethod: "file-handle";
+  fileHandle: FileSystemFileHandle;
+}
+
+export type LocalAudioFileRecord =
+  LocalAudioFileCopyRecord | LocalAudioFileHandleRecord;
 
 export interface PlaybackProviderDescriptor {
   id: EntityId;
