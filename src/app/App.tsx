@@ -4,6 +4,7 @@ import { appReducer, createAppState } from "./appReducer";
 import { PageShell } from "../components/PageShell";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
+import { XuSongCatalogImport } from "../features/catalog/VerifiedXuSongCatalogImport";
 import { getAlbumTracks } from "../features/catalog/catalog";
 import type { CatalogEntityIdFactory } from "../features/catalog/catalogMutations";
 import type {
@@ -228,6 +229,17 @@ export function App({
     <PageShell>
       <main className="app-layout">
         <section className="workspace" aria-labelledby="catalog-heading">
+          <XuSongCatalogImport
+            catalog={catalog}
+            catalogStatus={catalogLibrary.status}
+            isCatalogSaving={
+              catalogLibrary.isSavingAlbum ||
+              catalogLibrary.isSavingTrack ||
+              catalogDeletion.isDeleting ||
+              catalogDeletion.isRecovering
+            }
+            onImport={catalogLibrary.importDirectoryCatalogDrafts}
+          />
           <LocalDirectoryImport
             catalog={catalog}
             catalogStatus={catalogLibrary.status}
