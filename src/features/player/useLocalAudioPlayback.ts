@@ -3,6 +3,13 @@ import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "
 import type { EntityId, LocalAudioFileRecord, PlaySequenceEntry } from "../../types";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import type { PlayerAction, PlayerState } from "./playerReducer";
+import {
+  DEFAULT_PLAYER_SETTINGS,
+  normalizePlayerSettings,
+  savePlayerSettingsInRepositoryOrder,
+  type PlayerSettings,
+  type PlayerSettingsRepository
+} from "./playerSettingsRepository";
 
 interface UseLocalAudioPlaybackOptions {
   state: PlayerState;
@@ -10,6 +17,7 @@ interface UseLocalAudioPlaybackOptions {
   libraryStatus: LocalAudioLibraryStatus;
   dispatchPlayer: (action: PlayerAction) => void;
   audioRef: RefObject<HTMLAudioElement | null>;
+  settingsRepository: PlayerSettingsRepository;
 }
 
 interface PreparedAudioSource {
@@ -26,15 +34,22 @@ const SOURCE_ENDED_LISTENER_OPTIONS = { passive: true } as const;
 
 export interface LocalAudioPlaybackControls {
   errorMessage?: string;
+  settingsError?: string;
+  settings: PlayerSettings;
+  settingsStatus: PlayerSettingsStatus;
   progress: LocalAudioPlaybackProgress;
   requestPlay: () => void;
   requestPause: () => void;
   requestRestart: () => void;
   requestSeek: (timeSeconds: number) => void;
+  setVolume: (volume: number) => void;
+  toggleMuted: () => void;
   stopAndRelease: () => void;
   handleAudioError: () => void;
   clearError: () => void;
 }
+
+export type PlayerSettingsStatus = "loading" | "ready" | "error";
 
 export interface LocalAudioPlaybackProgress {
   currentTimeSeconds: number;
@@ -50,7 +65,8 @@ export function useLocalAudioPlayback({
   bindingsByTrackId,
   libraryStatus,
   dispatchPlayer,
-  audioRef
+  audioRef,
+  settingsRepository
 }: UseLocalAudioPlaybackOptions): LocalAudioPlaybackControls {
   const preparedSourceRef = useRef<PreparedAudioSource | undefined>(undefined);
   const sourceTokenSequenceRef = useRef(0);
@@ -58,6 +74,75 @@ export function useLocalAudioPlayback({
   const [progress, setProgress] = useState<LocalAudioPlaybackProgress>(
     EMPTY_PLAYBACK_PROGRESS
   );
+  const [settings, setSettings] = useState<PlayerSettings>(DEFAULT_PLAYER_SETTINGS);
+  const [settingsStatus, setSettingsStatus] = useState<PlayerSettingsStatus>("loading");
+  const [settingsError, setSettingsError] = useState<string>();
+  const settingsRef = useRef<PlayerSettings>(DEFAULT_PLAYER_SETTINGS);
+  const settingsMutationRevisionRef = useRef(0);
+
+  const applySettings = useCallback(
+    (audio: HTMLAudioElement, nextSettings: PlayerSettings) => {
+      try {
+        audio.volume = nextSettings.volume;
+        audio.muted = nextSettings.muted;
+      } catch {
+        // Media implementations may reject setting volume before the element is ready.
+      }
+    },
+    []
+  );
+
+  useLayoutEffect(() => {
+    const audio = audioRef.current;
+
+    if (audio) {
+      applySettings(audio, settings);
+    }
+  }, [applySettings, audioRef, settings, state]);
+
+  useLayoutEffect(() => {
+    let isActive = true;
+    const loadRevision = settingsMutationRevisionRef.current;
+
+    void settingsRepository
+      .load()
+      .then((loadedSettings) => {
+        if (!isActive) {
+          return;
+        }
+
+        let nextSettings: PlayerSettings;
+
+        try {
+          nextSettings = normalizePlayerSettings(loadedSettings);
+        } catch {
+          nextSettings = DEFAULT_PLAYER_SETTINGS;
+        }
+
+        if (loadRevision === settingsMutationRevisionRef.current) {
+          settingsRef.current = nextSettings;
+          setSettings(nextSettings);
+        }
+        setSettingsError(undefined);
+        setSettingsStatus("ready");
+      })
+      .catch(() => {
+        if (!isActive) {
+          return;
+        }
+
+        if (loadRevision === settingsMutationRevisionRef.current) {
+          settingsRef.current = DEFAULT_PLAYER_SETTINGS;
+          setSettings(DEFAULT_PLAYER_SETTINGS);
+        }
+        setSettingsError("播放器设置不可用，当前使用默认音量。");
+        setSettingsStatus("error");
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [settingsRepository]);
 
   const updateProgress = useCallback((audio: HTMLAudioElement) => {
     const nextProgress = getPlaybackProgress(audio);
@@ -160,6 +245,7 @@ export function useLocalAudioPlayback({
       resetProgress();
 
       try {
+        applySettings(audio, settingsRef.current);
         audio.src = objectUrl;
         audio.currentTime = 0;
         audio.load();
@@ -170,7 +256,14 @@ export function useLocalAudioPlayback({
 
       return sourceToken;
     },
-    [audioRef, dispatchPlayer, releasePreparedSource, resetProgress, updateProgress]
+    [
+      applySettings,
+      audioRef,
+      dispatchPlayer,
+      releasePreparedSource,
+      resetProgress,
+      updateProgress
+    ]
   );
 
   const beginPlayback = useCallback(
@@ -360,6 +453,48 @@ export function useLocalAudioPlayback({
     [updateProgress]
   );
 
+  const persistSettings = useCallback(
+    (nextSettings: PlayerSettings) => {
+      const normalizedSettings = normalizePlayerSettings(nextSettings);
+      const mutationRevision = settingsMutationRevisionRef.current + 1;
+
+      settingsMutationRevisionRef.current = mutationRevision;
+      settingsRef.current = normalizedSettings;
+      setSettings(normalizedSettings);
+      setSettingsError(undefined);
+      const audio = audioRef.current;
+
+      if (audio) {
+        applySettings(audio, normalizedSettings);
+      }
+
+      void savePlayerSettingsInRepositoryOrder(
+        settingsRepository,
+        normalizedSettings
+      ).catch(() => {
+        if (settingsMutationRevisionRef.current === mutationRevision) {
+          setSettingsError("保存播放器设置失败，本次设置仅在当前页面生效。");
+        }
+      });
+    },
+    [applySettings, audioRef, settingsRepository]
+  );
+
+  const setVolume = useCallback(
+    (volume: number) => {
+      if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
+        return;
+      }
+
+      persistSettings({ ...settingsRef.current, volume });
+    },
+    [persistSettings]
+  );
+
+  const toggleMuted = useCallback(() => {
+    persistSettings({ ...settingsRef.current, muted: !settingsRef.current.muted });
+  }, [persistSettings]);
+
   const stopAndRelease = useCallback(() => {
     releasePreparedSource();
     dispatchPlayer({ type: "pause" });
@@ -377,11 +512,16 @@ export function useLocalAudioPlayback({
 
   return {
     errorMessage,
+    settingsError,
+    settings,
+    settingsStatus,
     progress,
     requestPlay,
     requestPause,
     requestRestart,
     requestSeek,
+    setVolume,
+    toggleMuted,
     stopAndRelease,
     handleAudioError,
     clearError: () => setErrorMessage(undefined)

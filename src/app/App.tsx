@@ -28,7 +28,9 @@ import { indexedDbLocalAudioRepository } from "../infra/storage/indexedDbLocalAu
 import { localStorageCatalogRepository } from "../infra/storage/localStorageCatalogRepository";
 import { localStorageCatalogDeletionIntentRepository } from "../infra/storage/localStorageCatalogDeletionIntentRepository";
 import { localStoragePlaylistRepository } from "../infra/storage/localStoragePlaylistRepository";
+import { localStoragePlayerSettingsRepository } from "../infra/storage/localStoragePlayerSettingsRepository";
 import type { EntityId, PlaySequenceEntry, TemporaryPlaylist } from "../types";
+import type { PlayerSettingsRepository } from "../features/player/playerSettingsRepository";
 import { createTemporaryPlaylist } from "../utils/playlist";
 
 function createInitialState() {
@@ -70,6 +72,7 @@ interface AppProps {
   catalogEntityIdFactory?: CatalogEntityIdFactory;
   localAudioRepository?: LocalAudioFileRepository;
   playlistRepository?: TemporaryPlaylistRepository;
+  playerSettingsRepository?: PlayerSettingsRepository;
   deletionIntentRepository?: CatalogDeletionIntentRepository;
   playlistItemIdFactory?: () => EntityId;
 }
@@ -79,6 +82,7 @@ export function App({
   catalogEntityIdFactory,
   localAudioRepository = indexedDbLocalAudioRepository,
   playlistRepository = localStoragePlaylistRepository,
+  playerSettingsRepository = localStoragePlayerSettingsRepository,
   deletionIntentRepository = localStorageCatalogDeletionIntentRepository,
   playlistItemIdFactory = createPlaylistItemId
 }: AppProps) {
@@ -116,7 +120,8 @@ export function App({
     bindingsByTrackId: localAudioLibrary.bindingsByTrackId,
     libraryStatus: localAudioLibrary.status,
     dispatchPlayer,
-    audioRef
+    audioRef,
+    settingsRepository: playerSettingsRepository
   });
   const handleCatalogDeletionCommit = useCallback(
     (intent: CatalogDeletionIntent) => {
@@ -348,6 +353,9 @@ export function App({
         canPlayTarget={canPlayTarget}
         audioLibraryStatus={localAudioLibrary.status}
         playbackError={localAudioPlayback.errorMessage}
+        settingsError={localAudioPlayback.settingsError}
+        playerSettings={localAudioPlayback.settings}
+        playerSettingsStatus={localAudioPlayback.settingsStatus}
         playbackProgress={localAudioPlayback.progress}
         onPlay={localAudioPlayback.requestPlay}
         onPause={localAudioPlayback.requestPause}
@@ -361,6 +369,8 @@ export function App({
         }}
         onRestart={localAudioPlayback.requestRestart}
         onSeek={localAudioPlayback.requestSeek}
+        onVolumeChange={localAudioPlayback.setVolume}
+        onToggleMuted={localAudioPlayback.toggleMuted}
       />
       <audio
         key={audioElementKey}

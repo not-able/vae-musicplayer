@@ -1307,7 +1307,7 @@ button:disabled {
   bottom: 24px;
   left: 24px;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 1fr);
+  grid-template-columns: minmax(180px, 1fr) auto minmax(132px, 0.7fr) minmax(120px, 1fr);
   grid-template-rows: auto auto;
   gap: 12px;
   align-items: center;
@@ -1407,6 +1407,47 @@ button:disabled {
   white-space: nowrap;
 }
 
+.player-volume {
+  display: grid;
+  grid-column: 3;
+  grid-row: 2;
+  grid-template-columns: auto minmax(58px, 1fr) 32px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.player-volume-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.player-mute-button.icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.player-volume input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.player-volume output {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .player-progress-current,
 .player-progress-duration {
   color: var(--muted);
@@ -1502,7 +1543,7 @@ button:disabled {
 }
 
 .player-status {
-  grid-column: 3;
+  grid-column: 4;
   grid-row: 2;
   display: flex;
   align-items: center;
@@ -1588,13 +1629,19 @@ button:disabled {
     width: 100%;
   }
 
+  .player-volume {
+    grid-column: 1;
+    grid-row: 4;
+    max-width: 260px;
+  }
+
   .player-actions button {
     flex: 1;
   }
 
   .player-status {
     grid-column: 1;
-    grid-row: 4;
+    grid-row: 5;
     justify-content: flex-start;
     text-align: left;
   }

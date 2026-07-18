@@ -12,6 +12,7 @@ import {
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import { createLocalAudioFileRecord } from "../features/local-library/localAudioFile";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
+import type { PlayerSettingsRepository } from "../features/player/playerSettingsRepository";
 import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
 import { LOCAL_TEMPORARY_PLAYLIST_STORAGE_KEY } from "../infra/storage/localStoragePlaylistRepository";
 import type {
@@ -3160,6 +3161,90 @@ describe("temporary playlist workflow", () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  it("restores volume and mute settings without restoring playback", async () => {
+    const localFile = new File(["local settings test file"], "sample-one.mp3", {
+      type: "audio/mpeg"
+    });
+    const localAudioRepository = createMemoryLocalAudioRepository([
+      createLocalAudioFileRecord(
+        "track_sample_001",
+        localFile,
+        "2026-07-18T00:00:00.000Z"
+      )
+    ]);
+    let storedSettings = { volume: 0.35, muted: true };
+    const playerSettingsRepository = {
+      load: vi.fn(async () => storedSettings),
+      save: vi.fn(async (settings) => {
+        storedSettings = { ...settings };
+      })
+    } satisfies PlayerSettingsRepository;
+    const mediaMocks = installAudioElementMocks();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, { localAudioRepository, playerSettingsRepository })
+      );
+    });
+
+    const volumeRange = container.querySelector<HTMLInputElement>(
+      'input[aria-label="音量"]'
+    );
+    const audio = container.querySelector<HTMLAudioElement>("audio");
+
+    expect(volumeRange?.value).toBe("0.35");
+    expect(audio?.volume).toBe(0.35);
+    expect(audio?.muted).toBe(true);
+    expect(mediaMocks.play).not.toHaveBeenCalled();
+
+    await act(async () => {
+      findButton(container, "取消静音")?.click();
+      changeInputValue(volumeRange as HTMLInputElement, "0.6");
+    });
+
+    expect(audio?.muted).toBe(false);
+    expect(audio?.volume).toBe(0.6);
+    expect(playerSettingsRepository.save).toHaveBeenLastCalledWith({
+      volume: 0.6,
+      muted: false
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+
+    const restoredContainer = document.createElement("div");
+    document.body.append(restoredContainer);
+    const restoredRoot = createRoot(restoredContainer);
+
+    await act(async () => {
+      restoredRoot.render(
+        createElement(App, { localAudioRepository, playerSettingsRepository })
+      );
+    });
+
+    expect(
+      restoredContainer.querySelector<HTMLInputElement>('input[aria-label="音量"]')
+        ?.value
+    ).toBe("0.6");
+    expect(restoredContainer.querySelector<HTMLAudioElement>("audio")?.muted).toBe(
+      false
+    );
+    expect(mediaMocks.play).not.toHaveBeenCalled();
+    expect(restoredContainer.querySelector(".player-status")?.textContent).toContain(
+      "等待播放队列"
+    );
+
+    await act(async () => {
+      restoredRoot.unmount();
+    });
+    restoredContainer.remove();
   });
 
   it("ignores delayed ended callbacks from sources used before rapid switches", async () => {

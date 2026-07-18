@@ -3,7 +3,11 @@ import type { CSSProperties } from "react";
 import type { Track } from "../../types";
 import type { LocalAudioLibraryStatus } from "../local-library/useLocalAudioLibrary";
 import type { PlayerState, PlayerStatus } from "./playerReducer";
-import type { LocalAudioPlaybackProgress } from "./useLocalAudioPlayback";
+import type { PlayerSettings } from "./playerSettingsRepository";
+import type {
+  LocalAudioPlaybackProgress,
+  PlayerSettingsStatus
+} from "./useLocalAudioPlayback";
 
 interface PlayerBarProps {
   state: PlayerState;
@@ -13,6 +17,9 @@ interface PlayerBarProps {
   canPlayTarget: boolean;
   audioLibraryStatus: LocalAudioLibraryStatus;
   playbackError?: string;
+  settingsError?: string;
+  playerSettings: PlayerSettings;
+  playerSettingsStatus: PlayerSettingsStatus;
   playbackProgress: LocalAudioPlaybackProgress;
   onPlay: () => void;
   onPause: () => void;
@@ -20,6 +27,8 @@ interface PlayerBarProps {
   onPrevious: () => void;
   onRestart: () => void;
   onSeek: (timeSeconds: number) => void;
+  onVolumeChange: (volume: number) => void;
+  onToggleMuted: () => void;
 }
 
 export function PlayerBar({
@@ -30,13 +39,18 @@ export function PlayerBar({
   canPlayTarget,
   audioLibraryStatus,
   playbackError,
+  settingsError,
+  playerSettings,
+  playerSettingsStatus,
   playbackProgress,
   onPlay,
   onPause,
   onNext,
   onPrevious,
   onRestart,
-  onSeek
+  onSeek,
+  onVolumeChange,
+  onToggleMuted
 }: PlayerBarProps) {
   const currentTrack = tracks.find((track) => track.id === state.currentEntry?.trackId);
   const isEmpty = state.status === "empty";
@@ -50,6 +64,7 @@ export function PlayerBar({
   });
   const playerStatusLabel =
     playbackError ??
+    settingsError ??
     (!isEmpty && audioLibraryStatus === "ready" && !isCurrentAudioBound
       ? "未绑定音频文件"
       : getPlayerStatusLabel(state.status));
@@ -147,6 +162,35 @@ export function PlayerBar({
         <span className="player-progress-duration" aria-hidden="true">
           {isSeekable ? formatPlaybackTime(durationSeconds) : "--:--"}
         </span>
+      </section>
+
+      <section className="player-volume" aria-label="音量控制">
+        <button
+          className="icon-button player-mute-button"
+          type="button"
+          disabled={playerSettingsStatus === "loading"}
+          aria-label={playerSettings.muted ? "取消静音" : "静音"}
+          title={playerSettings.muted ? "取消静音" : "静音"}
+          onClick={onToggleMuted}
+        >
+          {playerSettings.muted ? "🔇" : "🔊"}
+        </button>
+        <label className="player-volume-label" htmlFor="player-volume-range">
+          音量
+        </label>
+        <input
+          id="player-volume-range"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={playerSettings.volume}
+          disabled={playerSettingsStatus === "loading"}
+          aria-label="音量"
+          aria-valuetext={`音量 ${Math.round(playerSettings.volume * 100)}%`}
+          onChange={(event) => onVolumeChange(Number(event.currentTarget.value))}
+        />
+        <output>{Math.round(playerSettings.volume * 100)}%</output>
       </section>
 
       <p className={`player-status is-${state.status}`} aria-live="polite">
