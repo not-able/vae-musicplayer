@@ -1,4 +1,8 @@
-import type { AlbumType, CatalogExternalReference, EntityId } from "../../types";
+import type {
+  AlbumType,
+  CatalogExternalReference,
+  CatalogExternalReferenceMapping
+} from "../../types";
 
 export type CatalogProviderEntityReference<
   TEntityType extends CatalogExternalReference["entityType"]
@@ -57,6 +61,9 @@ export interface CatalogProviderSearchResult {
 export interface CatalogProvider {
   readonly descriptor: CatalogProviderDescriptor;
   search(request: CatalogProviderSearchRequest): Promise<CatalogProviderSearchResult>;
+  getArtistAlbums(
+    artist: CatalogProviderArtistCandidate
+  ): Promise<readonly CatalogProviderAlbumCandidate[]>;
   getAlbum(
     reference: CatalogProviderEntityReference<"album">
   ): Promise<CatalogProviderAlbumCandidate>;
@@ -69,7 +76,4 @@ export interface CatalogProvider {
  * Maps only stable local IDs to provider references after a user confirms an import.
  * It intentionally has no audio URL, cookie, lyric, image, comment, or raw-response field.
  */
-export interface CatalogProviderImportReference {
-  localEntityId: EntityId;
-  reference: CatalogExternalReference;
-}
+export type CatalogProviderImportReference = CatalogExternalReferenceMapping;

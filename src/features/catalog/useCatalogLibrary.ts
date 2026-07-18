@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { AlbumType, CatalogData, EntityId, UserCatalogChanges } from "../../types";
+import type {
+  AlbumType,
+  CatalogData,
+  CatalogExternalReference,
+  CatalogExternalReferenceMapping,
+  EntityId,
+  UserCatalogChanges
+} from "../../types";
 import { mergeCatalogChanges } from "./catalogMerge";
 import {
   addAlbumToUserCatalog,
@@ -50,9 +57,23 @@ export interface CatalogDirectoryImportTrackDraft {
 }
 
 export interface CatalogDirectoryImportAlbumDraft {
+  /** A caller-owned stable token used only while mapping confirmed Provider IDs. */
+  sourceId?: string;
   title: string;
   artistId: EntityId;
   tracks: readonly CatalogDirectoryImportTrackDraft[];
+}
+
+export interface CatalogDirectoryImportProviderReferenceDraft {
+  reference: CatalogExternalReference;
+  /** Existing local entities, such as an already-known artist, use this directly. */
+  localEntityId?: EntityId;
+  /** Newly-created albums and tracks use their draft source token. */
+  sourceId?: string;
+}
+
+export interface CatalogDirectoryImportOptions {
+  providerReferences?: readonly CatalogDirectoryImportProviderReferenceDraft[];
 }
 
 type CatalogMutationFailure = {
@@ -98,7 +119,8 @@ export interface CatalogLibrary {
   resetAlbum: (albumId: EntityId) => Promise<CatalogMutationResult>;
   resetTrack: (trackId: EntityId) => Promise<CatalogMutationResult>;
   importDirectoryCatalogDrafts: (
-    drafts: readonly CatalogDirectoryImportAlbumDraft[]
+    drafts: readonly CatalogDirectoryImportAlbumDraft[],
+    options?: CatalogDirectoryImportOptions
   ) => Promise<CatalogDirectoryImportResult>;
   applyPersistedChanges: (changes: UserCatalogChanges) => void;
 }
@@ -461,7 +483,8 @@ export function useCatalogLibrary(
 
   const importDirectoryCatalogDrafts = useCallback(
     async (
-      drafts: readonly CatalogDirectoryImportAlbumDraft[]
+      drafts: readonly CatalogDirectoryImportAlbumDraft[],
+      options: CatalogDirectoryImportOptions = {}
     ): Promise<CatalogDirectoryImportResult> => {
       if (saveInProgress.current) {
         return {
@@ -489,7 +512,8 @@ export function useCatalogLibrary(
       try {
         const validationError = getDirectoryImportValidationError(
           activeResult.state.catalog,
-          drafts
+          drafts,
+          options
         );
         if (validationError) {
           return {
@@ -510,6 +534,7 @@ export function useCatalogLibrary(
           0
         );
         const trackIdsBySourceId = new Map<string, EntityId>();
+        const entityIdsBySourceId = new Map<string, EntityId>();
         const entityIdFactory = idFactory ?? createDefaultCatalogImportId;
         const result = await saveChanges(
           "directory_import",
@@ -535,6 +560,9 @@ export function useCatalogLibrary(
               if (!albumId) {
                 throw new Error("Directory import did not create an album.");
               }
+              if (draft.sourceId) {
+                entityIdsBySourceId.set(draft.sourceId, albumId);
+              }
 
               for (const trackDraft of draft.tracks) {
                 nextChanges = addTrackToUserCatalog(
@@ -554,10 +582,19 @@ export function useCatalogLibrary(
                   throw new Error("Directory import did not create a track.");
                 }
                 trackIdsBySourceId.set(trackDraft.sourceId, trackId);
+                entityIdsBySourceId.set(trackDraft.sourceId, trackId);
               }
             }
 
-            return nextChanges;
+            const externalReferences = resolveProviderReferences(
+              nextChanges.externalReferences,
+              options.providerReferences ?? [],
+              entityIdsBySourceId
+            );
+
+            return externalReferences === undefined
+              ? nextChanges
+              : { ...nextChanges, externalReferences };
           },
           "保存目录导入的专辑信息失败，请检查浏览器存储权限后重试。"
         );
@@ -888,7 +925,8 @@ function createDefaultCatalogImportId(): EntityId {
 
 function getDirectoryImportValidationError(
   catalog: CatalogData,
-  drafts: readonly CatalogDirectoryImportAlbumDraft[]
+  drafts: readonly CatalogDirectoryImportAlbumDraft[],
+  options: CatalogDirectoryImportOptions
 ): string | undefined {
   const sourceIds = new Set<string>();
   const importedAlbumKeys = new Set<string>();
@@ -918,6 +956,13 @@ function getDirectoryImportValidationError(
     }
     importedAlbumKeys.add(albumKey);
 
+    if (draft.sourceId) {
+      if (sourceIds.has(draft.sourceId)) {
+        return "目录导入草稿的来源标识不能重复。";
+      }
+      sourceIds.add(draft.sourceId);
+    }
+
     for (const track of draft.tracks) {
       if (
         !track.sourceId ||
@@ -933,5 +978,81 @@ function getDirectoryImportValidationError(
     }
   }
 
+  const referenceKeys = new Set<string>();
+  for (const providerReference of options.providerReferences ?? []) {
+    const { reference, localEntityId, sourceId } = providerReference;
+    const hasLocalEntityId = Boolean(localEntityId?.trim());
+    const hasSourceId = Boolean(sourceId?.trim());
+
+    if (hasLocalEntityId === hasSourceId) {
+      return "外部引用必须且只能关联一个本地实体或导入来源标识。";
+    }
+    if (
+      !reference.providerId.trim() ||
+      !reference.externalId.trim() ||
+      !["artist", "album", "track"].includes(reference.entityType)
+    ) {
+      return "外部引用包含无效的 Provider 标识。";
+    }
+    if (
+      hasLocalEntityId &&
+      !catalog.artists.some((artist) => artist.id === localEntityId)
+    ) {
+      return "外部引用指向的本地实体不存在。";
+    }
+    if (hasSourceId && !sourceIds.has(sourceId as string)) {
+      return "外部引用指向的导入来源不存在。";
+    }
+
+    const referenceKey = `${reference.providerId}:${reference.entityType}:${reference.externalId}`;
+    if (referenceKeys.has(referenceKey)) {
+      return "同一外部实体不能重复关联。";
+    }
+    referenceKeys.add(referenceKey);
+  }
+
   return undefined;
+}
+
+function resolveProviderReferences(
+  existingReferences: readonly CatalogExternalReferenceMapping[] | undefined,
+  providerReferenceDrafts: readonly CatalogDirectoryImportProviderReferenceDraft[],
+  entityIdsBySourceId: ReadonlyMap<string, EntityId>
+): CatalogExternalReferenceMapping[] | undefined {
+  if (providerReferenceDrafts.length === 0) {
+    return undefined;
+  }
+
+  const nextReferences = [...(existingReferences ?? [])];
+  const seenReferences = new Set(
+    nextReferences.map(
+      ({ reference }) =>
+        `${reference.providerId}:${reference.entityType}:${reference.externalId}`
+    )
+  );
+
+  for (const draft of providerReferenceDrafts) {
+    const localEntityId =
+      draft.localEntityId ?? entityIdsBySourceId.get(draft.sourceId ?? "");
+    if (!localEntityId) {
+      throw new Error("Provider reference could not be linked to an imported entity.");
+    }
+
+    const referenceKey = `${draft.reference.providerId}:${draft.reference.entityType}:${draft.reference.externalId}`;
+    if (seenReferences.has(referenceKey)) {
+      continue;
+    }
+
+    nextReferences.push({
+      localEntityId,
+      reference: {
+        providerId: draft.reference.providerId.trim(),
+        entityType: draft.reference.entityType,
+        externalId: draft.reference.externalId.trim()
+      }
+    });
+    seenReferences.add(referenceKey);
+  }
+
+  return nextReferences;
 }

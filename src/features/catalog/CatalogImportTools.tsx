@@ -14,6 +14,7 @@ import type {
   LocalAudioBindingRequest,
   LocalAudioLibraryStatus
 } from "../local-library/useLocalAudioLibrary";
+import { CatalogImportPanel } from "./CatalogImportPanel";
 import { XuSongCatalogImport } from "./VerifiedXuSongCatalogImport";
 import type {
   CatalogDirectoryImportAlbumDraft,
@@ -21,7 +22,7 @@ import type {
   CatalogLibraryStatus
 } from "./useCatalogLibrary";
 
-type CatalogImportTool = "verified-catalog" | "local-directory";
+type CatalogImportTool = "verified-catalog" | "qq-metadata" | "local-directory";
 
 interface CatalogImportToolsProps {
   catalog: CatalogData;
@@ -48,12 +49,23 @@ export function CatalogImportTools({
 }: CatalogImportToolsProps) {
   const [openTool, setOpenTool] = useState<CatalogImportTool>();
   const verifiedCatalogTriggerRef = useRef<HTMLButtonElement>(null);
+  const qqMetadataTriggerRef = useRef<HTMLButtonElement>(null);
   const localDirectoryTriggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <>
       <div className="catalog-import-tools" role="group" aria-label="目录导入工具">
         <span className="catalog-import-tools-label">导入工具</span>
+        <button
+          className="text-button"
+          ref={qqMetadataTriggerRef}
+          type="button"
+          aria-expanded={openTool === "qq-metadata"}
+          aria-controls="qq-metadata-import-dialog"
+          onClick={() => setOpenTool("qq-metadata")}
+        >
+          导入远程元数据
+        </button>
         <button
           className="text-button"
           ref={verifiedCatalogTriggerRef}
@@ -88,6 +100,21 @@ export function CatalogImportTools({
           catalogStatus={catalogStatus}
           isCatalogSaving={isCatalogSaving}
           isEmbedded
+          onImport={onImportCatalogDrafts}
+        />
+      </CatalogImportDialog>
+
+      <CatalogImportDialog
+        id="qq-metadata-import-dialog"
+        isOpen={openTool === "qq-metadata"}
+        title="导入自托管 QQ 元数据"
+        triggerRef={qqMetadataTriggerRef}
+        onClose={() => setOpenTool(undefined)}
+      >
+        <CatalogImportPanel
+          catalog={catalog}
+          catalogStatus={catalogStatus}
+          isCatalogSaving={isCatalogSaving}
           onImport={onImportCatalogDrafts}
         />
       </CatalogImportDialog>

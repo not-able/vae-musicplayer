@@ -1,6 +1,8 @@
 import {
   USER_CATALOG_CHANGES_SCHEMA_VERSION,
   type Album,
+  type CatalogExternalReference,
+  type CatalogExternalReferenceMapping,
   type AlbumFieldOverrides,
   type AlbumType,
   type EntityId,
@@ -30,6 +32,7 @@ const userCatalogChangeKeys = [
   "albumTrackIdAdditions",
   "deletedDefaultAlbumIds",
   "deletedDefaultTrackIds",
+  "externalReferences",
   "hiddenDefaultAlbumIds",
   "hiddenDefaultTrackIds"
 ] as const;
@@ -223,7 +226,7 @@ function decodeUserCatalogChangesV1(
 ): UserCatalogChanges {
   assertOnlyKeys(record, userCatalogChangeKeys, "用户目录数据");
 
-  return {
+  const changes: UserCatalogChanges = {
     schemaVersion: USER_CATALOG_CHANGES_SCHEMA_VERSION,
     addedAlbums: decodeArray(
       readRequired(record, "addedAlbums", "用户目录数据"),
@@ -252,6 +255,63 @@ function decodeUserCatalogChangesV1(
     ),
     deletedDefaultAlbumIds: decodeDeletedDefaultIds(record, "album"),
     deletedDefaultTrackIds: decodeDeletedDefaultIds(record, "track")
+  };
+
+  if (hasOwn(record, "externalReferences")) {
+    changes.externalReferences = decodeArray(
+      record.externalReferences,
+      "用户目录 externalReferences",
+      decodeExternalReferenceMapping
+    );
+  }
+
+  return changes;
+}
+
+function decodeExternalReferenceMapping(
+  value: unknown,
+  path: string
+): CatalogExternalReferenceMapping {
+  const record = decodePlainRecord(value, path);
+  assertOnlyKeys(record, ["localEntityId", "reference"], path);
+
+  return {
+    localEntityId: decodeString(
+      readRequired(record, "localEntityId", path),
+      `${path}.localEntityId`
+    ),
+    reference: decodeExternalReference(
+      readRequired(record, "reference", path),
+      `${path}.reference`
+    )
+  };
+}
+
+function decodeExternalReference(
+  value: unknown,
+  path: string
+): CatalogExternalReference {
+  const record = decodePlainRecord(value, path);
+  assertOnlyKeys(record, ["providerId", "entityType", "externalId"], path);
+  const entityType = decodeString(
+    readRequired(record, "entityType", path),
+    `${path}.entityType`
+  );
+
+  if (entityType !== "artist" && entityType !== "album" && entityType !== "track") {
+    throw invalidData(`${path}.entityType 不是支持的外部实体类型。`);
+  }
+
+  return {
+    providerId: decodeString(
+      readRequired(record, "providerId", path),
+      `${path}.providerId`
+    ),
+    entityType,
+    externalId: decodeString(
+      readRequired(record, "externalId", path),
+      `${path}.externalId`
+    )
   };
 }
 

@@ -12,6 +12,16 @@ export interface CatalogExternalReference {
   externalId: string;
 }
 
+/**
+ * A durable link between a local stable ID and a provider-owned ID. The link
+ * deliberately carries no provider payload such as artwork, lyrics, cookies,
+ * comments, or playable URLs.
+ */
+export interface CatalogExternalReferenceMapping {
+  localEntityId: EntityId;
+  reference: CatalogExternalReference;
+}
+
 export interface Artist {
   id: EntityId;
   name: string;
@@ -74,4 +84,6 @@ export interface UserCatalogChanges {
   /** Built-in source data remains read-only; these IDs are deleted locally. */
   deletedDefaultAlbumIds: EntityId[];
   deletedDefaultTrackIds: EntityId[];
+  /** Optional so v1 records created before Provider imports remain readable. */
+  externalReferences?: CatalogExternalReferenceMapping[];
 }

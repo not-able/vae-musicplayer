@@ -166,7 +166,15 @@ function removeCatalogEntries(
     trackOverrides,
     albumTrackIdAdditions,
     deletedDefaultAlbumIds: [...deletedDefaultAlbumIds],
-    deletedDefaultTrackIds: [...deletedDefaultTrackIds]
+    deletedDefaultTrackIds: [...deletedDefaultTrackIds],
+    ...(changes.externalReferences === undefined
+      ? {}
+      : {
+          externalReferences: changes.externalReferences.filter(
+            ({ localEntityId }) =>
+              !trackIds.has(localEntityId) && !isDeletedAlbum(localEntityId)
+          )
+        })
   };
 }
 

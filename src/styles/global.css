@@ -279,11 +279,132 @@ a:focus-visible {
 }
 
 .catalog-import-dialog .verified-catalog-import,
-.catalog-import-dialog .directory-import {
+.catalog-import-dialog .directory-import,
+.catalog-import-dialog .catalog-provider-import {
   margin: 0;
   border: 0;
   padding: 0;
   background: transparent;
+}
+
+.catalog-provider-import {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #b9c9c4;
+  padding: 16px;
+  background: #eef6f2;
+}
+
+.catalog-provider-import p,
+.catalog-provider-import h3 {
+  margin: 0;
+}
+
+.catalog-provider-import-heading,
+.catalog-provider-import-hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.catalog-provider-import-connection,
+.catalog-provider-import-search,
+.catalog-provider-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.catalog-provider-import-connection input,
+.catalog-provider-import-search input {
+  min-width: min(100%, 280px);
+  flex: 1 1 280px;
+}
+
+.catalog-provider-import-results,
+.catalog-provider-import-preview ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.catalog-provider-import-results li,
+.catalog-provider-import-preview li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  padding: 9px 10px;
+  background: var(--surface-strong);
+}
+
+.catalog-provider-import-results li > div,
+.catalog-provider-import-preview li {
+  min-width: 0;
+}
+
+.catalog-provider-import-results strong,
+.catalog-provider-import-results span {
+  display: block;
+}
+
+.catalog-provider-import-results span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.catalog-provider-import-preview {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.catalog-provider-import-preview h3 {
+  font-size: 16px;
+}
+
+.catalog-provider-import-preview p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.catalog-provider-import-preview li span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.catalog-provider-import-preview li strong {
+  flex: 1;
+}
+
+.catalog-provider-import-preview li em {
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.catalog-provider-import-warning,
+.catalog-provider-import-error {
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.catalog-provider-import-notice {
+  color: var(--accent-strong);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.catalog-provider-import-actions {
+  justify-content: flex-end;
 }
 
 .catalog-editor {

@@ -7,6 +7,7 @@ export type {
   Artist,
   CatalogExternalEntityType,
   CatalogExternalReference,
+  CatalogExternalReferenceMapping,
   CatalogData,
   EntityId,
   ISODateString,

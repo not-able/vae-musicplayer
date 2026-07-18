@@ -91,7 +91,25 @@ function createCompleteChanges(): UserCatalogChanges {
       album_sample_001: ["track_user_002"]
     },
     deletedDefaultAlbumIds: [],
-    deletedDefaultTrackIds: []
+    deletedDefaultTrackIds: [],
+    externalReferences: [
+      {
+        localEntityId: "album_user_001",
+        reference: {
+          providerId: "qq-music-api",
+          entityType: "album",
+          externalId: "album-remote-001"
+        }
+      },
+      {
+        localEntityId: "track_user_001",
+        reference: {
+          providerId: "qq-music-api",
+          entityType: "track",
+          externalId: "track-remote-001"
+        }
+      }
+    ]
   };
 }
 
@@ -135,6 +153,8 @@ describe("localStorage catalog repository", () => {
 
     expect(firstLoad).toEqual(changes);
     expect(changes).toEqual(changesSnapshot);
+    expect(storage.peek(LOCAL_CATALOG_STORAGE_KEY)).not.toContain("audioUrl");
+    expect(storage.peek(LOCAL_CATALOG_STORAGE_KEY)).not.toContain("cookie");
 
     firstLoad.addedAlbums[0].title = "只修改加载结果";
 
