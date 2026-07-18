@@ -1,4 +1,13 @@
-import { useMemo, useState, type ChangeEvent, type DragEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent
+} from "react";
+import { createPortal } from "react-dom";
 
 import type {
   Album,
@@ -484,6 +493,7 @@ function AlbumDetail({
 }: AlbumDetailProps) {
   const tracks = getAlbumTracks(catalog, album);
   const artist = catalog.artists.find((item) => item.id === album.artistId);
+  const [openActionsAlbumId, setOpenActionsAlbumId] = useState<EntityId>();
   const isAlbumEditorOpen =
     editorTarget?.kind === "edit-album" && editorTarget.albumId === album.id;
   const isTrackCreatorOpen =
@@ -508,40 +518,26 @@ function AlbumDetail({
         </div>
         <div className="album-detail-actions">
           <button
-            className="text-button edit-album-metadata-button"
-            type="button"
-            aria-expanded={isAlbumEditorOpen}
-            disabled={!canOpenEditor || catalogLibraryStatus !== "ready"}
-            onClick={onOpenAlbumEditor}
-          >
-            编辑专辑
-          </button>
-          {canDelete && (
-            <button
-              className="text-button"
-              type="button"
-              aria-label={`从目录删除专辑${album.title}`}
-              onClick={() => onRequestDeletion({ kind: "album", id: album.id })}
-            >
-              删除
-            </button>
-          )}
-          <button
-            className="secondary-button add-track-metadata-button"
-            type="button"
-            aria-expanded={isTrackCreatorOpen}
-            disabled={!canOpenEditor || catalogLibraryStatus !== "ready"}
-            onClick={onOpenCreateTrack}
-          >
-            添加歌曲
-          </button>
-          <button
             className="secondary-button add-album-button"
             type="button"
             onClick={() => onAddAlbum(album.id)}
           >
             整张加入
           </button>
+          <AlbumActionsMenu
+            albumId={album.id}
+            albumTitle={album.title}
+            isOpen={openActionsAlbumId === album.id}
+            isDisabled={catalogLibraryStatus !== "ready" && !canDelete}
+            canEdit={canOpenEditor && catalogLibraryStatus === "ready"}
+            canDelete={canDelete}
+            onOpenChange={(isOpen) =>
+              setOpenActionsAlbumId(isOpen ? album.id : undefined)
+            }
+            onEdit={onOpenAlbumEditor}
+            onAddTrack={onOpenCreateTrack}
+            onDelete={() => onRequestDeletion({ kind: "album", id: album.id })}
+          />
         </div>
       </header>
 
@@ -621,6 +617,191 @@ function AlbumDetail({
       )}
     </section>
   );
+}
+
+interface AlbumActionsMenuProps {
+  albumId: EntityId;
+  albumTitle: string;
+  isOpen: boolean;
+  isDisabled: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onEdit: () => void;
+  onAddTrack: () => void;
+  onDelete: () => void;
+}
+
+interface AlbumMenuPosition {
+  top: number;
+  left: number;
+  openAbove: boolean;
+}
+
+function AlbumActionsMenu({
+  albumId,
+  albumTitle,
+  isOpen,
+  isDisabled,
+  canEdit,
+  canDelete,
+  onOpenChange,
+  onEdit,
+  onAddTrack,
+  onDelete
+}: AlbumActionsMenuProps) {
+  const popoverId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<AlbumMenuPosition>();
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !triggerRef.current?.contains(event.target) &&
+        !popoverRef.current?.contains(event.target)
+      ) {
+        onOpenChange(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onOpenChange(false);
+        triggerRef.current?.focus();
+      }
+    }
+
+    function handleViewportChange() {
+      onOpenChange(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("resize", handleViewportChange);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("scroll", handleViewportChange, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [isOpen, onOpenChange]);
+
+  function toggleMenu() {
+    if (isOpen) {
+      onOpenChange(false);
+      return;
+    }
+
+    const anchorBounds = triggerRef.current?.getBoundingClientRect();
+    if (!anchorBounds) {
+      return;
+    }
+
+    setPosition(getAlbumMenuPosition(anchorBounds));
+    onOpenChange(true);
+  }
+
+  function runAction(action: () => void) {
+    onOpenChange(false);
+    action();
+  }
+
+  return (
+    <>
+      <button
+        className="icon-button album-menu-trigger"
+        ref={triggerRef}
+        type="button"
+        disabled={isDisabled}
+        aria-label={`打开${albumTitle}的更多操作`}
+        aria-controls={popoverId}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        title="更多操作"
+        onClick={toggleMenu}
+      >
+        ⋯
+      </button>
+
+      {isOpen &&
+        position &&
+        createPortal(
+          <div
+            className="album-actions-menu-popover"
+            id={popoverId}
+            ref={popoverRef}
+            role="dialog"
+            aria-label={`${albumTitle}的专辑操作`}
+            data-album-id={albumId}
+            style={{
+              top: position.top,
+              left: position.left,
+              transform: position.openAbove ? "translateY(-100%)" : undefined
+            }}
+          >
+            <div className="album-menu-actions">
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={() => runAction(onEdit)}
+              >
+                编辑专辑
+              </button>
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={() => runAction(onAddTrack)}
+              >
+                添加歌曲
+              </button>
+              {canDelete && (
+                <button
+                  className="album-menu-delete"
+                  type="button"
+                  aria-label={`从目录删除专辑${albumTitle}`}
+                  onClick={() => runAction(onDelete)}
+                >
+                  删除专辑
+                </button>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+function getAlbumMenuPosition(anchorBounds: DOMRect): AlbumMenuPosition {
+  const viewportPadding = 8;
+  const menuGap = 6;
+  const menuWidth = 180;
+  const estimatedMenuHeight = 126;
+  const availableBelow = window.innerHeight - anchorBounds.bottom;
+  const openAbove =
+    availableBelow < estimatedMenuHeight + viewportPadding &&
+    anchorBounds.top >= estimatedMenuHeight + viewportPadding;
+  const maximumLeft = Math.max(
+    viewportPadding,
+    window.innerWidth - menuWidth - viewportPadding
+  );
+
+  return {
+    top: openAbove ? anchorBounds.top - menuGap : anchorBounds.bottom + menuGap,
+    left: Math.min(
+      Math.max(viewportPadding, anchorBounds.right - menuWidth),
+      maximumLeft
+    ),
+    openAbove
+  };
 }
 
 interface TrackRowProps {

@@ -1133,7 +1133,8 @@ button:disabled {
   line-height: 1.2;
 }
 
-.queue-menu-trigger.icon-button {
+.queue-menu-trigger.icon-button,
+.album-menu-trigger.icon-button {
   width: 28px;
   height: 28px;
   flex-basis: 28px;
@@ -1141,7 +1142,8 @@ button:disabled {
   font-size: 18px;
 }
 
-.queue-menu-trigger[aria-expanded="true"] {
+.queue-menu-trigger[aria-expanded="true"],
+.album-menu-trigger[aria-expanded="true"] {
   border-color: var(--border);
   background: #e5f0ec;
   color: var(--accent-strong);
@@ -1156,6 +1158,41 @@ button:disabled {
   background: var(--surface-strong);
   padding: 10px;
   box-shadow: 0 12px 32px rgb(24 32 38 / 18%);
+}
+
+.album-actions-menu-popover {
+  position: fixed;
+  z-index: 100;
+  width: min(180px, calc(100vw - 16px));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  padding: 8px;
+  box-shadow: 0 12px 32px rgb(24 32 38 / 18%);
+}
+
+.album-menu-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.album-menu-actions button {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.album-menu-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #e5f0ec;
+}
+
+.album-menu-actions .album-menu-delete {
+  color: var(--warning);
 }
 
 .repeat-control {

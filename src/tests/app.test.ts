@@ -45,6 +45,19 @@ function findButtonByText(
   );
 }
 
+async function chooseAlbumMenuAction(
+  container: HTMLElement,
+  albumTitle: string,
+  actionText: string
+): Promise<void> {
+  await act(async () => {
+    findButton(container, `打开${albumTitle}的更多操作`)?.click();
+  });
+  await act(async () => {
+    findButtonByText(document.body, actionText)?.click();
+  });
+}
+
 function createDataTransfer(): DataTransfer {
   const values = new Map<string, string>();
 
@@ -1886,9 +1899,7 @@ describe("track creation workflow", () => {
     await act(async () => {
       userAlbumButton?.click();
     });
-    await act(async () => {
-      findButtonByText(container, "添加歌曲")?.click();
-    });
+    await chooseAlbumMenuAction(container, "用户专辑", "添加歌曲");
     await act(async () => {
       changeInputValue(
         container.querySelector<HTMLInputElement>(
@@ -2040,9 +2051,7 @@ describe("track creation workflow", () => {
     await act(async () => {
       userAlbumButton?.click();
     });
-    await act(async () => {
-      findButtonByText(container, "添加歌曲")?.click();
-    });
+    await chooseAlbumMenuAction(container, "用户专辑", "添加歌曲");
 
     const titleInput = container.querySelector<HTMLInputElement>(
       'input[name="track-title"]'
@@ -2345,9 +2354,7 @@ describe("catalog metadata editing workflow", () => {
     await act(async () => {
       userAlbumButton?.click();
     });
-    await act(async () => {
-      findButtonByText(container, "编辑专辑")?.click();
-    });
+    await chooseAlbumMenuAction(container, "用户专辑", "编辑专辑");
 
     expect(findButtonByText(container, "恢复默认")).toBeUndefined();
 
