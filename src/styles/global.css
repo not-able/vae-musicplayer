@@ -85,9 +85,10 @@ a:focus-visible {
 }
 
 .page-shell {
+  --fixed-player-safe-space: 160px;
   min-height: 100vh;
   padding: 24px;
-  padding-bottom: 112px;
+  padding-bottom: calc(24px + var(--fixed-player-safe-space));
 }
 
 .app-header {
@@ -160,9 +161,8 @@ a:focus-visible {
 }
 
 .queue-panel {
-  height: clamp(420px, calc(100vh - 220px), 560px);
-  height: clamp(420px, calc(100dvh - 220px), 560px);
-  align-self: start;
+  min-height: 420px;
+  align-self: stretch;
   overflow: hidden;
 }
 
