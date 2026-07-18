@@ -5,6 +5,8 @@ export type {
   AlbumFieldOverrides,
   AlbumType,
   Artist,
+  CatalogExternalEntityType,
+  CatalogExternalReference,
   CatalogData,
   EntityId,
   ISODateString,

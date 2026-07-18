@@ -1,6 +1,17 @@
 export type EntityId = string;
 export type ISODateString = string;
 
+export type CatalogExternalEntityType = "artist" | "album" | "track";
+
+/**
+ * A provider-owned identifier. It is never used as an internal catalog ID.
+ */
+export interface CatalogExternalReference {
+  providerId: string;
+  entityType: CatalogExternalEntityType;
+  externalId: string;
+}
+
 export interface Artist {
   id: EntityId;
   name: string;
