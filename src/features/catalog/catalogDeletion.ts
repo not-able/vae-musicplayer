@@ -14,7 +14,6 @@ export type CatalogDeletionTarget =
 export interface CatalogDeletionPreview {
   target: CatalogDeletionTarget;
   targetTitle: string;
-  action: "delete" | "hide";
   trackIds: readonly EntityId[];
   trackCount: number;
   playlistItemCount: number;
@@ -81,7 +80,6 @@ export function createCatalogDeletionPlan({
   return {
     target,
     targetTitle: targetEntity.title,
-    action: isDefaultTarget ? "hide" : "delete",
     trackIds: sortedTrackIds,
     trackCount: sortedTrackIds.length,
     playlistItemCount,
@@ -125,14 +123,14 @@ function removeCatalogEntries(
       ])
       .filter(([, addedTrackIds]) => addedTrackIds.length > 0)
   );
-  const hiddenDefaultAlbumIds = new Set(changes.hiddenDefaultAlbumIds);
-  const hiddenDefaultTrackIds = new Set(changes.hiddenDefaultTrackIds);
+  const deletedDefaultAlbumIds = new Set(changes.deletedDefaultAlbumIds);
+  const deletedDefaultTrackIds = new Set(changes.deletedDefaultTrackIds);
 
   if (isDefaultTarget && target.kind === "album" && defaultAlbumIds.has(target.id)) {
-    hiddenDefaultAlbumIds.add(target.id);
+    deletedDefaultAlbumIds.add(target.id);
   }
   if (isDefaultTarget && target.kind === "track" && defaultTrackIds.has(target.id)) {
-    hiddenDefaultTrackIds.add(target.id);
+    deletedDefaultTrackIds.add(target.id);
   }
 
   return {
@@ -142,8 +140,8 @@ function removeCatalogEntries(
     albumOverrides,
     trackOverrides,
     albumTrackIdAdditions,
-    hiddenDefaultAlbumIds: [...hiddenDefaultAlbumIds],
-    hiddenDefaultTrackIds: [...hiddenDefaultTrackIds]
+    deletedDefaultAlbumIds: [...deletedDefaultAlbumIds],
+    deletedDefaultTrackIds: [...deletedDefaultTrackIds]
   };
 }
 

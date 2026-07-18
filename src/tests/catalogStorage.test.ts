@@ -90,8 +90,8 @@ function createCompleteChanges(): UserCatalogChanges {
     albumTrackIdAdditions: {
       album_sample_001: ["track_user_002"]
     },
-    hiddenDefaultAlbumIds: [],
-    hiddenDefaultTrackIds: []
+    deletedDefaultAlbumIds: [],
+    deletedDefaultTrackIds: []
   };
 }
 
@@ -182,6 +182,34 @@ describe("localStorage catalog repository", () => {
 
     expect(JSON.parse(storage.peek(LOCAL_CATALOG_STORAGE_KEY) ?? "null")).toEqual(
       currentChanges
+    );
+  });
+
+  it("migrates legacy hidden-directory records to irreversible local deletions", async () => {
+    const storage = new MemoryStorage();
+    const currentChanges = createCompleteChanges();
+    const legacyChanges = structuredClone(currentChanges) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete legacyChanges.deletedDefaultAlbumIds;
+    delete legacyChanges.deletedDefaultTrackIds;
+    legacyChanges.hiddenDefaultAlbumIds = ["album_sample_001"];
+    legacyChanges.hiddenDefaultTrackIds = ["track_sample_001"];
+    const expectedChanges = {
+      ...currentChanges,
+      deletedDefaultAlbumIds: ["album_sample_001"],
+      deletedDefaultTrackIds: ["track_sample_001"]
+    };
+    storage.setItem(LOCAL_CATALOG_STORAGE_KEY, JSON.stringify(legacyChanges));
+    const repository = createLocalStorageCatalogRepository(storage);
+
+    expect(await repository.load()).toEqual(expectedChanges);
+
+    await repository.save(expectedChanges);
+
+    expect(JSON.parse(storage.peek(LOCAL_CATALOG_STORAGE_KEY) ?? "null")).toEqual(
+      expectedChanges
     );
   });
 

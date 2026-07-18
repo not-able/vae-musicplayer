@@ -28,6 +28,8 @@ const userCatalogChangeKeys = [
   "albumOverrides",
   "trackOverrides",
   "albumTrackIdAdditions",
+  "deletedDefaultAlbumIds",
+  "deletedDefaultTrackIds",
   "hiddenDefaultAlbumIds",
   "hiddenDefaultTrackIds"
 ] as const;
@@ -248,19 +250,33 @@ function decodeUserCatalogChangesV1(
       "用户目录 albumTrackIdAdditions",
       (trackIds, path) => decodeStringArray(trackIds, path)
     ),
-    hiddenDefaultAlbumIds: hasOwn(record, "hiddenDefaultAlbumIds")
-      ? decodeStringArray(
-          record.hiddenDefaultAlbumIds,
-          "用户目录 hiddenDefaultAlbumIds"
-        )
-      : [],
-    hiddenDefaultTrackIds: hasOwn(record, "hiddenDefaultTrackIds")
-      ? decodeStringArray(
-          record.hiddenDefaultTrackIds,
-          "用户目录 hiddenDefaultTrackIds"
-        )
-      : []
+    deletedDefaultAlbumIds: decodeDeletedDefaultIds(record, "album"),
+    deletedDefaultTrackIds: decodeDeletedDefaultIds(record, "track")
   };
+}
+
+function decodeDeletedDefaultIds(
+  record: Record<string, unknown>,
+  entityName: "album" | "track"
+): string[] {
+  const deletedKey = `deletedDefault${capitalize(entityName)}Ids`;
+  const legacyHiddenKey = `hiddenDefault${capitalize(entityName)}Ids`;
+
+  if (hasOwn(record, deletedKey) && hasOwn(record, legacyHiddenKey)) {
+    throw invalidData(`用户目录不能同时包含 ${deletedKey} 与 ${legacyHiddenKey}。`);
+  }
+  if (hasOwn(record, deletedKey)) {
+    return decodeStringArray(record[deletedKey], `用户目录 ${deletedKey}`);
+  }
+  if (hasOwn(record, legacyHiddenKey)) {
+    return decodeStringArray(record[legacyHiddenKey], `用户目录 ${legacyHiddenKey}`);
+  }
+
+  return [];
+}
+
+function capitalize(value: string): string {
+  return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 }
 
 function decodeAlbum(value: unknown, path: string): Album {

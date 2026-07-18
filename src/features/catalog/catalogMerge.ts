@@ -170,7 +170,7 @@ function assertOptionalPositiveInteger(
   }
 }
 
-function getHiddenDefaultIds(
+function getDeletedDefaultIds(
   ids: readonly EntityId[],
   defaultIds: ReadonlySet<EntityId>,
   entityName: string
@@ -179,13 +179,13 @@ function getHiddenDefaultIds(
 
   for (const id of ids) {
     if (typeof id !== "string" || id.trim().length === 0) {
-      throw new Error(`Hidden default ${entityName} IDs must be non-blank strings.`);
+      throw new Error(`Deleted default ${entityName} IDs must be non-blank strings.`);
     }
     if (!defaultIds.has(id)) {
-      throw new Error(`Only built-in ${entityName} records can be hidden: ${id}.`);
+      throw new Error(`Only built-in ${entityName} records can be deleted: ${id}.`);
     }
     if (result.has(id)) {
-      throw new Error(`Hidden default ${entityName} IDs must not repeat: ${id}.`);
+      throw new Error(`Deleted default ${entityName} IDs must not repeat: ${id}.`);
     }
 
     result.add(id);
@@ -277,13 +277,13 @@ export function mergeCatalogChanges(
   ];
   const albumIds = new Set(albums.map((album) => album.id));
   const trackIds = new Set(tracks.map((track) => track.id));
-  const hiddenDefaultAlbumIds = getHiddenDefaultIds(
-    changes.hiddenDefaultAlbumIds,
+  const deletedDefaultAlbumIds = getDeletedDefaultIds(
+    changes.deletedDefaultAlbumIds,
     new Set(defaultCatalog.albums.map((album) => album.id)),
     "album"
   );
-  const hiddenDefaultTrackIds = getHiddenDefaultIds(
-    changes.hiddenDefaultTrackIds,
+  const deletedDefaultTrackIds = getDeletedDefaultIds(
+    changes.deletedDefaultTrackIds,
     new Set(defaultCatalog.tracks.map((track) => track.id)),
     "track"
   );
@@ -308,14 +308,14 @@ export function mergeCatalogChanges(
 
   const visibleAlbumIds = new Set(
     albums
-      .filter((album) => !hiddenDefaultAlbumIds.has(album.id))
+      .filter((album) => !deletedDefaultAlbumIds.has(album.id))
       .map((album) => album.id)
   );
   const visibleTrackIds = new Set(
     tracks
       .filter(
         (track) =>
-          visibleAlbumIds.has(track.albumId) && !hiddenDefaultTrackIds.has(track.id)
+          visibleAlbumIds.has(track.albumId) && !deletedDefaultTrackIds.has(track.id)
       )
       .map((track) => track.id)
   );

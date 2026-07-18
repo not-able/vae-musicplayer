@@ -447,8 +447,8 @@ describe("user catalog mutations", () => {
       albumOverrides: {},
       trackOverrides: {},
       albumTrackIdAdditions: {},
-      hiddenDefaultAlbumIds: [],
-      hiddenDefaultTrackIds: []
+      deletedDefaultAlbumIds: [],
+      deletedDefaultTrackIds: []
     });
     expect(nextChanges.addedAlbums).toEqual([
       {

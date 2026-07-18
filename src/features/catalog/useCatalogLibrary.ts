@@ -9,7 +9,6 @@ import {
   patchTrackInUserCatalog,
   resetAlbumInUserCatalog,
   resetTrackInUserCatalog,
-  restoreHiddenDefaultCatalog as restoreHiddenDefaultCatalogMutation,
   type CatalogAlbumPatch,
   type CatalogEntityIdFactory
 } from "./catalogMutations";
@@ -63,7 +62,6 @@ export interface CatalogLibrary {
   isSavingTrack: boolean;
   resettableAlbumIds: ReadonlySet<EntityId>;
   resettableTrackIds: ReadonlySet<EntityId>;
-  hiddenDefaultEntityCount: number;
   createAlbum: (draft: CatalogAlbumDraft) => Promise<CatalogAlbumCreationResult>;
   createTrack: (
     albumId: EntityId,
@@ -79,7 +77,6 @@ export interface CatalogLibrary {
   ) => Promise<CatalogMutationResult>;
   resetAlbum: (albumId: EntityId) => Promise<CatalogMutationResult>;
   resetTrack: (trackId: EntityId) => Promise<CatalogMutationResult>;
-  restoreHiddenDefaultCatalog: () => Promise<CatalogMutationResult>;
   applyPersistedChanges: (changes: UserCatalogChanges) => void;
 }
 
@@ -635,36 +632,6 @@ export function useCatalogLibrary(
     [activeResult, defaultCatalog, saveChanges]
   );
 
-  const restoreHiddenDefaultCatalog =
-    useCallback(async (): Promise<CatalogMutationResult> => {
-      if (saveInProgress.current) {
-        return {
-          ok: false,
-          code: "busy",
-          errorMessage: "正在保存其他目录修改，请稍后再试。"
-        };
-      }
-      if (activeResult?.state.status !== "ready") {
-        return {
-          ok: false,
-          code: "not_ready",
-          errorMessage: "用户目录尚未准备好，请稍后再试。"
-        };
-      }
-
-      const sourceToken = activeResult.sourceToken;
-      const currentChanges = activeResult.state.changes;
-      const result = await saveChanges(
-        "album",
-        sourceToken,
-        currentChanges,
-        () => restoreHiddenDefaultCatalogMutation(currentChanges),
-        "恢复隐藏的内置目录失败，请检查浏览器存储权限后重试。"
-      );
-
-      return result.ok ? { ok: true } : result;
-    }, [activeResult, saveChanges]);
-
   const applyPersistedChanges = useCallback(
     (changes: UserCatalogChanges) => {
       if (activeResult?.state.status !== "ready") {
@@ -726,18 +693,12 @@ export function useCatalogLibrary(
       isSavingTrack: saveOperation === "track",
       resettableAlbumIds,
       resettableTrackIds,
-      hiddenDefaultEntityCount:
-        activeResult.state.status === "ready"
-          ? activeResult.state.changes.hiddenDefaultAlbumIds.length +
-            activeResult.state.changes.hiddenDefaultTrackIds.length
-          : 0,
       createAlbum,
       createTrack,
       updateAlbum,
       updateTrack,
       resetAlbum,
       resetTrack,
-      restoreHiddenDefaultCatalog,
       applyPersistedChanges
     };
   }
@@ -749,14 +710,12 @@ export function useCatalogLibrary(
     isSavingTrack: saveOperation === "track",
     resettableAlbumIds: new Set<EntityId>(),
     resettableTrackIds: new Set<EntityId>(),
-    hiddenDefaultEntityCount: 0,
     createAlbum,
     createTrack,
     updateAlbum,
     updateTrack,
     resetAlbum,
     resetTrack,
-    restoreHiddenDefaultCatalog,
     applyPersistedChanges
   };
 }

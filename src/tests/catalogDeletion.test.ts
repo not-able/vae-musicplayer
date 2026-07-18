@@ -17,8 +17,7 @@ import { mergeCatalogChanges } from "../features/catalog/catalogMerge";
 import {
   addAlbumToUserCatalog,
   addTrackToUserCatalog,
-  createEmptyUserCatalogChanges,
-  restoreHiddenDefaultCatalog
+  createEmptyUserCatalogChanges
 } from "../features/catalog/catalogMutations";
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
@@ -106,7 +105,6 @@ describe("catalog deletion plans", () => {
       updatedAt: timestamp
     });
 
-    expect(plan.action).toBe("delete");
     expect(plan.trackIds).toEqual(["track_user_delete"]);
     expect(plan.trackCount).toBe(1);
     expect(plan.playlistItemCount).toBe(2);
@@ -121,7 +119,7 @@ describe("catalog deletion plans", () => {
     ).toBe(false);
   });
 
-  it("hides a built-in album locally, clears its user additions, and restores only default metadata", () => {
+  it("deletes a built-in album locally and clears its user additions without a restore path", () => {
     const changes = addTrackToUserCatalog(
       mockCatalog,
       createEmptyUserCatalogChanges(),
@@ -146,9 +144,10 @@ describe("catalog deletion plans", () => {
       updatedAt: timestamp
     });
 
-    expect(plan.action).toBe("hide");
     expect(plan.trackCount).toBe(3);
-    expect(plan.nextCatalogChanges.hiddenDefaultAlbumIds).toEqual(["album_sample_001"]);
+    expect(plan.nextCatalogChanges.deletedDefaultAlbumIds).toEqual([
+      "album_sample_001"
+    ]);
     expect(plan.nextCatalogChanges.addedTracks).toEqual([]);
     expect(
       mergeCatalogChanges(mockCatalog, plan.nextCatalogChanges).albums.some(
@@ -156,16 +155,10 @@ describe("catalog deletion plans", () => {
       )
     ).toBe(false);
 
-    const restoredCatalog = mergeCatalogChanges(
-      mockCatalog,
-      restoreHiddenDefaultCatalog(plan.nextCatalogChanges)
-    );
-
     expect(
-      restoredCatalog.albums.find((album) => album.id === "album_sample_001")?.trackIds
-    ).toEqual(["track_sample_001", "track_sample_002"]);
-    expect(
-      restoredCatalog.tracks.some((track) => track.id === "track_user_added_to_default")
+      mergeCatalogChanges(mockCatalog, plan.nextCatalogChanges).tracks.some(
+        (track) => track.id === "track_user_added_to_default"
+      )
     ).toBe(false);
   });
 });

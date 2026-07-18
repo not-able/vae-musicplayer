@@ -247,13 +247,11 @@ export function App({
             onUpdateTrack={catalogLibrary.updateTrack}
             onResetAlbum={catalogLibrary.resetAlbum}
             onResetTrack={catalogLibrary.resetTrack}
-            hiddenDefaultEntityCount={catalogLibrary.hiddenDefaultEntityCount}
             canDelete={catalogDeletion.canDelete}
             isDeleting={catalogDeletion.isDeleting}
             deletionError={catalogDeletion.errorMessage}
             onPreviewDeletion={catalogDeletion.previewDeletion}
             onDeleteCatalogTarget={catalogDeletion.deleteTarget}
-            onRestoreHiddenDefaults={catalogLibrary.restoreHiddenDefaultCatalog}
             onBindAudio={localAudioLibrary.bindAudioFile}
             onUnbindAudio={localAudioLibrary.unbindAudioFile}
           />
