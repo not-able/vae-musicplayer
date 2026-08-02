@@ -1,9 +1,18 @@
 import {
   isLocalAudioDirectoryId,
-  type LocalAudioBinding,
+  type LocalAudioAvailability,
   type LocalAudioBindingId,
   type LocalAudioTrackId
 } from "../../src/types/localAudioBinding";
+import type { LocalDirectoryCandidateIssueCode } from "../../src/features/local-library/localDirectoryEntryScanner";
+
+declare const desktopAudioCandidateIdBrand: unique symbol;
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export type DesktopAudioCandidateId = string & {
+  readonly [desktopAudioCandidateIdBrand]: "DesktopAudioCandidateId";
+};
 
 export type DesktopMusicLibraryErrorCode =
   | "binding_conflict"
@@ -12,6 +21,7 @@ export type DesktopMusicLibraryErrorCode =
   | "binding_store_read_failed"
   | "binding_store_schema_unsupported"
   | "binding_store_write_failed"
+  | "candidate_unavailable"
   | "directory_missing"
   | "directory_unreadable"
   | "invalid_request"
@@ -24,12 +34,19 @@ export type DesktopMusicLibraryErrorCode =
 
 export type MusicDirectoryAvailability = "available" | "missing" | "unreadable";
 
-export interface SelectedMusicDirectory {
+export interface RegisteredMusicDirectory {
   directoryId: string;
   displayName: string;
   displayPath: string;
   selectedAt: string;
   availability: MusicDirectoryAvailability;
+}
+
+export interface DesktopMusicDirectorySummary {
+  readonly directoryId: string;
+  readonly displayName: string;
+  readonly selectedAt: string;
+  readonly availability: MusicDirectoryAvailability;
 }
 
 export interface ScanMusicDirectoryRequest {
@@ -53,7 +70,7 @@ export interface DesktopScannedAudioFile {
   artistName?: string;
   trackTitle?: string;
   parseStatus: "parsed" | "needs_review";
-  issues: readonly string[];
+  issues: readonly LocalDirectoryCandidateIssueCode[];
 }
 
 export type DesktopDirectoryScanErrorCode =
@@ -76,6 +93,34 @@ export interface DesktopMusicDirectoryScanResult {
   errors: readonly DesktopDirectoryScanError[];
 }
 
+export interface DesktopScannedAudioCandidatePreview {
+  readonly candidateId: DesktopAudioCandidateId;
+  readonly fileName: string;
+  readonly fileExtension: DesktopAudioFileExtension;
+  readonly fileSize: number;
+  readonly modifiedAt: number;
+  readonly albumTitle?: string;
+  readonly artistName?: string;
+  readonly trackTitle?: string;
+  readonly parseStatus: "parsed" | "needs_review";
+  readonly issues: readonly LocalDirectoryCandidateIssueCode[];
+}
+
+export interface DesktopDirectoryScanIssuePreview {
+  readonly code: DesktopDirectoryScanErrorCode;
+  readonly message: string;
+}
+
+export interface DesktopMusicDirectoryScanPreviewResult {
+  readonly scannedAt: string;
+  readonly totalFileCount: number;
+  readonly supportedFileCount: number;
+  readonly ignoredFileCount: number;
+  readonly errorCount: number;
+  readonly candidates: readonly DesktopScannedAudioCandidatePreview[];
+  readonly errors: readonly DesktopDirectoryScanIssuePreview[];
+}
+
 export interface LocalAudioBindingIdRequest {
   readonly bindingId: LocalAudioBindingId;
 }
@@ -84,30 +129,51 @@ export interface LocalAudioTrackIdRequest {
   readonly trackId: LocalAudioTrackId;
 }
 
-export interface SaveLocalAudioBindingRequest {
-  readonly binding: LocalAudioBinding;
+export interface BindCandidateToTrackRequest {
+  readonly candidateId: DesktopAudioCandidateId;
+  readonly trackId: LocalAudioTrackId;
+  readonly expectedExistingBindingId?: LocalAudioBindingId;
+}
+
+export interface UnbindLocalAudioTrackRequest {
+  readonly trackId: LocalAudioTrackId;
+  readonly expectedBindingId: LocalAudioBindingId;
+}
+
+export interface DesktopLocalAudioBindingSummary {
+  readonly bindingId: LocalAudioBindingId;
+  readonly trackId: LocalAudioTrackId;
+  readonly fileName: string;
+  readonly fileSize?: number;
+  readonly modifiedAt?: number;
+  readonly availability: LocalAudioAvailability;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface DesktopLocalAudioBindingApi {
-  list(): Promise<readonly LocalAudioBinding[]>;
+  list(): Promise<readonly DesktopLocalAudioBindingSummary[]>;
   findByBindingId(
     request: LocalAudioBindingIdRequest
-  ): Promise<LocalAudioBinding | undefined>;
+  ): Promise<DesktopLocalAudioBindingSummary | undefined>;
   findByTrackId(
     request: LocalAudioTrackIdRequest
-  ): Promise<LocalAudioBinding | undefined>;
-  save(request: SaveLocalAudioBindingRequest): Promise<void>;
-  removeByBindingId(request: LocalAudioBindingIdRequest): Promise<boolean>;
-  removeByTrackId(request: LocalAudioTrackIdRequest): Promise<boolean>;
+  ): Promise<DesktopLocalAudioBindingSummary | undefined>;
+  bindCandidateToTrack(
+    request: BindCandidateToTrackRequest
+  ): Promise<DesktopLocalAudioBindingSummary>;
+  unbindTrack(
+    request: UnbindLocalAudioTrackRequest
+  ): Promise<DesktopLocalAudioBindingSummary>;
 }
 
 export interface DesktopMusicLibraryApi {
   readonly bindings: DesktopLocalAudioBindingApi;
-  selectDirectory(): Promise<SelectedMusicDirectory | null>;
-  listDirectories(): Promise<readonly SelectedMusicDirectory[]>;
+  selectDirectory(): Promise<DesktopMusicDirectorySummary | null>;
+  listDirectories(): Promise<readonly DesktopMusicDirectorySummary[]>;
   scanDirectory(
     request: ScanMusicDirectoryRequest
-  ): Promise<DesktopMusicDirectoryScanResult>;
+  ): Promise<DesktopMusicDirectoryScanPreviewResult>;
   forgetDirectory(directoryId: string): Promise<void>;
 }
 
@@ -121,4 +187,10 @@ export type DesktopIpcResult<T> =
 
 export function isValidMusicDirectoryId(value: unknown): value is string {
   return isLocalAudioDirectoryId(value);
+}
+
+export function isDesktopAudioCandidateId(
+  value: unknown
+): value is DesktopAudioCandidateId {
+  return typeof value === "string" && UUID_V4_PATTERN.test(value);
 }

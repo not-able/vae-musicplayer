@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  DesktopMusicDirectoryScanResult,
-  SelectedMusicDirectory
+  DesktopMusicDirectoryScanPreviewResult,
+  DesktopMusicDirectorySummary
 } from "../../electron/music-library/types";
 import { DesktopLocalDirectoryPreview } from "../features/local-library/DesktopLocalDirectoryPreview";
 import type { DesktopDirectoryScanApi } from "../features/local-library/desktopDirectoryScanApi";
@@ -17,10 +17,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function createScanResult(fileName = "sample.mp3"): DesktopMusicDirectoryScanResult {
-  const relativePath = `album/${fileName}`;
+function createScanResult(
+  fileName = "sample.mp3"
+): DesktopMusicDirectoryScanPreviewResult {
+  const candidateId = fileName.startsWith("second")
+    ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   return {
-    directoryId: DIRECTORY_ID,
     scannedAt: "2026-08-02T00:00:00.000Z",
     totalFileCount: 1,
     supportedFileCount: 1,
@@ -28,9 +31,9 @@ function createScanResult(fileName = "sample.mp3"): DesktopMusicDirectoryScanRes
     errorCount: 0,
     candidates: [
       {
-        sourceRef: { directoryId: DIRECTORY_ID, relativePath },
+        candidateId:
+          candidateId as DesktopMusicDirectoryScanPreviewResult["candidates"][number]["candidateId"],
         fileName,
-        relativePath,
         fileExtension: "mp3",
         fileSize: 2048,
         modifiedAt: 1_765_000_000_000,
@@ -53,7 +56,6 @@ function createApi(
       {
         directoryId: DIRECTORY_ID,
         displayName: "测试音乐库",
-        displayPath: "C:\\private\\music",
         selectedAt: "2026-08-02T00:00:00.000Z",
         availability: "available" as const
       }
@@ -124,8 +126,8 @@ function findButton(container: HTMLElement, text: string): HTMLButtonElement {
 
 describe("DesktopLocalDirectoryPreview", () => {
   it("shows loading and unavailable-directory states without attempting a scan", async () => {
-    let resolveDirectories!: (value: readonly SelectedMusicDirectory[]) => void;
-    const directoriesPromise = new Promise<readonly SelectedMusicDirectory[]>(
+    let resolveDirectories!: (value: readonly DesktopMusicDirectorySummary[]) => void;
+    const directoriesPromise = new Promise<readonly DesktopMusicDirectorySummary[]>(
       (resolve) => {
         resolveDirectories = resolve;
       }
@@ -147,7 +149,6 @@ describe("DesktopLocalDirectoryPreview", () => {
       {
         directoryId: DIRECTORY_ID,
         displayName: "测试音乐库",
-        displayPath: "C:\\private\\music",
         selectedAt: "2026-08-02T00:00:00.000Z",
         availability: "missing"
       }
@@ -156,7 +157,6 @@ describe("DesktopLocalDirectoryPreview", () => {
 
     expect(findButton(container, "扫描所选目录").disabled).toBe(true);
     expect(api.scanDirectory).not.toHaveBeenCalled();
-    expect(container.textContent).not.toContain("C:\\private\\music");
 
     await act(async () => root.unmount());
   });
@@ -167,7 +167,6 @@ describe("DesktopLocalDirectoryPreview", () => {
       selectDirectory: vi.fn(async () => ({
         directoryId: DIRECTORY_ID,
         displayName: "新音乐库",
-        displayPath: "C:\\private\\new-music",
         selectedAt: "2026-08-02T00:00:00.000Z",
         availability: "available" as const
       }))
@@ -180,7 +179,6 @@ describe("DesktopLocalDirectoryPreview", () => {
     await waitForText(container, "新音乐库");
 
     expect(api.selectDirectory).toHaveBeenCalledTimes(1);
-    expect(container.textContent).not.toContain("C:\\private\\new-music");
     expect(findButton(container, "扫描所选目录").disabled).toBe(false);
 
     await act(async () => root.unmount());
@@ -191,7 +189,6 @@ describe("DesktopLocalDirectoryPreview", () => {
     const { container, root } = await renderPreview(api);
 
     expect(container.textContent).toContain("测试音乐库");
-    expect(container.textContent).not.toContain("C:\\private\\music");
 
     await act(async () => {
       findButton(container, "扫描所选目录").click();
@@ -200,7 +197,7 @@ describe("DesktopLocalDirectoryPreview", () => {
 
     expect(api.scanDirectory).toHaveBeenCalledWith({ directoryId: DIRECTORY_ID });
     expect(container.textContent).toContain("sample.mp3");
-    expect(container.textContent).toContain("album/sample.mp3");
+    expect(container.textContent).not.toContain("album/sample.mp3");
     expect(container.textContent).toContain("2.0 KB");
     expect(container.textContent).toContain("Sample Track");
     expect(container.textContent).toContain("Sample Album");

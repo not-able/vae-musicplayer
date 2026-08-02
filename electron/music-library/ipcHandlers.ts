@@ -1,65 +1,66 @@
 import {
-  isDesktopAudioSourceRef,
   isLocalAudioBindingId,
-  isLocalAudioBindingSerializable,
-  isLocalAudioTrackId,
-  type LocalAudioBinding
+  isLocalAudioTrackId
 } from "../../src/types/localAudioBinding";
 import { MusicLibraryError, toMusicLibraryError } from "./errors";
 import type { DesktopMusicLibraryService } from "./musicLibraryService";
 import {
+  isDesktopAudioCandidateId,
   isValidMusicDirectoryId,
+  type BindCandidateToTrackRequest,
   type DesktopIpcResult,
-  type DesktopMusicDirectoryScanResult,
+  type DesktopLocalAudioBindingSummary,
+  type DesktopMusicDirectoryScanPreviewResult,
+  type DesktopMusicDirectorySummary,
   type LocalAudioBindingIdRequest,
   type LocalAudioTrackIdRequest,
-  type SaveLocalAudioBindingRequest,
-  type SelectedMusicDirectory
+  type UnbindLocalAudioTrackRequest
 } from "./types";
 
 type TrustedSenderCheck = (senderUrl: string) => boolean;
 
+export interface MusicLibraryIpcSender {
+  readonly webContentsId: number;
+  readonly url: string;
+}
+
 export interface MusicLibraryIpcHandlers {
   selectDirectory(
-    senderUrl: string,
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<SelectedMusicDirectory | null>>;
+  ): Promise<DesktopIpcResult<DesktopMusicDirectorySummary | null>>;
   listDirectories(
-    senderUrl: string,
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<readonly SelectedMusicDirectory[]>>;
+  ): Promise<DesktopIpcResult<readonly DesktopMusicDirectorySummary[]>>;
   scanDirectory(
-    senderUrl: string,
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<DesktopMusicDirectoryScanResult>>;
+  ): Promise<DesktopIpcResult<DesktopMusicDirectoryScanPreviewResult>>;
   forgetDirectory(
-    senderUrl: string,
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
   ): Promise<DesktopIpcResult<void>>;
   listLocalAudioBindings(
-    senderUrl: string,
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<readonly LocalAudioBinding[]>>;
+  ): Promise<DesktopIpcResult<readonly DesktopLocalAudioBindingSummary[]>>;
   findLocalAudioBindingByBindingId(
-    senderUrl: string,
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<LocalAudioBinding | undefined>>;
+  ): Promise<DesktopIpcResult<DesktopLocalAudioBindingSummary | undefined>>;
   findLocalAudioBindingByTrackId(
-    senderUrl: string,
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<LocalAudioBinding | undefined>>;
-  saveLocalAudioBinding(
-    senderUrl: string,
+  ): Promise<DesktopIpcResult<DesktopLocalAudioBindingSummary | undefined>>;
+  bindCandidateToTrack(
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<void>>;
-  removeLocalAudioBindingByBindingId(
-    senderUrl: string,
+  ): Promise<DesktopIpcResult<DesktopLocalAudioBindingSummary>>;
+  unbindTrack(
+    sender: MusicLibraryIpcSender,
     args: readonly unknown[]
-  ): Promise<DesktopIpcResult<boolean>>;
-  removeLocalAudioBindingByTrackId(
-    senderUrl: string,
-    args: readonly unknown[]
-  ): Promise<DesktopIpcResult<boolean>>;
+  ): Promise<DesktopIpcResult<DesktopLocalAudioBindingSummary>>;
 }
 
 export function createMusicLibraryIpcHandlers(
@@ -67,74 +68,62 @@ export function createMusicLibraryIpcHandlers(
   isTrustedSender: TrustedSenderCheck
 ): MusicLibraryIpcHandlers {
   return {
-    selectDirectory: (senderUrl, args) =>
-      execute(senderUrl, args, isTrustedSender, validateNoArguments, () =>
+    selectDirectory: (sender, args) =>
+      execute(sender, args, isTrustedSender, validateNoArguments, () =>
         service.selectDirectory()
       ),
-    listDirectories: (senderUrl, args) =>
-      execute(senderUrl, args, isTrustedSender, validateNoArguments, () =>
+    listDirectories: (sender, args) =>
+      execute(sender, args, isTrustedSender, validateNoArguments, () =>
         service.listDirectories()
       ),
-    scanDirectory: (senderUrl, args) =>
-      execute(senderUrl, args, isTrustedSender, validateScanRequest, (directoryId) =>
-        service.scanDirectory(directoryId)
+    scanDirectory: (sender, args) =>
+      execute(sender, args, isTrustedSender, validateScanRequest, (directoryId) =>
+        service.scanDirectory(sender.webContentsId, directoryId)
       ),
-    forgetDirectory: (senderUrl, args) =>
+    forgetDirectory: (sender, args) =>
       execute(
-        senderUrl,
+        sender,
         args,
         isTrustedSender,
         validateDirectoryIdArgument,
         (directoryId) => service.forgetDirectory(directoryId)
       ),
-    listLocalAudioBindings: (senderUrl, args) =>
-      execute(senderUrl, args, isTrustedSender, validateNoArguments, () =>
+    listLocalAudioBindings: (sender, args) =>
+      execute(sender, args, isTrustedSender, validateNoArguments, () =>
         service.listLocalAudioBindings()
       ),
-    findLocalAudioBindingByBindingId: (senderUrl, args) =>
+    findLocalAudioBindingByBindingId: (sender, args) =>
       execute(
-        senderUrl,
+        sender,
         args,
         isTrustedSender,
         validateBindingIdRequest,
         ({ bindingId }) => service.findLocalAudioBindingByBindingId(bindingId)
       ),
-    findLocalAudioBindingByTrackId: (senderUrl, args) =>
-      execute(senderUrl, args, isTrustedSender, validateTrackIdRequest, ({ trackId }) =>
+    findLocalAudioBindingByTrackId: (sender, args) =>
+      execute(sender, args, isTrustedSender, validateTrackIdRequest, ({ trackId }) =>
         service.findLocalAudioBindingByTrackId(trackId)
       ),
-    saveLocalAudioBinding: (senderUrl, args) =>
-      execute(
-        senderUrl,
-        args,
-        isTrustedSender,
-        validateSaveBindingRequest,
-        ({ binding }) => service.saveLocalAudioBinding(binding)
+    bindCandidateToTrack: (sender, args) =>
+      execute(sender, args, isTrustedSender, validateBindCandidateRequest, (request) =>
+        service.bindCandidateToTrack(sender.webContentsId, request)
       ),
-    removeLocalAudioBindingByBindingId: (senderUrl, args) =>
-      execute(
-        senderUrl,
-        args,
-        isTrustedSender,
-        validateBindingIdRequest,
-        ({ bindingId }) => service.removeLocalAudioBindingByBindingId(bindingId)
-      ),
-    removeLocalAudioBindingByTrackId: (senderUrl, args) =>
-      execute(senderUrl, args, isTrustedSender, validateTrackIdRequest, ({ trackId }) =>
-        service.removeLocalAudioBindingByTrackId(trackId)
+    unbindTrack: (sender, args) =>
+      execute(sender, args, isTrustedSender, validateUnbindTrackRequest, (request) =>
+        service.unbindTrack(request)
       )
   };
 }
 
 async function execute<TArgument, TResult>(
-  senderUrl: string,
+  sender: MusicLibraryIpcSender,
   args: readonly unknown[],
   isTrustedSender: TrustedSenderCheck,
   validate: (args: readonly unknown[]) => TArgument,
   operation: (argument: TArgument) => Promise<TResult>
 ): Promise<DesktopIpcResult<TResult>> {
   try {
-    if (!isTrustedSender(senderUrl)) {
+    if (!isTrustedSender(sender.url)) {
       throw new MusicLibraryError(
         "untrusted_sender",
         "已拒绝来自非受信 Renderer 的本地音乐库请求。"
@@ -164,16 +153,10 @@ function validateNoArguments(args: readonly unknown[]): undefined {
 }
 
 function validateScanRequest(args: readonly unknown[]): string {
-  if (args.length !== 1 || !isRecord(args[0])) {
-    throwInvalidRequest();
-  }
-
-  const request = args[0];
-  const keys = Object.keys(request);
+  const request = readSingleRecordArgument(args);
 
   if (
-    keys.length !== 1 ||
-    keys[0] !== "directoryId" ||
+    !hasExactlyKeys(request, ["directoryId"]) ||
     !isValidMusicDirectoryId(request.directoryId)
   ) {
     throwInvalidRequest();
@@ -215,20 +198,58 @@ function validateTrackIdRequest(args: readonly unknown[]): LocalAudioTrackIdRequ
   return { trackId: request.trackId };
 }
 
-function validateSaveBindingRequest(
+function validateBindCandidateRequest(
   args: readonly unknown[]
-): SaveLocalAudioBindingRequest {
+): BindCandidateToTrackRequest {
   const request = readSingleRecordArgument(args);
+  const hasExpectedBindingId = Object.hasOwn(request, "expectedExistingBindingId");
+  const expectedKeys = hasExpectedBindingId
+    ? ["candidateId", "trackId", "expectedExistingBindingId"]
+    : ["candidateId", "trackId"];
 
   if (
-    !hasExactlyKeys(request, ["binding"]) ||
-    !isLocalAudioBindingSerializable(request.binding) ||
-    !isDesktopAudioSourceRef(request.binding.source)
+    !hasExactlyKeys(request, expectedKeys) ||
+    !isDesktopAudioCandidateId(request.candidateId) ||
+    !isLocalAudioTrackId(request.trackId)
   ) {
     throwInvalidRequest();
   }
 
-  return { binding: request.binding };
+  if (hasExpectedBindingId) {
+    if (!isLocalAudioBindingId(request.expectedExistingBindingId)) {
+      throwInvalidRequest();
+    }
+
+    return {
+      candidateId: request.candidateId,
+      trackId: request.trackId,
+      expectedExistingBindingId: request.expectedExistingBindingId
+    };
+  }
+
+  return {
+    candidateId: request.candidateId,
+    trackId: request.trackId
+  };
+}
+
+function validateUnbindTrackRequest(
+  args: readonly unknown[]
+): UnbindLocalAudioTrackRequest {
+  const request = readSingleRecordArgument(args);
+
+  if (
+    !hasExactlyKeys(request, ["trackId", "expectedBindingId"]) ||
+    !isLocalAudioTrackId(request.trackId) ||
+    !isLocalAudioBindingId(request.expectedBindingId)
+  ) {
+    throwInvalidRequest();
+  }
+
+  return {
+    trackId: request.trackId,
+    expectedBindingId: request.expectedBindingId
+  };
 }
 
 function readSingleRecordArgument(args: readonly unknown[]): Record<string, unknown> {

@@ -99,9 +99,8 @@ async function logDevelopmentSecurityProbe(window: BrowserWindow): Promise<void>
           listType: typeof globalThis.desktop?.musicLibrary?.bindings?.list,
           findByBindingIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.findByBindingId,
           findByTrackIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.findByTrackId,
-          saveType: typeof globalThis.desktop?.musicLibrary?.bindings?.save,
-          removeByBindingIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.removeByBindingId,
-          removeByTrackIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.removeByTrackId
+          bindCandidateToTrackType: typeof globalThis.desktop?.musicLibrary?.bindings?.bindCandidateToTrack,
+          unbindTrackType: typeof globalThis.desktop?.musicLibrary?.bindings?.unbindTrack
         }
       },
       documentReadyState: globalThis.document.readyState,

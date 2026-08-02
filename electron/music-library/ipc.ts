@@ -7,6 +7,7 @@ import type { DesktopMusicLibraryService } from "./musicLibraryService";
 type TrustedSenderCheck = (senderUrl: string) => boolean;
 
 let areHandlersRegistered = false;
+const trackedCandidateOwners = new WeakSet<Electron.WebContents>();
 
 export function registerMusicLibraryIpcHandlers(
   service: DesktopMusicLibraryService,
@@ -18,42 +19,36 @@ export function registerMusicLibraryIpcHandlers(
 
   const handlers = createMusicLibraryIpcHandlers(service, isTrustedSender);
   ipcMain.handle(IPC_CHANNELS.selectMusicDirectory, (event, ...args: unknown[]) =>
-    handlers.selectDirectory(getSenderUrl(event), args)
+    handlers.selectDirectory(getSender(event), args)
   );
   ipcMain.handle(IPC_CHANNELS.listMusicDirectories, (event, ...args: unknown[]) =>
-    handlers.listDirectories(getSenderUrl(event), args)
+    handlers.listDirectories(getSender(event), args)
   );
-  ipcMain.handle(IPC_CHANNELS.scanMusicDirectory, (event, ...args: unknown[]) =>
-    handlers.scanDirectory(getSenderUrl(event), args)
-  );
+  ipcMain.handle(IPC_CHANNELS.scanMusicDirectory, (event, ...args: unknown[]) => {
+    trackCandidateOwner(event.sender, service);
+    return handlers.scanDirectory(getSender(event), args);
+  });
   ipcMain.handle(IPC_CHANNELS.forgetMusicDirectory, (event, ...args: unknown[]) =>
-    handlers.forgetDirectory(getSenderUrl(event), args)
+    handlers.forgetDirectory(getSender(event), args)
   );
   ipcMain.handle(IPC_CHANNELS.listLocalAudioBindings, (event, ...args: unknown[]) =>
-    handlers.listLocalAudioBindings(getSenderUrl(event), args)
+    handlers.listLocalAudioBindings(getSender(event), args)
   );
   ipcMain.handle(
     IPC_CHANNELS.findLocalAudioBindingByBindingId,
     (event, ...args: unknown[]) =>
-      handlers.findLocalAudioBindingByBindingId(getSenderUrl(event), args)
+      handlers.findLocalAudioBindingByBindingId(getSender(event), args)
   );
   ipcMain.handle(
     IPC_CHANNELS.findLocalAudioBindingByTrackId,
     (event, ...args: unknown[]) =>
-      handlers.findLocalAudioBindingByTrackId(getSenderUrl(event), args)
+      handlers.findLocalAudioBindingByTrackId(getSender(event), args)
   );
-  ipcMain.handle(IPC_CHANNELS.saveLocalAudioBinding, (event, ...args: unknown[]) =>
-    handlers.saveLocalAudioBinding(getSenderUrl(event), args)
+  ipcMain.handle(IPC_CHANNELS.bindCandidateToTrack, (event, ...args: unknown[]) =>
+    handlers.bindCandidateToTrack(getSender(event), args)
   );
-  ipcMain.handle(
-    IPC_CHANNELS.removeLocalAudioBindingByBindingId,
-    (event, ...args: unknown[]) =>
-      handlers.removeLocalAudioBindingByBindingId(getSenderUrl(event), args)
-  );
-  ipcMain.handle(
-    IPC_CHANNELS.removeLocalAudioBindingByTrackId,
-    (event, ...args: unknown[]) =>
-      handlers.removeLocalAudioBindingByTrackId(getSenderUrl(event), args)
+  ipcMain.handle(IPC_CHANNELS.unbindLocalAudioTrack, (event, ...args: unknown[]) =>
+    handlers.unbindTrack(getSender(event), args)
   );
   areHandlersRegistered = true;
 }
@@ -70,12 +65,29 @@ export function unregisterMusicLibraryIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.listLocalAudioBindings);
   ipcMain.removeHandler(IPC_CHANNELS.findLocalAudioBindingByBindingId);
   ipcMain.removeHandler(IPC_CHANNELS.findLocalAudioBindingByTrackId);
-  ipcMain.removeHandler(IPC_CHANNELS.saveLocalAudioBinding);
-  ipcMain.removeHandler(IPC_CHANNELS.removeLocalAudioBindingByBindingId);
-  ipcMain.removeHandler(IPC_CHANNELS.removeLocalAudioBindingByTrackId);
+  ipcMain.removeHandler(IPC_CHANNELS.bindCandidateToTrack);
+  ipcMain.removeHandler(IPC_CHANNELS.unbindLocalAudioTrack);
   areHandlersRegistered = false;
 }
 
-function getSenderUrl(event: Electron.IpcMainInvokeEvent): string {
-  return event.senderFrame?.url ?? event.sender.getURL();
+function getSender(event: Electron.IpcMainInvokeEvent) {
+  return {
+    webContentsId: event.sender.id,
+    url: event.senderFrame?.url ?? event.sender.getURL()
+  };
+}
+
+function trackCandidateOwner(
+  sender: Electron.WebContents,
+  service: DesktopMusicLibraryService
+): void {
+  if (trackedCandidateOwners.has(sender)) {
+    return;
+  }
+
+  trackedCandidateOwners.add(sender);
+  const ownerId = sender.id;
+  sender.once("destroyed", () => {
+    service.invalidateCandidatesForOwner(ownerId);
+  });
 }

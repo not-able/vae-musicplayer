@@ -236,10 +236,9 @@ function DesktopScanPreviewTable({
             </thead>
             <tbody>
               {preview.candidates.map((candidate) => (
-                <tr key={candidate.candidateKey}>
+                <tr key={candidate.candidateId}>
                   <td>
                     <strong>{candidate.fileName}</strong>
-                    <span>{candidate.relativePath}</span>
                     <span>{candidate.fileExtension.toUpperCase()}</span>
                   </td>
                   <td>
@@ -275,10 +274,7 @@ function DesktopScanPreviewTable({
           <strong>扫描问题</strong>
           <ul className="desktop-directory-error-list">
             {preview.errors.map((issue, index) => (
-              <li key={`${issue.relativePath ?? "directory"}:${issue.code}:${index}`}>
-                {issue.relativePath ? `${issue.relativePath}：` : ""}
-                {issue.message}
-              </li>
+              <li key={`${issue.code}:${index}`}>{issue.message}</li>
             ))}
           </ul>
         </div>

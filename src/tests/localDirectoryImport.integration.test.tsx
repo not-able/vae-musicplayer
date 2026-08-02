@@ -126,7 +126,7 @@ afterEach(() => {
 describe("local directory import integration", () => {
   it("uses the desktop scan preview branch without invoking binding writes", async () => {
     const listDirectories = vi.fn(async () => []);
-    const saveBinding = vi.fn(async () => undefined);
+    const bindCandidateToTrack = vi.fn(async () => undefined);
     Object.defineProperty(globalThis, "desktop", {
       configurable: true,
       value: {
@@ -134,7 +134,7 @@ describe("local directory import integration", () => {
           listDirectories,
           selectDirectory: vi.fn(async () => null),
           scanDirectory: vi.fn(),
-          bindings: { save: saveBinding }
+          bindings: { bindCandidateToTrack }
         }
       }
     });
@@ -165,7 +165,7 @@ describe("local directory import integration", () => {
     ).not.toBeNull();
     expect(container.querySelector('input[aria-label="选择本地音乐目录"]')).toBeNull();
     expect(listDirectories).toHaveBeenCalledTimes(1);
-    expect(saveBinding).not.toHaveBeenCalled();
+    expect(bindCandidateToTrack).not.toHaveBeenCalled();
 
     await act(async () => root.unmount());
     container.remove();

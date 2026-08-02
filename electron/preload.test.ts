@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  createDesktopAudioSourceRef,
   isLocalAudioBindingId,
-  isLocalAudioDirectoryId,
   isLocalAudioTrackId,
-  type LocalAudioBinding,
   type LocalAudioBindingId,
-  type LocalAudioDirectoryId,
   type LocalAudioTrackId
 } from "../src/types/localAudioBinding";
 import { IPC_CHANNELS } from "./ipc/channels";
-import type { DesktopMusicLibraryApi } from "./music-library/types";
+import {
+  isDesktopAudioCandidateId,
+  type DesktopAudioCandidateId,
+  type DesktopMusicLibraryApi
+} from "./music-library/types";
 
 const electronMocks = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn(),
@@ -31,7 +31,7 @@ await import("./preload");
 
 const BINDING_ID = "11111111-1111-4111-8111-111111111111";
 const TRACK_ID = "track_sample_001";
-const DIRECTORY_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CANDIDATE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 function bindingId(value: string): LocalAudioBindingId {
   if (!isLocalAudioBindingId(value)) {
@@ -49,27 +49,12 @@ function trackId(value: string): LocalAudioTrackId {
   return value;
 }
 
-function directoryId(value: string): LocalAudioDirectoryId {
-  if (!isLocalAudioDirectoryId(value)) {
-    throw new Error(`Invalid test directory ID: ${value}`);
+function candidateId(value: string): DesktopAudioCandidateId {
+  if (!isDesktopAudioCandidateId(value)) {
+    throw new Error(`Invalid test candidate ID: ${value}`);
   }
 
   return value;
-}
-
-function createBinding(): LocalAudioBinding {
-  return {
-    bindingId: bindingId(BINDING_ID),
-    trackId: trackId(TRACK_ID),
-    source: createDesktopAudioSourceRef({
-      directoryId: directoryId(DIRECTORY_ID),
-      relativePath: "album/sample.mp3"
-    }),
-    fileName: "sample.mp3",
-    availability: "unknown",
-    createdAt: "2026-08-02T00:00:00.000Z",
-    updatedAt: "2026-08-02T00:00:00.000Z"
-  };
 }
 
 function getExposedMusicLibraryApi(): DesktopMusicLibraryApi {
@@ -87,38 +72,46 @@ beforeEach(() => {
 });
 
 describe("preload local audio binding API", () => {
-  it("exposes only named binding methods and routes them to fixed channels", async () => {
+  it("exposes only named candidate binding methods on fixed channels", async () => {
     electronMocks.invoke.mockResolvedValue({ ok: true, value: undefined });
-    const musicLibraryApi = getExposedMusicLibraryApi();
-    const binding = createBinding();
-    const bindingIdRequest = { bindingId: binding.bindingId };
-    const trackIdRequest = { trackId: binding.trackId };
+    const bindingApi = getExposedMusicLibraryApi().bindings;
+    const bindingIdRequest = { bindingId: bindingId(BINDING_ID) };
+    const trackIdRequest = { trackId: trackId(TRACK_ID) };
+    const bindRequest = {
+      candidateId: candidateId(CANDIDATE_ID),
+      trackId: trackId(TRACK_ID),
+      expectedExistingBindingId: bindingId(BINDING_ID)
+    };
+    const unbindRequest = {
+      trackId: trackId(TRACK_ID),
+      expectedBindingId: bindingId(BINDING_ID)
+    };
 
-    expect(Object.keys(musicLibraryApi.bindings).sort()).toEqual([
+    expect(Object.keys(bindingApi).sort()).toEqual([
+      "bindCandidateToTrack",
       "findByBindingId",
       "findByTrackId",
       "list",
-      "removeByBindingId",
-      "removeByTrackId",
-      "save"
+      "unbindTrack"
     ]);
-    expect(musicLibraryApi.bindings).not.toHaveProperty("invoke");
-    expect(musicLibraryApi.bindings).not.toHaveProperty("send");
+    expect(bindingApi).not.toHaveProperty("invoke");
+    expect(bindingApi).not.toHaveProperty("send");
+    expect(bindingApi).not.toHaveProperty("save");
+    expect(bindingApi).not.toHaveProperty("removeByBindingId");
+    expect(bindingApi).not.toHaveProperty("removeByTrackId");
 
-    await musicLibraryApi.bindings.list();
-    await musicLibraryApi.bindings.findByBindingId(bindingIdRequest);
-    await musicLibraryApi.bindings.findByTrackId(trackIdRequest);
-    await musicLibraryApi.bindings.save({ binding });
-    await musicLibraryApi.bindings.removeByBindingId(bindingIdRequest);
-    await musicLibraryApi.bindings.removeByTrackId(trackIdRequest);
+    await bindingApi.list();
+    await bindingApi.findByBindingId(bindingIdRequest);
+    await bindingApi.findByTrackId(trackIdRequest);
+    await bindingApi.bindCandidateToTrack(bindRequest);
+    await bindingApi.unbindTrack(unbindRequest);
 
     expect(electronMocks.invoke.mock.calls).toEqual([
       [IPC_CHANNELS.listLocalAudioBindings],
       [IPC_CHANNELS.findLocalAudioBindingByBindingId, bindingIdRequest],
       [IPC_CHANNELS.findLocalAudioBindingByTrackId, trackIdRequest],
-      [IPC_CHANNELS.saveLocalAudioBinding, { binding }],
-      [IPC_CHANNELS.removeLocalAudioBindingByBindingId, bindingIdRequest],
-      [IPC_CHANNELS.removeLocalAudioBindingByTrackId, trackIdRequest]
+      [IPC_CHANNELS.bindCandidateToTrack, bindRequest],
+      [IPC_CHANNELS.unbindLocalAudioTrack, unbindRequest]
     ]);
   });
 

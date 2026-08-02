@@ -1,52 +1,52 @@
 # Active Task
 
-- 任务 ID：`ELECTRON-2.4`
+- 任务 ID：`ELECTRON-2.4B`
 - 状态：`ready`
 - 分支：`desktop/electron`
 
 ## 前置条件
 
 - 工作区干净。
-- 当前分支包含 `desktop(electron): preview scanned audio candidates`，即 Electron 扫描候选临时预览。
+- 当前分支包含 `desktop(electron): secure candidate binding commands`。
 - 开始前阅读：
   - `docs/architecture/overview.md`
   - `docs/architecture/desktop-security-boundary.md`
   - `docs/architecture/local-audio-lifecycle.md`
-  - `docs/decisions/0003-controlled-directory-references.md`
   - `docs/decisions/0004-portable-audio-binding-model.md`
+  - `docs/decisions/0005-main-owned-scan-candidates.md`
 
 ## 目标
 
-允许用户在 Electron 扫描预览中明确选择一首现有曲目，并确认创建、替换或解除该曲目的 `LocalAudioBinding`。
+在现有 Electron 扫描预览中增加逐项曲目选择、显式替换确认和解绑确认 UI，只调用 2.4A 的安全候选命令。
 
 ## 范围
 
-- 只允许用户从当前 catalog 中明确选择目标 track；不根据文件名或元数据自动匹配。
-- 用户确认后，使用现有 `window.desktop.musicLibrary.bindings` 窄 API 保存 `desktop-file` binding；来源只能取自当前扫描候选的 `directoryId + relativePath`。
-- 保存前显示明确的目标 track 和候选文件；若该 track 已有 binding，必须二次确认替换，不能静默覆盖。
-- 显示当前 track 的 binding 状态，并允许用户明确解除；解除前需确认，且只调用现有按 track 解除 API。
-- binding ID、时间戳和文件元数据在确认动作发生时生成或复制；不把扫描候选本身改造成 binding。
-- 保存/替换/解除成功后刷新 binding 状态；失败时显示稳定脱敏错误，且保留可重试的扫描预览。
+- 为每个当前 candidate 提供从现有 catalog 明确选择目标 track 的交互；不根据文件名自动选择。
+- 加载不含 sourceRef 的 binding summary，并显示目标 track 当前是否已绑定。
+- 未绑定 track 经用户明确确认后调用 `bindCandidateToTrack({ candidateId, trackId })`。
+- 已绑定 track 必须展示当前 binding 信息并二次确认，再携带 `expectedExistingBindingId` 调用替换命令。
+- 解绑必须二次确认，并调用 `unbindTrack({ trackId, expectedBindingId })`。
+- 成功后刷新 binding summary；冲突或 candidate 失效时显示脱敏反馈，保留可用预览并提示重新扫描/刷新。
+- 使用现有弹窗、表格、表单和按钮模式；保持键盘可访问性，不进行全局 UI 改版。
 - Web `LocalDirectoryImport`、旧 browser `File`/handle 流程和播放器保持不变。
-- 使用现有弹窗、表格、字段与按钮模式；不进行全局 UI 改版。
-- 增加 binding 草稿纯函数与确认、替换、解除、错误恢复的聚焦测试，并更新相关开发文档。
+- 增加选择、确认、取消、冲突、失效与 Web 兼容的聚焦测试，并更新相关文档。
 
 ## 明确不做
 
-- 自动匹配曲目、批量确认或修改曲目元数据。
-- 音频播放、`app-media://`、availability 刷新或文件内容读取。
-- 新 IPC、目录扫描协议修改、Repository/schema 修改、IndexedDB 迁移或 SQLite。
-- 将绝对路径、Electron/Node 对象或浏览器 `File`/handle 写入公共 binding。
+- 新 IPC、通用 invoke/send、路径/sourceRef/完整 binding 参数。
+- 自动匹配、批量绑定或修改 catalog 元数据。
+- 音频播放、`app-media://`、availability 刷新、标签解析。
+- Repository/schema 修改、IndexedDB 迁移或 SQLite。
 - 全局 UI 改版或现有 Web 导入重构。
 
 ## 验收条件
 
-- Electron 用户可以逐个明确确认候选与现有 track 的 binding，并看到成功或脱敏失败反馈。
-- 已绑定 track 的替换和解除都需要用户明确确认，且不会误改其他 track。
-- binding source 只来自扫描候选的 `directoryId + relativePath`，不包含绝对路径。
-- 取消或失败不会写入错误 binding；预览保留并可重试。
-- Web 目录导入测试与行为保持不变，默认验证命令全部通过。
+- 用户可逐项选择现有 track 并明确确认新 binding；取消不会写入。
+- 替换和解绑都有二次确认，并使用当前 expected binding ID；冲突不会误改新状态。
+- UI 和请求中不出现目录 ID、相对路径、sourceRef、绝对路径或完整 binding。
+- candidate 失效和 Repository 错误显示安全可恢复反馈。
+- Web 目录导入行为保持不变，默认验证命令全部通过。
 
 ## 建议提交
 
-`desktop(electron): confirm local audio bindings`
+`desktop(electron): add candidate binding confirmation UI`

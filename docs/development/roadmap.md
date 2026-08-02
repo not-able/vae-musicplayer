@@ -24,7 +24,8 @@
 - [x] 2.2B Electron JSON binding 持久化。
 - [x] 2.2C Main binding service 与窄 IPC。
 - [x] 2.3 扫描候选接入导入预览。
-- [ ] 2.4 用户确认绑定与解绑（当前 active task）。
+- [x] 2.4A 安全的候选确认与绑定服务。
+- [ ] 2.4B 曲目选择、替换确认和解绑确认 UI（当前 active task）。
 - [ ] 2.5 missing/changed 状态检查。
 
 ## 阶段 3：本地播放

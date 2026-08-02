@@ -25,6 +25,8 @@ Renderer 只加载明确的开发服务器地址或打包后的本地页面。�
 - Main 持有目录注册表中的真实根路径，并以 opaque `directoryId` 查找。
 - 公共桌面文件引用只包含 `directoryId + relativePath`；相对路径使用 `/`。
 - Main 解析路径时拒绝绝对路径、`..`、符号链接和授权根目录逃逸。
-- `displayPath` 仅用于显示，不是访问凭据。
+- Renderer 收到的目录摘要不含 `displayPath`；真实根路径只存在于 Main 注册表。
+- Main 为扫描结果生成不可预测 `candidateId`；公开预览不含 `directoryId`、相对路径或 sourceRef。
+- 候选按 webContents 和 scan generation 隔离；重扫、忘记目录、Renderer 销毁或重启后失效。
 
-目录注册、扫描和 binding API 的当前操作说明见 [`../desktop-development.md`](../desktop-development.md)。binding IPC 只接受可序列化的 `desktop-file` source，并在写入前确认 `directoryId` 仍存在于 Main 的受控注册表；存储错误会转换为不含本机路径的稳定公开错误。
+目录注册、扫描和 binding API 的当前操作说明见 [`../desktop-development.md`](../desktop-development.md)。Renderer 只能提交 `candidateId + trackId`，不能提交完整 binding、路径、sourceRef 或文件元数据。Main 从候选 session 生成 `desktop-file` source，并通过 expected binding ID 防止过期替换或解绑；存储错误会转换为不含本机路径的稳定公开错误。

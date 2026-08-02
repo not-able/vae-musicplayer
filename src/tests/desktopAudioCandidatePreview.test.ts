@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type {
-  DesktopMusicDirectoryScanResult,
-  SelectedMusicDirectory
+  DesktopMusicDirectoryScanPreviewResult,
+  DesktopMusicDirectorySummary
 } from "../../electron/music-library/types";
 import {
   buildDesktopAudioScanPreview,
@@ -11,12 +11,12 @@ import {
 } from "../features/local-library/desktopAudioCandidatePreview";
 
 const DIRECTORY_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CANDIDATE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function createScanResult(
-  overrides: Partial<DesktopMusicDirectoryScanResult> = {}
-): DesktopMusicDirectoryScanResult {
+function createScanPreview(
+  overrides: Partial<DesktopMusicDirectoryScanPreviewResult> = {}
+): DesktopMusicDirectoryScanPreviewResult {
   return {
-    directoryId: DIRECTORY_ID,
     scannedAt: "2026-08-02T00:00:00.000Z",
     totalFileCount: 2,
     supportedFileCount: 1,
@@ -24,12 +24,9 @@ function createScanResult(
     errorCount: 1,
     candidates: [
       {
-        sourceRef: {
-          directoryId: DIRECTORY_ID,
-          relativePath: "album/sample.mp3"
-        },
+        candidateId:
+          CANDIDATE_ID as DesktopMusicDirectoryScanPreviewResult["candidates"][number]["candidateId"],
         fileName: "sample.mp3",
-        relativePath: "album/sample.mp3",
         fileExtension: "mp3",
         fileSize: 1024,
         modifiedAt: 1_765_000_000_000,
@@ -42,7 +39,6 @@ function createScanResult(
     ],
     errors: [
       {
-        relativePath: "album/broken.flac",
         code: "read_file_status_failed",
         message: "无法读取文件状态。"
       }
@@ -52,14 +48,13 @@ function createScanResult(
 }
 
 describe("desktop audio candidate preview model", () => {
-  it("maps scan DTOs to serializable preview-only fields", () => {
-    const preview = buildDesktopAudioScanPreview(createScanResult());
+  it("maps only opaque candidate IDs and serializable display metadata", () => {
+    const preview = buildDesktopAudioScanPreview(createScanPreview());
 
     expect(preview.candidates).toEqual([
       {
-        candidateKey: "album/sample.mp3",
+        candidateId: CANDIDATE_ID,
         fileName: "sample.mp3",
-        relativePath: "album/sample.mp3",
         fileExtension: "mp3",
         fileSize: 1024,
         modifiedAt: 1_765_000_000_000,
@@ -70,75 +65,97 @@ describe("desktop audio candidate preview model", () => {
         issues: ["ambiguous_compact_hyphen"]
       }
     ]);
+    expect(preview).not.toHaveProperty("directoryId");
     expect(preview.candidates[0]).not.toHaveProperty("bindingId");
     expect(preview.candidates[0]).not.toHaveProperty("sourceRef");
+    expect(preview.candidates[0]).not.toHaveProperty("relativePath");
     expect(() => JSON.stringify(preview)).not.toThrow();
   });
 
-  it("drops display paths when mapping authorized directory options", () => {
-    const directory: SelectedMusicDirectory = {
+  it("accepts only safe directory summaries without display paths", () => {
+    const directory: DesktopMusicDirectorySummary = {
       directoryId: DIRECTORY_ID,
       displayName: "音乐库",
-      displayPath: "C:\\Users\\example\\Music",
       selectedAt: "2026-08-02T00:00:00.000Z",
       availability: "available"
     };
 
-    const option = toDesktopMusicDirectoryOption(directory);
-
-    expect(option).toEqual({
-      directoryId: DIRECTORY_ID,
-      displayName: "音乐库",
-      selectedAt: "2026-08-02T00:00:00.000Z",
-      availability: "available"
-    });
-    expect(option).not.toHaveProperty("displayPath");
-  });
-
-  it.each([
-    "C:\\Music\\sample.mp3",
-    "../sample.mp3",
-    "/music/sample.mp3",
-    "album\\sample.mp3"
-  ])("rejects unsafe candidate path %s", (relativePath) => {
-    const result = createScanResult({
-      candidates: [
-        {
-          ...createScanResult().candidates[0],
-          sourceRef: { directoryId: DIRECTORY_ID, relativePath },
-          relativePath
-        }
-      ]
-    });
-
-    expect(() => buildDesktopAudioScanPreview(result)).toThrow(TypeError);
-  });
-
-  it("rejects mismatched directory references and inconsistent counts", () => {
-    const wrongDirectoryResult = createScanResult({
-      candidates: [
-        {
-          ...createScanResult().candidates[0],
-          sourceRef: {
-            directoryId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-            relativePath: "album/sample.mp3"
-          }
-        }
-      ]
-    });
-
-    expect(() => buildDesktopAudioScanPreview(wrongDirectoryResult)).toThrow(TypeError);
+    expect(toDesktopMusicDirectoryOption(directory)).toEqual(directory);
     expect(() =>
-      buildDesktopAudioScanPreview(createScanResult({ supportedFileCount: 2 }))
+      toDesktopMusicDirectoryOption({
+        ...directory,
+        displayPath: "C:\\Users\\example\\Music"
+      } as DesktopMusicDirectorySummary)
+    ).toThrow(TypeError);
+    expect(() =>
+      toDesktopMusicDirectoryOption({
+        ...directory,
+        displayName: "C:\\Users\\example\\Music"
+      })
+    ).toThrow(TypeError);
+  });
+
+  it("rejects preview candidates containing path or source fields", () => {
+    for (const unsafeField of [
+      { relativePath: "album/sample.mp3" },
+      { directoryId: DIRECTORY_ID },
+      {
+        sourceRef: {
+          type: "desktop-file",
+          directoryId: DIRECTORY_ID,
+          relativePath: "album/sample.mp3"
+        }
+      }
+    ]) {
+      const result = createScanPreview({
+        candidates: [
+          {
+            ...createScanPreview().candidates[0],
+            ...unsafeField
+          }
+        ]
+      });
+
+      expect(() => buildDesktopAudioScanPreview(result)).toThrow(TypeError);
+    }
+  });
+
+  it("rejects malformed or duplicate candidate IDs", () => {
+    expect(() =>
+      buildDesktopAudioScanPreview(
+        createScanPreview({
+          candidates: [
+            {
+              ...createScanPreview().candidates[0],
+              candidateId:
+                "../escape" as unknown as DesktopMusicDirectoryScanPreviewResult["candidates"][number]["candidateId"]
+            }
+          ]
+        })
+      )
+    ).toThrow(TypeError);
+
+    const candidate = createScanPreview().candidates[0];
+    expect(() =>
+      buildDesktopAudioScanPreview(
+        createScanPreview({
+          totalFileCount: 2,
+          supportedFileCount: 2,
+          ignoredFileCount: 0,
+          candidates: [candidate, { ...candidate }]
+        })
+      )
     ).toThrow(TypeError);
   });
 
   it("rejects unrecognized candidate issue values", () => {
-    const result = createScanResult({
+    const result = createScanPreview({
       candidates: [
         {
-          ...createScanResult().candidates[0],
-          issues: ["C:\\private\\music"]
+          ...createScanPreview().candidates[0],
+          issues: [
+            "C:\\private\\music" as unknown as DesktopMusicDirectoryScanPreviewResult["candidates"][number]["issues"][number]
+          ]
         }
       ]
     });
@@ -148,10 +165,9 @@ describe("desktop audio candidate preview model", () => {
 
   it("maps scan issue codes to fixed messages without echoing raw details", () => {
     const preview = buildDesktopAudioScanPreview(
-      createScanResult({
+      createScanPreview({
         errors: [
           {
-            relativePath: "album/broken.flac",
             code: "read_file_status_failed",
             message: "C:\\private\\music\\album\\broken.flac"
           }

@@ -16,7 +16,7 @@ import { MusicLibraryError } from "./errors";
 import {
   isValidMusicDirectoryId,
   type MusicDirectoryAvailability,
-  type SelectedMusicDirectory
+  type RegisteredMusicDirectory
 } from "./types";
 
 const DIRECTORY_REGISTRY_SCHEMA_VERSION = 1 as const;
@@ -65,7 +65,7 @@ export class MusicDirectoryRegistry {
     this.reportIssue = options.reportIssue ?? reportDirectoryRegistryIssue;
   }
 
-  async registerDirectory(directoryPath: string): Promise<SelectedMusicDirectory> {
+  async registerDirectory(directoryPath: string): Promise<RegisteredMusicDirectory> {
     return this.runMutation(async () => {
       const registry = await this.load();
       const canonicalPath = await resolveSelectedDirectory(directoryPath);
@@ -97,7 +97,7 @@ export class MusicDirectoryRegistry {
       const record: PersistedMusicDirectory = {
         directoryId,
         directoryPath: canonicalPath,
-        displayName: path.basename(canonicalPath) || canonicalPath,
+        displayName: path.basename(canonicalPath) || "音乐目录",
         selectedAt: this.clock().toISOString()
       };
 
@@ -107,7 +107,7 @@ export class MusicDirectoryRegistry {
     });
   }
 
-  async listDirectories(): Promise<readonly SelectedMusicDirectory[]> {
+  async listDirectories(): Promise<readonly RegisteredMusicDirectory[]> {
     await this.mutationTail;
     const registry = await this.load();
 
@@ -284,7 +284,7 @@ function createEmptyRegistry(): PersistedDirectoryRegistry {
 function toSelectedDirectory(
   directory: PersistedMusicDirectory,
   availability: MusicDirectoryAvailability
-): SelectedMusicDirectory {
+): RegisteredMusicDirectory {
   return {
     directoryId: directory.directoryId,
     displayName: directory.displayName,

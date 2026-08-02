@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { LocalDirectoryScanOptions } from "../../src/features/local-library/localDirectoryEntryScanner";
+import { DesktopAudioCandidateStore } from "./candidateStore";
 import {
   MUSIC_DIRECTORY_REGISTRY_FILE_NAME,
   MusicDirectoryRegistry
@@ -17,13 +18,19 @@ export interface DesktopMusicLibraryServiceFactoryOptions {
   readonly selectDirectoryPath: () => Promise<string | null>;
   readonly parseOptions?: LocalDirectoryScanOptions;
   readonly scanDirectory?: typeof scanDesktopMusicDirectory;
+  readonly candidateIdFactory?: () => string;
+  readonly bindingIdFactory?: () => string;
+  readonly clock?: () => Date;
 }
 
 export function createDesktopMusicLibraryService({
   userDataPath,
   selectDirectoryPath,
   parseOptions,
-  scanDirectory
+  scanDirectory,
+  candidateIdFactory,
+  bindingIdFactory,
+  clock
 }: DesktopMusicLibraryServiceFactoryOptions): DesktopMusicLibraryService {
   const registry = new MusicDirectoryRegistry({
     filePath: path.join(userDataPath, MUSIC_DIRECTORY_REGISTRY_FILE_NAME)
@@ -37,6 +44,9 @@ export function createDesktopMusicLibraryService({
     bindingRepository,
     selectDirectoryPath,
     parseOptions,
-    scanDirectory
+    scanDirectory,
+    candidateStore: new DesktopAudioCandidateStore({ candidateIdFactory }),
+    bindingIdFactory,
+    clock
   });
 }

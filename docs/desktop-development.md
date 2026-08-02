@@ -41,17 +41,17 @@ window.desktop.musicLibrary.forgetDirectory(directoryId);
 ```
 
 - `selectDirectory()` 只打开系统原生目录选择器；取消时返回 `null`。
-- `listDirectories()` 返回已授权目录的公开信息及 `available`、`missing` 或 `unreadable` 状态。
-- `scanDirectory()` 只接受由 Main 生成的 `directoryId`，返回可序列化的文件描述和扫描错误。
+- `listDirectories()` 返回不含真实路径的目录摘要及 `available`、`missing` 或 `unreadable` 状态。
+- `scanDirectory()` 只接受由 Main 生成的 `directoryId`，返回带不透明 `candidateId` 的安全预览和脱敏扫描错误。
 - `forgetDirectory()` 删除该目录的授权记录；之后原 ID 不能再用于扫描。
 
-`displayPath` 仅供界面显示，不是文件访问凭据。Renderer 不能提交绝对路径，Main 会校验 IPC 来源和参数，再从自己的注册表解析 `directoryId`。这避免被注入的 Renderer 任意读取本机目录，也让文件系统权限始终停留在受信任进程中。
+真实 `displayPath` 不再返回 Renderer。Renderer 不能提交绝对路径，Main 会校验 IPC 来源和参数，再从自己的注册表解析 `directoryId`。这避免被注入的 Renderer 任意读取本机目录，也让文件系统权限始终停留在受信任进程中。
 
 目录注册表是带版本的 JSON，只记录用户授权的根目录，不记录扫描到的单个文件。生产环境文件位于 Electron 的 `app.getPath("userData")` 下，而不是仓库、Renderer 存储或应用安装目录。写入使用临时文件和重命名；注册表不存在时按空记录处理，损坏时安全回退为空记录并报告通用错误。
 
-扫描器递归读取目录条目和必要的文件状态，不读取音频内容或标签；跳过符号链接，并确保每个候选路径仍位于授权根目录中。返回的相对路径统一使用 `/`，不会包含绝对路径、`Buffer`、Node.js 对象或文件内容。
+扫描器递归读取目录条目和必要的文件状态，不读取音频内容或标签；跳过符号链接，并确保每个候选路径仍位于授权根目录中。原始相对路径和 sourceRef 留在 Main 的临时候选 session，公开预览不会包含它们、绝对路径、`Buffer`、Node.js 对象或文件内容。
 
-Electron Renderer 会在现有目录导入弹窗中使用这些 API：列出或选择授权目录后触发扫描，并将结果映射为仅存在于当前页面内存的候选预览。预览显示文件名、相对路径、大小、修改时间和文件名解析提示，不保留 `displayPath`、`sourceRef` 或持久化 `bindingId`；重新扫描会替换旧预览，且当前阶段不会调用 binding 写入 API。Web 环境继续显示原有 `LocalDirectoryImport` 流程。
+Electron Renderer 会在现有目录导入弹窗中使用这些 API：列出或选择授权目录后触发扫描，并将结果映射为仅存在于当前页面内存的候选预览。预览显示文件名、大小、修改时间和文件名解析提示，只保留不透明 `candidateId`；重新扫描会替换旧预览并使旧 candidate 失效，且当前阶段 UI 不调用 binding 写入 API。Web 环境继续显示原有 `LocalDirectoryImport` 流程。
 
 ## 本地音频 Binding API
 
@@ -61,12 +61,18 @@ Renderer 可通过以下固定子 API 管理可序列化 binding 元数据：
 window.desktop.musicLibrary.bindings.list();
 window.desktop.musicLibrary.bindings.findByBindingId({ bindingId });
 window.desktop.musicLibrary.bindings.findByTrackId({ trackId });
-window.desktop.musicLibrary.bindings.save({ binding });
-window.desktop.musicLibrary.bindings.removeByBindingId({ bindingId });
-window.desktop.musicLibrary.bindings.removeByTrackId({ trackId });
+window.desktop.musicLibrary.bindings.bindCandidateToTrack({
+  candidateId,
+  trackId,
+  expectedExistingBindingId
+});
+window.desktop.musicLibrary.bindings.unbindTrack({
+  trackId,
+  expectedBindingId
+});
 ```
 
-保存只接受 `desktop-file` source，且 Main 会在写入前确认 `directoryId` 已注册。binding 只包含 `directoryId + relativePath` 和可序列化元数据；Repository 不读取音频、不检查 availability，也不生成播放 URL。数据保存在 Electron `userData` 下的 `local-audio-bindings.json`，采用带版本 schema 和原子写入；损坏或不支持版本不会被静默覆盖。所有存储错误在跨 IPC 前都会转换为不含本机路径的稳定错误。
+查询只返回不含 sourceRef 的 binding summary。Renderer 不能提交完整 binding；绑定命令只接受当前候选 ID、track ID 和可选 expected binding ID，Main 从候选 session 获取可信 sourceRef 与文件元数据。已有 binding 必须提供匹配的 expected ID 才能替换，解绑也必须匹配当前 ID，过期请求不会覆盖或删除新绑定。Repository 不读取音频、不检查 availability，也不生成播放 URL。数据保存在 Electron `userData` 下的 `local-audio-bindings.json`，采用带版本 schema 和原子写入；所有存储错误在跨 IPC 前都会转换为不含本机路径的稳定错误。
 
 ## 手动验证目录能力
 
@@ -75,7 +81,7 @@ window.desktop.musicLibrary.bindings.removeByTrackId({ trackId });
 3. 调用 `window.desktop.getPlatformInfo()`，确认平台信息仍可返回。
 4. 调用 `window.desktop.musicLibrary.selectDirectory()`；关闭选择器，确认 Promise 返回 `null`。
 5. 再次调用并选择一个仅含测试空文件的目录，保存返回的 `directoryId`。
-6. 调用 `window.desktop.musicLibrary.scanDirectory({ directoryId })`，确认结果只有相对路径和可序列化元数据。
+6. 调用 `window.desktop.musicLibrary.scanDirectory({ directoryId })`，确认结果只有不透明 `candidateId` 和可序列化展示元数据，不含路径、目录 ID 或 sourceRef。
 7. 重启应用并调用 `window.desktop.musicLibrary.listDirectories()`，确认授权记录仍存在。
 8. 调用 `window.desktop.musicLibrary.forgetDirectory(directoryId)`，再确认列表中记录已移除且原 ID 无法扫描。
 

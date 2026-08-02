@@ -1,15 +1,13 @@
 import type {
+  DesktopAudioCandidateId,
   DesktopAudioFileExtension,
   DesktopDirectoryScanErrorCode,
-  DesktopMusicDirectoryScanResult,
-  DesktopScannedAudioFile,
-  MusicDirectoryAvailability,
-  SelectedMusicDirectory
+  DesktopMusicDirectoryScanPreviewResult,
+  DesktopMusicDirectorySummary,
+  MusicDirectoryAvailability
 } from "../../../electron/music-library/types";
-import {
-  isLocalAudioDirectoryId,
-  isLocalAudioRelativePath
-} from "../../types/localAudioBinding";
+import { isDesktopAudioCandidateId } from "../../../electron/music-library/types";
+import { isLocalAudioDirectoryId } from "../../types/localAudioBinding";
 import {
   isLocalDirectoryCandidateIssueCode,
   type LocalDirectoryCandidateIssueCode
@@ -23,9 +21,8 @@ export interface DesktopMusicDirectoryOption {
 }
 
 export interface DesktopAudioCandidatePreview {
-  readonly candidateKey: string;
+  readonly candidateId: DesktopAudioCandidateId;
   readonly fileName: string;
-  readonly relativePath: string;
   readonly fileExtension: DesktopAudioFileExtension;
   readonly fileSize: number;
   readonly modifiedAt: number;
@@ -37,13 +34,11 @@ export interface DesktopAudioCandidatePreview {
 }
 
 export interface DesktopAudioScanIssuePreview {
-  readonly relativePath?: string;
   readonly code: DesktopDirectoryScanErrorCode;
   readonly message: string;
 }
 
 export interface DesktopAudioScanPreview {
-  readonly directoryId: string;
   readonly scannedAt: string;
   readonly totalFileCount: number;
   readonly supportedFileCount: number;
@@ -56,12 +51,20 @@ export interface DesktopAudioScanPreview {
 export type DesktopLibraryOperation = "list" | "scan" | "select";
 
 export function toDesktopMusicDirectoryOption(
-  directory: SelectedMusicDirectory
+  directory: DesktopMusicDirectorySummary
 ): DesktopMusicDirectoryOption {
   if (
+    !isPlainRecord(directory) ||
+    !hasExactlyKeys(directory, [
+      "directoryId",
+      "displayName",
+      "selectedAt",
+      "availability"
+    ]) ||
     !isLocalAudioDirectoryId(directory.directoryId) ||
-    directory.displayName.trim().length === 0 ||
-    !isIsoDateString(directory.selectedAt)
+    !isSafeDisplayName(directory.displayName) ||
+    !isIsoDateString(directory.selectedAt) ||
+    !isDirectoryAvailability(directory.availability)
   ) {
     throw new TypeError("Desktop music directory data is invalid.");
   }
@@ -75,10 +78,19 @@ export function toDesktopMusicDirectoryOption(
 }
 
 export function buildDesktopAudioScanPreview(
-  result: DesktopMusicDirectoryScanResult
+  result: DesktopMusicDirectoryScanPreviewResult
 ): DesktopAudioScanPreview {
   if (
-    !isLocalAudioDirectoryId(result.directoryId) ||
+    !isPlainRecord(result) ||
+    !hasExactlyKeys(result, [
+      "scannedAt",
+      "totalFileCount",
+      "supportedFileCount",
+      "ignoredFileCount",
+      "errorCount",
+      "candidates",
+      "errors"
+    ]) ||
     !isIsoDateString(result.scannedAt) ||
     !isNonNegativeSafeInteger(result.totalFileCount) ||
     !isNonNegativeSafeInteger(result.supportedFileCount) ||
@@ -88,20 +100,19 @@ export function buildDesktopAudioScanPreview(
     throw new TypeError("Desktop music directory scan summary is invalid.");
   }
 
-  const candidates = result.candidates.map((candidate) =>
-    toCandidatePreview(candidate, result.directoryId)
-  );
+  const candidates = result.candidates.map(toCandidatePreview);
   const errors = result.errors.map(toScanIssuePreview);
+  const candidateIds = new Set(candidates.map(({ candidateId }) => candidateId));
 
   if (
     candidates.length !== result.supportedFileCount ||
-    errors.length !== result.errorCount
+    errors.length !== result.errorCount ||
+    candidateIds.size !== candidates.length
   ) {
     throw new TypeError("Desktop music directory scan counts are inconsistent.");
   }
 
   return {
-    directoryId: result.directoryId,
     scannedAt: result.scannedAt,
     totalFileCount: result.totalFileCount,
     supportedFileCount: result.supportedFileCount,
@@ -142,15 +153,24 @@ export function getDesktopLibraryErrorMessage(
 }
 
 function toCandidatePreview(
-  candidate: DesktopScannedAudioFile,
-  directoryId: string
+  candidate: DesktopMusicDirectoryScanPreviewResult["candidates"][number]
 ): DesktopAudioCandidatePreview {
   if (
-    candidate.sourceRef.directoryId !== directoryId ||
-    candidate.sourceRef.relativePath !== candidate.relativePath ||
-    !isLocalAudioRelativePath(candidate.relativePath) ||
-    candidate.fileName.trim().length === 0 ||
-    candidate.fileName.includes("\0") ||
+    !isPlainRecord(candidate) ||
+    !hasOnlyKeys(candidate, [
+      "candidateId",
+      "fileName",
+      "fileExtension",
+      "fileSize",
+      "modifiedAt",
+      "albumTitle",
+      "artistName",
+      "trackTitle",
+      "parseStatus",
+      "issues"
+    ]) ||
+    !isDesktopAudioCandidateId(candidate.candidateId) ||
+    !isSafeFileName(candidate.fileName) ||
     !isNonNegativeSafeInteger(candidate.fileSize) ||
     !Number.isFinite(candidate.modifiedAt) ||
     candidate.modifiedAt < 0 ||
@@ -162,9 +182,8 @@ function toCandidatePreview(
   }
 
   return {
-    candidateKey: candidate.relativePath,
+    candidateId: candidate.candidateId,
     fileName: candidate.fileName,
-    relativePath: candidate.relativePath,
     fileExtension: candidate.fileExtension,
     fileSize: candidate.fileSize,
     modifiedAt: candidate.modifiedAt,
@@ -177,18 +196,17 @@ function toCandidatePreview(
 }
 
 function toScanIssuePreview(
-  issue: DesktopMusicDirectoryScanResult["errors"][number]
+  issue: DesktopMusicDirectoryScanPreviewResult["errors"][number]
 ): DesktopAudioScanIssuePreview {
   if (
-    (issue.relativePath !== undefined &&
-      !isLocalAudioRelativePath(issue.relativePath)) ||
+    !isPlainRecord(issue) ||
+    !hasExactlyKeys(issue, ["code", "message"]) ||
     !isDesktopDirectoryScanErrorCode(issue.code)
   ) {
     throw new TypeError("Desktop music directory scan issue is invalid.");
   }
 
   return {
-    ...(issue.relativePath ? { relativePath: issue.relativePath } : {}),
     code: issue.code,
     message: getScanIssueMessage(issue.code)
   };
@@ -213,6 +231,30 @@ function isIsoDateString(value: unknown): value is string {
 
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+function isDirectoryAvailability(value: unknown): value is MusicDirectoryAvailability {
+  return value === "available" || value === "missing" || value === "unreadable";
+}
+
+function isSafeFileName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !value.includes("\0") &&
+    !value.includes("/") &&
+    !value.includes("\\")
+  );
+}
+
+function isSafeDisplayName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !value.includes("\0") &&
+    !value.includes("/") &&
+    !value.includes("\\")
+  );
 }
 
 function isDesktopAudioFileExtension(
@@ -254,4 +296,31 @@ function getScanIssueMessage(code: DesktopDirectoryScanErrorCode): string {
     case "read_file_status_failed":
       return "无法读取该文件状态，已跳过并继续扫描。";
   }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactlyKeys(
+  value: Record<string, unknown>,
+  expectedKeys: readonly string[]
+): boolean {
+  const keys = Reflect.ownKeys(value);
+  return keys.length === expectedKeys.length && hasOnlyKeys(value, expectedKeys);
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[]
+): boolean {
+  const allowedKeySet = new Set(allowedKeys);
+  return Reflect.ownKeys(value).every(
+    (key) => typeof key === "string" && allowedKeySet.has(key)
+  );
 }

@@ -1,18 +1,19 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import type { LocalAudioBinding } from "../src/types/localAudioBinding";
 import { IPC_CHANNELS } from "./ipc/channels";
 import type { PlatformInfo } from "./ipc/contracts";
 import type {
+  BindCandidateToTrackRequest,
+  DesktopLocalAudioBindingSummary,
   DesktopIpcResult,
   DesktopLocalAudioBindingApi,
-  DesktopMusicDirectoryScanResult,
+  DesktopMusicDirectoryScanPreviewResult,
+  DesktopMusicDirectorySummary,
   DesktopMusicLibraryApi,
   LocalAudioBindingIdRequest,
   LocalAudioTrackIdRequest,
-  SaveLocalAudioBindingRequest,
   ScanMusicDirectoryRequest,
-  SelectedMusicDirectory
+  UnbindLocalAudioTrackRequest
 } from "./music-library/types";
 
 type MusicLibraryIpcChannel =
@@ -23,9 +24,8 @@ type MusicLibraryIpcChannel =
   | typeof IPC_CHANNELS.listLocalAudioBindings
   | typeof IPC_CHANNELS.findLocalAudioBindingByBindingId
   | typeof IPC_CHANNELS.findLocalAudioBindingByTrackId
-  | typeof IPC_CHANNELS.saveLocalAudioBinding
-  | typeof IPC_CHANNELS.removeLocalAudioBindingByBindingId
-  | typeof IPC_CHANNELS.removeLocalAudioBindingByTrackId;
+  | typeof IPC_CHANNELS.bindCandidateToTrack
+  | typeof IPC_CHANNELS.unbindLocalAudioTrack;
 
 async function invokeMusicLibrary<T>(
   channel: MusicLibraryIpcChannel,
@@ -41,33 +41,35 @@ async function invokeMusicLibrary<T>(
 }
 
 const localAudioBindingApi: DesktopLocalAudioBindingApi = Object.freeze({
-  list: (): Promise<readonly LocalAudioBinding[]> =>
+  list: (): Promise<readonly DesktopLocalAudioBindingSummary[]> =>
     invokeMusicLibrary(IPC_CHANNELS.listLocalAudioBindings),
   findByBindingId: (
     request: LocalAudioBindingIdRequest
-  ): Promise<LocalAudioBinding | undefined> =>
+  ): Promise<DesktopLocalAudioBindingSummary | undefined> =>
     invokeMusicLibrary(IPC_CHANNELS.findLocalAudioBindingByBindingId, request),
   findByTrackId: (
     request: LocalAudioTrackIdRequest
-  ): Promise<LocalAudioBinding | undefined> =>
+  ): Promise<DesktopLocalAudioBindingSummary | undefined> =>
     invokeMusicLibrary(IPC_CHANNELS.findLocalAudioBindingByTrackId, request),
-  save: (request: SaveLocalAudioBindingRequest): Promise<void> =>
-    invokeMusicLibrary(IPC_CHANNELS.saveLocalAudioBinding, request),
-  removeByBindingId: (request: LocalAudioBindingIdRequest): Promise<boolean> =>
-    invokeMusicLibrary(IPC_CHANNELS.removeLocalAudioBindingByBindingId, request),
-  removeByTrackId: (request: LocalAudioTrackIdRequest): Promise<boolean> =>
-    invokeMusicLibrary(IPC_CHANNELS.removeLocalAudioBindingByTrackId, request)
+  bindCandidateToTrack: (
+    request: BindCandidateToTrackRequest
+  ): Promise<DesktopLocalAudioBindingSummary> =>
+    invokeMusicLibrary(IPC_CHANNELS.bindCandidateToTrack, request),
+  unbindTrack: (
+    request: UnbindLocalAudioTrackRequest
+  ): Promise<DesktopLocalAudioBindingSummary> =>
+    invokeMusicLibrary(IPC_CHANNELS.unbindLocalAudioTrack, request)
 });
 
 const musicLibraryApi: DesktopMusicLibraryApi = Object.freeze({
   bindings: localAudioBindingApi,
-  selectDirectory: (): Promise<SelectedMusicDirectory | null> =>
+  selectDirectory: (): Promise<DesktopMusicDirectorySummary | null> =>
     invokeMusicLibrary(IPC_CHANNELS.selectMusicDirectory),
-  listDirectories: (): Promise<readonly SelectedMusicDirectory[]> =>
+  listDirectories: (): Promise<readonly DesktopMusicDirectorySummary[]> =>
     invokeMusicLibrary(IPC_CHANNELS.listMusicDirectories),
   scanDirectory: (
     request: ScanMusicDirectoryRequest
-  ): Promise<DesktopMusicDirectoryScanResult> =>
+  ): Promise<DesktopMusicDirectoryScanPreviewResult> =>
     invokeMusicLibrary(IPC_CHANNELS.scanMusicDirectory, request),
   forgetDirectory: (directoryId: string): Promise<void> =>
     invokeMusicLibrary(IPC_CHANNELS.forgetMusicDirectory, directoryId)

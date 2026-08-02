@@ -2,8 +2,8 @@
 
 - 更新时间：2026-08-02
 - 分支：`desktop/electron`
-- 当前阶段：阶段 2 — 桌面音频绑定与导入（2.3 已完成）
-- 当前任务：`ELECTRON-2.4` — 用户确认绑定与解绑
+- 当前阶段：阶段 2 — 桌面音频绑定与导入（2.4A 已完成）
+- 当前任务：`ELECTRON-2.4B` — 曲目选择、替换确认和解绑确认 UI
 
 ## 已完成
 
@@ -17,6 +17,7 @@
 - 带 schema version、原子写入和损坏备份的 Electron JSON binding Repository。
 - Main binding service、固定 IPC channels 和 `window.desktop.musicLibrary.bindings` 窄 API。
 - Electron 扫描候选已接入现有导入弹窗的临时预览；Web 导入分支保持不变。
+- Main 内存候选 session、不可预测 `candidateId`、安全绑定/替换/解绑命令与脱敏 binding summary。
 
 ## 关键提交
 
@@ -26,7 +27,8 @@
 - `7ccc999` — `refactor(local-library): define audio binding repository`
 - `6d481c7` — `desktop(electron): persist local audio bindings`
 - `db60170` — `desktop(electron): expose local audio binding service`
-- `desktop(electron): preview scanned audio candidates` — 与本次状态交接同一提交
+- `4fda05c` — `desktop(electron): preview scanned audio candidates`
+- `desktop(electron): secure candidate binding commands` — 与本次状态交接同一提交
 
 ## 核心不变量
 
@@ -37,20 +39,23 @@
 - Repository 不读取音频、不生成播放 URL、不隐式修改时间戳。
 - JSON Repository 的文件路径由 Main 调用方注入；损坏数据和未知 schema 不会被静默覆盖。
 - Electron binding 写入只接受已注册目录中的 `desktop-file` source；公开错误不泄露本机路径。
-- 桌面扫描预览仅保留受控目录标识、相对路径和可序列化元数据；不含绝对路径或 `bindingId`，刷新/重扫会替换页面内存状态。
+- Renderer 的目录摘要不含 `displayPath`；扫描预览只含不可预测 `candidateId` 和安全展示元数据，不含 `directoryId`、相对路径、sourceRef 或 binding。
+- Main 将候选绑定到 webContents 和当前 scan generation；重扫、忘记目录、Renderer 销毁或应用重启都会使相关候选失效。
+- Renderer 不能提交完整 binding、路径、sourceRef 或文件元数据；Main 只从内部候选创建 binding。
+- 替换和解绑使用 expected binding ID 比较交换；过期请求不会覆盖或删除新 binding。
 - Web 目录导入、旧 Web Repository 和 Web 构建保持兼容。
 
 ## 当前遗留问题
 
-- 桌面预览尚不能由用户确认、替换或解除 binding；binding API 尚无 UI 写入调用方。
+- 桌面预览尚无曲目选择、替换确认或解绑确认 UI；安全 binding 命令尚无 UI 调用方。
 - availability 检查和受控播放协议尚未实现。
 
 ## 下一步任务序列
 
-1. `ELECTRON-2.4`：用户确认绑定与解绑。
+1. `ELECTRON-2.4B`：曲目选择、替换确认和解绑确认 UI。
 2. `ELECTRON-2.5`：missing/changed 状态检查。
 3. 阶段 3：受控桌面音频播放。
 
 ## 最近一次验证状态
 
-2026-08-02：`npm run test:run`（38 个文件、352 项测试）、`npm run lint`、`npm run build`、`npm run desktop:build` 与 `git diff --check` 全部通过。
+2026-08-02：`npm run test:run`（39 个文件、357 项测试）、`npm run lint`、`npm run build`、`npm run desktop:build` 与 `git diff --check` 全部通过。

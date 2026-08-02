@@ -7,8 +7,6 @@ export const IPC_CHANNELS = {
   listLocalAudioBindings: "desktop:music-library:bindings:list",
   findLocalAudioBindingByBindingId: "desktop:music-library:bindings:find-by-binding-id",
   findLocalAudioBindingByTrackId: "desktop:music-library:bindings:find-by-track-id",
-  saveLocalAudioBinding: "desktop:music-library:bindings:save",
-  removeLocalAudioBindingByBindingId:
-    "desktop:music-library:bindings:remove-by-binding-id",
-  removeLocalAudioBindingByTrackId: "desktop:music-library:bindings:remove-by-track-id"
+  bindCandidateToTrack: "desktop:music-library:bindings:bind-candidate-to-track",
+  unbindLocalAudioTrack: "desktop:music-library:bindings:unbind-track"
 } as const;
