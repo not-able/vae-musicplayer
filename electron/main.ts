@@ -1,7 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
 
 import {
   registerPlatformInfoHandler,
@@ -12,6 +12,15 @@ import {
   getExternalHttpsUrl,
   isTrustedRendererUrl
 } from "./security/navigation";
+import {
+  MUSIC_DIRECTORY_REGISTRY_FILE_NAME,
+  MusicDirectoryRegistry
+} from "./music-library/directoryRegistry";
+import {
+  registerMusicLibraryIpcHandlers,
+  unregisterMusicLibraryIpcHandlers
+} from "./music-library/ipc";
+import { DesktopMusicLibraryService } from "./music-library/musicLibraryService";
 
 interface RendererTarget {
   expectedUrl: string;
@@ -81,6 +90,12 @@ async function logDevelopmentSecurityProbe(window: BrowserWindow): Promise<void>
       requireType: typeof globalThis.require,
       processType: typeof globalThis.process,
       desktopType: typeof globalThis.desktop,
+      musicLibraryApi: {
+        selectDirectoryType: typeof globalThis.desktop?.musicLibrary?.selectDirectory,
+        listDirectoriesType: typeof globalThis.desktop?.musicLibrary?.listDirectories,
+        scanDirectoryType: typeof globalThis.desktop?.musicLibrary?.scanDirectory,
+        forgetDirectoryType: typeof globalThis.desktop?.musicLibrary?.forgetDirectory
+      },
       documentReadyState: globalThis.document.readyState,
       rootChildCount: globalThis.document.querySelector("#root")?.childElementCount ?? 0,
       platformInfo: await globalThis.desktop.getPlatformInfo()
@@ -139,6 +154,27 @@ function reportWindowCreationError(error: unknown): void {
   console.error("Failed to create the Electron main window.", error);
 }
 
+function createDesktopMusicLibraryService(): DesktopMusicLibraryService {
+  const registry = new MusicDirectoryRegistry({
+    filePath: path.join(app.getPath("userData"), MUSIC_DIRECTORY_REGISTRY_FILE_NAME)
+  });
+
+  return new DesktopMusicLibraryService({
+    registry,
+    selectDirectoryPath: async () => {
+      const options: Electron.OpenDialogOptions = {
+        title: "选择本地音乐目录",
+        properties: ["openDirectory"]
+      };
+      const result = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    }
+  });
+}
+
 if (process.platform === "win32") {
   app.setAppUserModelId("com.vaemusic.desktop");
 }
@@ -147,8 +183,13 @@ void app
   .whenReady()
   .then(async () => {
     rendererTarget = getRendererTarget();
-    registerPlatformInfoHandler((senderUrl) =>
-      isTrustedRendererUrl(senderUrl, rendererTarget?.expectedUrl ?? "")
+    const isTrustedSender = (senderUrl: string) =>
+      isTrustedRendererUrl(senderUrl, rendererTarget?.expectedUrl ?? "");
+
+    registerPlatformInfoHandler(isTrustedSender);
+    registerMusicLibraryIpcHandlers(
+      createDesktopMusicLibraryService(),
+      isTrustedSender
     );
     await createMainWindow();
 
@@ -171,4 +212,5 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   unregisterPlatformInfoHandler();
+  unregisterMusicLibraryIpcHandlers();
 });

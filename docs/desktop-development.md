@@ -23,10 +23,47 @@ npm run desktop:package
 
 ## 进程边界
 
-- Main：创建窗口、选择开发或生产页面、限制导航和新窗口，并注册白名单 IPC。
-- Preload：通过 `contextBridge` 仅暴露 `window.desktop.getPlatformInfo()`。
+- Main：创建窗口、选择开发或生产页面、限制导航和新窗口，并注册白名单 IPC；只有 Main 保存和解析已授权目录的真实路径。
+- Preload：通过 `contextBridge` 暴露 `window.desktop.getPlatformInfo()` 和下述明确的音乐目录接口，不暴露通用 IPC。
 - Renderer：现有 React 页面；不能直接访问 Node.js、Electron 或通用 IPC。
 
 窗口启用 `nodeIntegration: false`、`contextIsolation: true` 和 `sandbox: true`。应用内导航只接受当前固定 Renderer 页面；新窗口始终拒绝。外部链接只有在解析并确认协议为 `https:` 且不含嵌入凭据后，才会交给系统浏览器。
 
-本阶段不提供目录扫描、原生文件选择、系统托盘、快捷键、自动更新或其他桌面业务能力。
+## 音乐目录 API
+
+Renderer 可通过以下窄接口使用受控目录能力：
+
+```ts
+window.desktop.musicLibrary.selectDirectory();
+window.desktop.musicLibrary.listDirectories();
+window.desktop.musicLibrary.scanDirectory({ directoryId });
+window.desktop.musicLibrary.forgetDirectory(directoryId);
+```
+
+- `selectDirectory()` 只打开系统原生目录选择器；取消时返回 `null`。
+- `listDirectories()` 返回已授权目录的公开信息及 `available`、`missing` 或 `unreadable` 状态。
+- `scanDirectory()` 只接受由 Main 生成的 `directoryId`，返回可序列化的文件描述和扫描错误。
+- `forgetDirectory()` 删除该目录的授权记录；之后原 ID 不能再用于扫描。
+
+`displayPath` 仅供界面显示，不是文件访问凭据。Renderer 不能提交绝对路径，Main 会校验 IPC 来源和参数，再从自己的注册表解析 `directoryId`。这避免被注入的 Renderer 任意读取本机目录，也让文件系统权限始终停留在受信任进程中。
+
+目录注册表是带版本的 JSON，只记录用户授权的根目录，不记录扫描到的单个文件。生产环境文件位于 Electron 的 `app.getPath("userData")` 下，而不是仓库、Renderer 存储或应用安装目录。写入使用临时文件和重命名；注册表不存在时按空记录处理，损坏时安全回退为空记录并报告通用错误。
+
+扫描器递归读取目录条目和必要的文件状态，不读取音频内容或标签；跳过符号链接，并确保每个候选路径仍位于授权根目录中。返回的相对路径统一使用 `/`，不会包含绝对路径、`Buffer`、Node.js 对象或文件内容。
+
+## 手动验证目录能力
+
+1. 执行 `npm run desktop:dev`，确认窗口和原有页面正常显示。
+2. 在开发者工具 Console 中确认 `require` 与 `process` 为 `undefined`。
+3. 调用 `window.desktop.getPlatformInfo()`，确认平台信息仍可返回。
+4. 调用 `window.desktop.musicLibrary.selectDirectory()`；关闭选择器，确认 Promise 返回 `null`。
+5. 再次调用并选择一个仅含测试空文件的目录，保存返回的 `directoryId`。
+6. 调用 `window.desktop.musicLibrary.scanDirectory({ directoryId })`，确认结果只有相对路径和可序列化元数据。
+7. 重启应用并调用 `window.desktop.musicLibrary.listDirectories()`，确认授权记录仍存在。
+8. 调用 `window.desktop.musicLibrary.forgetDirectory(directoryId)`，再确认列表中记录已移除且原 ID 无法扫描。
+
+如需清理测试数据，请先退出应用，再从操作系统提供的 Electron 用户数据目录中删除本应用的 `music-directory-registry.json`。不要删除整个用户数据目录，以免影响将来的其他本地设置。
+
+## 当前范围
+
+本阶段不将桌面扫描结果导入现有曲库，也不提供桌面音频播放、单曲绑定、标签或时长解析、封面提取、文件监听、增量或后台扫描、进度与取消 UI、系统托盘、媒体快捷键、自动更新等能力。现有 Web 目录导入和 Web 构建入口保持不变。

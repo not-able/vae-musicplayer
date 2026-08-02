@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
       minify: false,
       outDir: fileURLToPath(new URL("dist-electron", import.meta.url)),
       rollupOptions: {
-        external: ["electron", "node:path", "node:url"],
+        external: (moduleId) => moduleId === "electron" || moduleId.startsWith("node:"),
         output: {
           entryFileNames: `${mode}.cjs`
         }
