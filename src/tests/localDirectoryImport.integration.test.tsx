@@ -119,10 +119,58 @@ async function flushCatalogDeletionRecovery(container: HTMLElement) {
 }
 
 afterEach(() => {
+  Reflect.deleteProperty(globalThis, "desktop");
   vi.restoreAllMocks();
 });
 
 describe("local directory import integration", () => {
+  it("uses the desktop scan preview branch without invoking binding writes", async () => {
+    const listDirectories = vi.fn(async () => []);
+    const saveBinding = vi.fn(async () => undefined);
+    Object.defineProperty(globalThis, "desktop", {
+      configurable: true,
+      value: {
+        musicLibrary: {
+          listDirectories,
+          selectDirectory: vi.fn(async () => null),
+          scanDirectory: vi.fn(),
+          bindings: { save: saveBinding }
+        }
+      }
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(App, {
+          catalogRepository: createCatalogRepository().repository,
+          localAudioRepository: createAudioRepository(),
+          playlistRepository: createPlaylistRepository(),
+          deletionIntentRepository: createDeletionIntentRepository()
+        })
+      );
+    });
+    await flushCatalogDeletionRecovery(container);
+
+    await act(async () => {
+      findButtonByText(container, "扫描本地音频").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toContain("预览本地音乐目录");
+    expect(
+      container.querySelector('[aria-label="桌面音乐目录扫描预览"]')
+    ).not.toBeNull();
+    expect(container.querySelector('input[aria-label="选择本地音乐目录"]')).toBeNull();
+    expect(listDirectories).toHaveBeenCalledTimes(1);
+    expect(saveBinding).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("opens and closes the compact batch-binding dialog without losing keyboard focus", async () => {
     const container = document.createElement("div");
     document.body.append(container);

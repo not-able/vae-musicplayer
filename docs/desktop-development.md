@@ -51,6 +51,8 @@ window.desktop.musicLibrary.forgetDirectory(directoryId);
 
 扫描器递归读取目录条目和必要的文件状态，不读取音频内容或标签；跳过符号链接，并确保每个候选路径仍位于授权根目录中。返回的相对路径统一使用 `/`，不会包含绝对路径、`Buffer`、Node.js 对象或文件内容。
 
+Electron Renderer 会在现有目录导入弹窗中使用这些 API：列出或选择授权目录后触发扫描，并将结果映射为仅存在于当前页面内存的候选预览。预览显示文件名、相对路径、大小、修改时间和文件名解析提示，不保留 `displayPath`、`sourceRef` 或持久化 `bindingId`；重新扫描会替换旧预览，且当前阶段不会调用 binding 写入 API。Web 环境继续显示原有 `LocalDirectoryImport` 流程。
+
 ## 本地音频 Binding API
 
 Renderer 可通过以下固定子 API 管理可序列化 binding 元数据：
@@ -81,4 +83,4 @@ window.desktop.musicLibrary.bindings.removeByTrackId({ trackId });
 
 ## 当前范围
 
-当前仍不将桌面扫描结果接入导入预览，也不提供用户确认绑定 UI、桌面音频播放、availability 刷新、标签或时长解析、封面提取、文件监听、增量或后台扫描、进度与取消 UI、系统托盘、媒体快捷键、自动更新等能力。现有 Web 目录导入和 Web 构建入口保持不变。
+当前仍不提供用户确认/解除 binding UI、桌面音频播放、availability 刷新、标签或时长解析、封面提取、文件监听、增量或后台扫描、进度与取消 UI、系统托盘、媒体快捷键、自动更新等能力。现有 Web 目录导入和 Web 构建入口保持不变。

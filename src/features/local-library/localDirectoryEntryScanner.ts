@@ -251,7 +251,21 @@ function parseFileName(
   };
 }
 
-function getLocalDirectoryScanErrorMessage(
+export function isLocalDirectoryCandidateIssueCode(
+  value: unknown
+): value is LocalDirectoryCandidateIssueCode {
+  return (
+    value === "missing_relative_path" ||
+    value === "invalid_relative_path" ||
+    value === "missing_album_title" ||
+    value === "missing_track_title" ||
+    value === "unrecognized_spaced_artist_prefix" ||
+    value === "ambiguous_compact_hyphen" ||
+    value === "malformed_artist_separator"
+  );
+}
+
+export function getLocalDirectoryScanErrorMessage(
   code: LocalDirectoryCandidateIssueCode
 ): string {
   switch (code) {

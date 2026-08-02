@@ -22,7 +22,7 @@ Web adapters
 
 | 层                 | 职责                                                                       |
 | ------------------ | -------------------------------------------------------------------------- |
-| React Renderer     | 现有 Web UI 和业务调用方；不能访问 Node.js、Electron 或真实目录路径。      |
+| React Renderer     | Web UI 与 Electron 扫描预览；不能访问 Node.js、Electron 或真实目录路径。   |
 | Electron Preload   | 通过 `contextBridge` 暴露平台信息、目录和 binding 窄 API，不暴露通用 IPC。 |
 | Electron Main      | 窗口、安全导航、sender 校验、目录/扫描、binding service 及 JSON adapter。  |
 | Domain/Application | 平台无关目录条目解析、`LocalAudioBinding` 与 Repository 契约。             |
@@ -30,7 +30,7 @@ Web adapters
 
 ## Planned
 
-- 扫描候选导入预览与确认 binding。
+- 用户确认或解除扫描候选 binding。
 - availability 检查和受控播放 URL 解析。
 
 详细安全边界见 [`desktop-security-boundary.md`](desktop-security-boundary.md)，音频生命周期见 [`local-audio-lifecycle.md`](local-audio-lifecycle.md)，运行与打包说明见 [`../desktop-development.md`](../desktop-development.md)。

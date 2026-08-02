@@ -8,6 +8,8 @@ import {
 } from "react";
 
 import type { CatalogData, EntityId, LocalAudioFileRecord } from "../../types";
+import { DesktopLocalDirectoryPreview } from "../local-library/DesktopLocalDirectoryPreview";
+import { getDesktopDirectoryScanApi } from "../local-library/desktopDirectoryScanApi";
 import { LocalDirectoryImport } from "../local-library/LocalDirectoryImport";
 import type {
   LocalAudioBatchBindingResult,
@@ -48,6 +50,7 @@ export function CatalogImportTools({
   onBindAudioFiles
 }: CatalogImportToolsProps) {
   const [openTool, setOpenTool] = useState<CatalogImportTool>();
+  const desktopDirectoryScanApi = getDesktopDirectoryScanApi(globalThis);
   const verifiedCatalogTriggerRef = useRef<HTMLButtonElement>(null);
   const qqMetadataTriggerRef = useRef<HTMLButtonElement>(null);
   const localDirectoryTriggerRef = useRef<HTMLButtonElement>(null);
@@ -84,7 +87,7 @@ export function CatalogImportTools({
           aria-controls="local-directory-import-dialog"
           onClick={() => setOpenTool("local-directory")}
         >
-          批量绑定音频
+          {desktopDirectoryScanApi ? "扫描本地音频" : "批量绑定音频"}
         </button>
       </div>
 
@@ -122,20 +125,24 @@ export function CatalogImportTools({
       <CatalogImportDialog
         id="local-directory-import-dialog"
         isOpen={openTool === "local-directory"}
-        title="批量绑定本地音频"
+        title={desktopDirectoryScanApi ? "预览本地音乐目录" : "批量绑定本地音频"}
         triggerRef={localDirectoryTriggerRef}
         onClose={() => setOpenTool(undefined)}
       >
-        <LocalDirectoryImport
-          catalog={catalog}
-          catalogStatus={catalogStatus}
-          audioBindingsByTrackId={audioBindingsByTrackId}
-          audioStatus={audioStatus}
-          isCatalogSaving={isCatalogSaving}
-          isEmbedded
-          onImportCatalogDrafts={onImportCatalogDrafts}
-          onBindAudioFiles={onBindAudioFiles}
-        />
+        {desktopDirectoryScanApi ? (
+          <DesktopLocalDirectoryPreview api={desktopDirectoryScanApi} />
+        ) : (
+          <LocalDirectoryImport
+            catalog={catalog}
+            catalogStatus={catalogStatus}
+            audioBindingsByTrackId={audioBindingsByTrackId}
+            audioStatus={audioStatus}
+            isCatalogSaving={isCatalogSaving}
+            isEmbedded
+            onImportCatalogDrafts={onImportCatalogDrafts}
+            onBindAudioFiles={onBindAudioFiles}
+          />
+        )}
       </CatalogImportDialog>
     </>
   );

@@ -2,8 +2,8 @@
 
 - 更新时间：2026-08-02
 - 分支：`desktop/electron`
-- 当前阶段：阶段 2 — 桌面音频绑定与导入（2.2C 已完成）
-- 当前任务：`ELECTRON-2.3` — 扫描候选接入导入预览
+- 当前阶段：阶段 2 — 桌面音频绑定与导入（2.3 已完成）
+- 当前任务：`ELECTRON-2.4` — 用户确认绑定与解绑
 
 ## 已完成
 
@@ -16,6 +16,7 @@
 - `LocalAudioBindingRepository` 契约和无平台依赖的内存参考实现。
 - 带 schema version、原子写入和损坏备份的 Electron JSON binding Repository。
 - Main binding service、固定 IPC channels 和 `window.desktop.musicLibrary.bindings` 窄 API。
+- Electron 扫描候选已接入现有导入弹窗的临时预览；Web 导入分支保持不变。
 
 ## 关键提交
 
@@ -24,7 +25,8 @@
 - `c3f3a26` — `refactor(local-library): define portable audio binding model`
 - `7ccc999` — `refactor(local-library): define audio binding repository`
 - `6d481c7` — `desktop(electron): persist local audio bindings`
-- `desktop(electron): expose local audio binding service` — 与本次状态交接同一提交
+- `db60170` — `desktop(electron): expose local audio binding service`
+- `desktop(electron): preview scanned audio candidates` — 与本次状态交接同一提交
 
 ## 核心不变量
 
@@ -35,19 +37,20 @@
 - Repository 不读取音频、不生成播放 URL、不隐式修改时间戳。
 - JSON Repository 的文件路径由 Main 调用方注入；损坏数据和未知 schema 不会被静默覆盖。
 - Electron binding 写入只接受已注册目录中的 `desktop-file` source；公开错误不泄露本机路径。
+- 桌面扫描预览仅保留受控目录标识、相对路径和可序列化元数据；不含绝对路径或 `bindingId`，刷新/重扫会替换页面内存状态。
 - Web 目录导入、旧 Web Repository 和 Web 构建保持兼容。
 
 ## 当前遗留问题
 
-- 扫描候选尚未接入桌面导入预览；binding API 尚无 UI 调用方。
+- 桌面预览尚不能由用户确认、替换或解除 binding；binding API 尚无 UI 写入调用方。
 - availability 检查和受控播放协议尚未实现。
 
 ## 下一步任务序列
 
-1. `ELECTRON-2.3`：扫描候选接入导入预览。
-2. `ELECTRON-2.4`：用户确认绑定与解绑。
-3. `ELECTRON-2.5`：missing/changed 状态检查。
+1. `ELECTRON-2.4`：用户确认绑定与解绑。
+2. `ELECTRON-2.5`：missing/changed 状态检查。
+3. 阶段 3：受控桌面音频播放。
 
 ## 最近一次验证状态
 
-2026-08-02：`npm run test:run`（36 个文件、336 项测试）、`npm run lint`、`npm run build`、`npm run desktop:build` 与 `git diff --check` 全部通过。
+2026-08-02：`npm run test:run`（38 个文件、352 项测试）、`npm run lint`、`npm run build`、`npm run desktop:build` 与 `git diff --check` 全部通过。

@@ -641,6 +641,18 @@ a:focus-visible {
   flex: 1 1 220px;
 }
 
+.desktop-directory-controls .catalog-editor-field {
+  flex: 1 1 240px;
+}
+
+.desktop-directory-controls select {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  padding: 7px 9px;
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
 .directory-import-storage-summary {
   flex: 1 1 100%;
   margin: 0;
@@ -755,6 +767,11 @@ a:focus-visible {
   text-align: center;
 }
 
+.desktop-directory-table td:first-child {
+  width: auto;
+  text-align: left;
+}
+
 .directory-import-table td strong,
 .directory-import-table td span {
   display: block;
@@ -780,6 +797,11 @@ a:focus-visible {
 .directory-import-warning,
 .directory-import-error {
   color: var(--warning);
+}
+
+.desktop-directory-error-list {
+  margin: 6px 0 0;
+  padding-left: 20px;
 }
 
 .directory-import-actions {

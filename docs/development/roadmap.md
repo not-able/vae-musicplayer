@@ -23,8 +23,8 @@
 - [x] 2.2A Repository 契约与内存参考实现。
 - [x] 2.2B Electron JSON binding 持久化。
 - [x] 2.2C Main binding service 与窄 IPC。
-- [ ] 2.3 扫描候选接入导入预览（当前 active task）。
-- [ ] 2.4 用户确认绑定与解绑。
+- [x] 2.3 扫描候选接入导入预览。
+- [ ] 2.4 用户确认绑定与解绑（当前 active task）。
 - [ ] 2.5 missing/changed 状态检查。
 
 ## 阶段 3：本地播放
