@@ -1,3 +1,4 @@
+import { isLocalAudioRelativePath } from "../../types/localAudioBinding";
 import {
   getLocalAudioFileExtension,
   type LocalAudioFileExtension
@@ -153,17 +154,7 @@ export function normalizeDirectoryCandidateKey(value: string): string {
 }
 
 export function isValidLocalDirectoryRelativePath(relativePath: string): boolean {
-  if (
-    relativePath.startsWith("/") ||
-    relativePath.includes("\\") ||
-    /^[a-z]:/i.test(relativePath)
-  ) {
-    return false;
-  }
-
-  return relativePath
-    .split("/")
-    .every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+  return isLocalAudioRelativePath(relativePath);
 }
 
 function createKnownArtistNames(

@@ -7,6 +7,12 @@ export type AudioMappingStatus = "available" | "missing" | "permission_required"
 
 export type LocalAudioStorageMethod = "file-copy" | "file-handle";
 
+/**
+ * Browser-only compatibility records used by the current IndexedDB repository.
+ * They intentionally remain separate from the serializable LocalAudioBinding model
+ * until a later repository migration can move File and FileSystemFileHandle values
+ * behind a Web storage adapter.
+ */
 export interface LocalAudioFileMapping {
   id: EntityId;
   trackId: EntityId;

@@ -45,3 +45,30 @@ export type {
   PlaybackProviderDescriptor,
   PlaybackProviderType
 } from "./audio";
+
+export {
+  createDesktopAudioSourceRef,
+  isDesktopAudioSourceRef,
+  isLocalAudioBindingId,
+  isLocalAudioBindingSerializable,
+  isLocalAudioDirectoryId,
+  isLocalAudioRelativePath,
+  isLocalAudioSourceId,
+  isLocalAudioSourceRef,
+  isLocalAudioTrackId,
+  normalizeLocalAudioRelativePath
+} from "./localAudioBinding";
+
+export type {
+  DesktopFileAudioSourceRef,
+  LocalAudioAvailability,
+  LocalAudioBinding,
+  LocalAudioBindingId,
+  LocalAudioDirectoryId,
+  LocalAudioRelativePath,
+  LocalAudioSourceId,
+  LocalAudioSourceRef,
+  LocalAudioTrackId,
+  WebFileCopyAudioSourceRef,
+  WebFileHandleAudioSourceRef
+} from "./localAudioBinding";

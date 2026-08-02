@@ -1,3 +1,5 @@
+import { isLocalAudioDirectoryId } from "../../src/types/localAudioBinding";
+
 export type MusicDirectoryAvailability = "available" | "missing" | "unreadable";
 
 export interface SelectedMusicDirectory {
@@ -69,9 +71,6 @@ export interface DesktopIpcErrorPayload {
 export type DesktopIpcResult<T> =
   { ok: true; value: T } | { ok: false; error: DesktopIpcErrorPayload };
 
-const DIRECTORY_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export function isValidMusicDirectoryId(value: unknown): value is string {
-  return typeof value === "string" && DIRECTORY_ID_PATTERN.test(value);
+  return isLocalAudioDirectoryId(value);
 }
