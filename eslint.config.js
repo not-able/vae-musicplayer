@@ -5,7 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "coverage", "node_modules"] },
+  { ignores: ["dist", "dist-electron", "release", "coverage", "node_modules"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -24,6 +24,12 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }]
+    }
+  },
+  {
+    files: ["electron/**/*.ts", "electron.vite.config.ts", "scripts/**/*.mjs"],
+    languageOptions: {
+      globals: globals.node
     }
   }
 );

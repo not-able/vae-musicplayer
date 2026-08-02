@@ -3,10 +3,16 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "author": "Vae Music contributors",
   "description": "Open source local-first music player skeleton for album catalog and temporary playback queues.",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "desktop:dev": "npm run desktop:build:electron && node scripts/desktop-dev.mjs",
+    "desktop:build": "npm run build && npm run desktop:build:electron",
+    "desktop:build:electron": "tsc -p tsconfig.electron.json --noEmit && vite build --config electron.vite.config.ts --mode main && vite build --config electron.vite.config.ts --mode preload",
+    "desktop:package": "npm run desktop:build && electron-builder --win nsis",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
@@ -15,7 +21,7 @@
     "format:check": "prettier --check ."
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.12.0"
   },
   "dependencies": {
     "react": "^19.2.7",
@@ -26,6 +32,8 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
