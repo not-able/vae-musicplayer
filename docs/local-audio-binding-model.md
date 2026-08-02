@@ -10,6 +10,6 @@
 
 `LocalAudioBindingRepository` 只管理可序列化的绑定元数据，不负责检查文件是否存在、读取文件内容或生成播放地址。一首曲目至多保留一个当前绑定：相同 `bindingId + trackId` 会更新记录，同一曲目保存新的 `bindingId` 会替换旧绑定，而把已有 `bindingId` 用于另一首曲目会产生可识别的冲突错误。列表按 `createdAt`、`bindingId` 稳定排序，所有输入输出均进行防御性复制。
 
-时间戳由调用方维护，Repository 不读取系统时间，也不改写 `createdAt` 或 `updatedAt`。本阶段提供的内存实现仅用于验证契约和后续适配器开发，不是生产持久化方案；Web 浏览器来源对象和绑定元数据将由后续 Web 适配器分别管理，Electron 适配器则会通过 `directoryId + relativePath` 解析受控文件。
+时间戳由调用方维护，Repository 不读取系统时间，也不改写 `createdAt` 或 `updatedAt`。内存实现用于验证契约；Electron 使用带 schema version、原子写入和损坏备份的 JSON adapter。Web 浏览器来源对象和绑定元数据仍由旧 Web adapter 管理，尚未迁移。
 
-本阶段尚未实现 Web 或 Electron 持久化、旧数据迁移、IPC、导入 UI、文件解析或音频播放。
+Electron Main 已通过固定 IPC 和 Preload 的 `window.desktop.musicLibrary.bindings` 子 API 提供查询、保存和删除操作。Main 只接受 `desktop-file` source，并在保存前确认其 `directoryId` 存在于受控目录注册表；Renderer 不会获得真实路径。当前尚未实现旧 Web 数据迁移、桌面导入 UI、文件可用性检查或音频播放。

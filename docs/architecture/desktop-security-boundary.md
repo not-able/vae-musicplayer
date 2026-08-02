@@ -27,4 +27,4 @@ Renderer 只加载明确的开发服务器地址或打包后的本地页面。�
 - Main 解析路径时拒绝绝对路径、`..`、符号链接和授权根目录逃逸。
 - `displayPath` 仅用于显示，不是访问凭据。
 
-目录注册与扫描的当前操作说明见 [`../desktop-development.md`](../desktop-development.md)。binding JSON 持久化 adapter 已实现但尚未接入 Main；其专用 IPC 仍为 planned。
+目录注册、扫描和 binding API 的当前操作说明见 [`../desktop-development.md`](../desktop-development.md)。binding IPC 只接受可序列化的 `desktop-file` source，并在写入前确认 `directoryId` 仍存在于 Main 的受控注册表；存储错误会转换为不含本机路径的稳定公开错误。

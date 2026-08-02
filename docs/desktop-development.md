@@ -24,7 +24,7 @@ npm run desktop:package
 ## 进程边界
 
 - Main：创建窗口、选择开发或生产页面、限制导航和新窗口，并注册白名单 IPC；只有 Main 保存和解析已授权目录的真实路径。
-- Preload：通过 `contextBridge` 暴露 `window.desktop.getPlatformInfo()` 和下述明确的音乐目录接口，不暴露通用 IPC。
+- Preload：通过 `contextBridge` 暴露 `window.desktop.getPlatformInfo()` 和下述明确的音乐目录/binding 接口，不暴露通用 IPC。
 - Renderer：现有 React 页面；不能直接访问 Node.js、Electron 或通用 IPC。
 
 窗口启用 `nodeIntegration: false`、`contextIsolation: true` 和 `sandbox: true`。应用内导航只接受当前固定 Renderer 页面；新窗口始终拒绝。外部链接只有在解析并确认协议为 `https:` 且不含嵌入凭据后，才会交给系统浏览器。
@@ -51,6 +51,21 @@ window.desktop.musicLibrary.forgetDirectory(directoryId);
 
 扫描器递归读取目录条目和必要的文件状态，不读取音频内容或标签；跳过符号链接，并确保每个候选路径仍位于授权根目录中。返回的相对路径统一使用 `/`，不会包含绝对路径、`Buffer`、Node.js 对象或文件内容。
 
+## 本地音频 Binding API
+
+Renderer 可通过以下固定子 API 管理可序列化 binding 元数据：
+
+```ts
+window.desktop.musicLibrary.bindings.list();
+window.desktop.musicLibrary.bindings.findByBindingId({ bindingId });
+window.desktop.musicLibrary.bindings.findByTrackId({ trackId });
+window.desktop.musicLibrary.bindings.save({ binding });
+window.desktop.musicLibrary.bindings.removeByBindingId({ bindingId });
+window.desktop.musicLibrary.bindings.removeByTrackId({ trackId });
+```
+
+保存只接受 `desktop-file` source，且 Main 会在写入前确认 `directoryId` 已注册。binding 只包含 `directoryId + relativePath` 和可序列化元数据；Repository 不读取音频、不检查 availability，也不生成播放 URL。数据保存在 Electron `userData` 下的 `local-audio-bindings.json`，采用带版本 schema 和原子写入；损坏或不支持版本不会被静默覆盖。所有存储错误在跨 IPC 前都会转换为不含本机路径的稳定错误。
+
 ## 手动验证目录能力
 
 1. 执行 `npm run desktop:dev`，确认窗口和原有页面正常显示。
@@ -62,8 +77,8 @@ window.desktop.musicLibrary.forgetDirectory(directoryId);
 7. 重启应用并调用 `window.desktop.musicLibrary.listDirectories()`，确认授权记录仍存在。
 8. 调用 `window.desktop.musicLibrary.forgetDirectory(directoryId)`，再确认列表中记录已移除且原 ID 无法扫描。
 
-如需清理测试数据，请先退出应用，再从操作系统提供的 Electron 用户数据目录中删除本应用的 `music-directory-registry.json`。不要删除整个用户数据目录，以免影响将来的其他本地设置。
+如需清理测试数据，请先退出应用，再从操作系统提供的 Electron 用户数据目录中删除本应用的 `music-directory-registry.json` 或 `local-audio-bindings.json`。不要删除整个用户数据目录，以免影响其他本地设置；若存在 `.corrupt-*.bak`，应先保留并人工确认内容。
 
 ## 当前范围
 
-本阶段不将桌面扫描结果导入现有曲库，也不提供桌面音频播放、单曲绑定、标签或时长解析、封面提取、文件监听、增量或后台扫描、进度与取消 UI、系统托盘、媒体快捷键、自动更新等能力。现有 Web 目录导入和 Web 构建入口保持不变。
+当前仍不将桌面扫描结果接入导入预览，也不提供用户确认绑定 UI、桌面音频播放、availability 刷新、标签或时长解析、封面提取、文件监听、增量或后台扫描、进度与取消 UI、系统托盘、媒体快捷键、自动更新等能力。现有 Web 目录导入和 Web 构建入口保持不变。

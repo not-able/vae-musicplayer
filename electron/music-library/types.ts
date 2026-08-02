@@ -1,4 +1,26 @@
-import { isLocalAudioDirectoryId } from "../../src/types/localAudioBinding";
+import {
+  isLocalAudioDirectoryId,
+  type LocalAudioBinding,
+  type LocalAudioBindingId,
+  type LocalAudioTrackId
+} from "../../src/types/localAudioBinding";
+
+export type DesktopMusicLibraryErrorCode =
+  | "binding_conflict"
+  | "binding_invalid"
+  | "binding_store_corrupt"
+  | "binding_store_read_failed"
+  | "binding_store_schema_unsupported"
+  | "binding_store_write_failed"
+  | "directory_missing"
+  | "directory_unreadable"
+  | "invalid_request"
+  | "registry_read_failed"
+  | "registry_write_failed"
+  | "scan_failed"
+  | "selection_failed"
+  | "unknown_directory"
+  | "untrusted_sender";
 
 export type MusicDirectoryAvailability = "available" | "missing" | "unreadable";
 
@@ -54,7 +76,33 @@ export interface DesktopMusicDirectoryScanResult {
   errors: readonly DesktopDirectoryScanError[];
 }
 
+export interface LocalAudioBindingIdRequest {
+  readonly bindingId: LocalAudioBindingId;
+}
+
+export interface LocalAudioTrackIdRequest {
+  readonly trackId: LocalAudioTrackId;
+}
+
+export interface SaveLocalAudioBindingRequest {
+  readonly binding: LocalAudioBinding;
+}
+
+export interface DesktopLocalAudioBindingApi {
+  list(): Promise<readonly LocalAudioBinding[]>;
+  findByBindingId(
+    request: LocalAudioBindingIdRequest
+  ): Promise<LocalAudioBinding | undefined>;
+  findByTrackId(
+    request: LocalAudioTrackIdRequest
+  ): Promise<LocalAudioBinding | undefined>;
+  save(request: SaveLocalAudioBindingRequest): Promise<void>;
+  removeByBindingId(request: LocalAudioBindingIdRequest): Promise<boolean>;
+  removeByTrackId(request: LocalAudioTrackIdRequest): Promise<boolean>;
+}
+
 export interface DesktopMusicLibraryApi {
+  readonly bindings: DesktopLocalAudioBindingApi;
   selectDirectory(): Promise<SelectedMusicDirectory | null>;
   listDirectories(): Promise<readonly SelectedMusicDirectory[]>;
   scanDirectory(
@@ -64,7 +112,7 @@ export interface DesktopMusicLibraryApi {
 }
 
 export interface DesktopIpcErrorPayload {
-  code: string;
+  code: DesktopMusicLibraryErrorCode;
   message: string;
 }
 

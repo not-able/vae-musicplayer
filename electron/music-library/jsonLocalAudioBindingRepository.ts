@@ -12,6 +12,7 @@ import {
 } from "../../src/types/localAudioBinding";
 
 export const LOCAL_AUDIO_BINDING_STORE_SCHEMA_VERSION = 1 as const;
+export const LOCAL_AUDIO_BINDING_STORE_FILE_NAME = "local-audio-bindings.json";
 
 interface PersistedLocalAudioBindingStore {
   readonly schemaVersion: typeof LOCAL_AUDIO_BINDING_STORE_SCHEMA_VERSION;

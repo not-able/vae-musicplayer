@@ -13,14 +13,14 @@ import {
   isTrustedRendererUrl
 } from "./security/navigation";
 import {
-  MUSIC_DIRECTORY_REGISTRY_FILE_NAME,
-  MusicDirectoryRegistry
-} from "./music-library/directoryRegistry";
-import {
   registerMusicLibraryIpcHandlers,
   unregisterMusicLibraryIpcHandlers
 } from "./music-library/ipc";
-import { DesktopMusicLibraryService } from "./music-library/musicLibraryService";
+import {
+  createDesktopMusicLibraryService,
+  type DesktopMusicLibraryServiceFactoryOptions
+} from "./music-library/musicLibraryServiceFactory";
+import type { DesktopMusicLibraryService } from "./music-library/musicLibraryService";
 
 interface RendererTarget {
   expectedUrl: string;
@@ -94,7 +94,15 @@ async function logDevelopmentSecurityProbe(window: BrowserWindow): Promise<void>
         selectDirectoryType: typeof globalThis.desktop?.musicLibrary?.selectDirectory,
         listDirectoriesType: typeof globalThis.desktop?.musicLibrary?.listDirectories,
         scanDirectoryType: typeof globalThis.desktop?.musicLibrary?.scanDirectory,
-        forgetDirectoryType: typeof globalThis.desktop?.musicLibrary?.forgetDirectory
+        forgetDirectoryType: typeof globalThis.desktop?.musicLibrary?.forgetDirectory,
+        bindings: {
+          listType: typeof globalThis.desktop?.musicLibrary?.bindings?.list,
+          findByBindingIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.findByBindingId,
+          findByTrackIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.findByTrackId,
+          saveType: typeof globalThis.desktop?.musicLibrary?.bindings?.save,
+          removeByBindingIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.removeByBindingId,
+          removeByTrackIdType: typeof globalThis.desktop?.musicLibrary?.bindings?.removeByTrackId
+        }
       },
       documentReadyState: globalThis.document.readyState,
       rootChildCount: globalThis.document.querySelector("#root")?.childElementCount ?? 0,
@@ -154,13 +162,9 @@ function reportWindowCreationError(error: unknown): void {
   console.error("Failed to create the Electron main window.", error);
 }
 
-function createDesktopMusicLibraryService(): DesktopMusicLibraryService {
-  const registry = new MusicDirectoryRegistry({
-    filePath: path.join(app.getPath("userData"), MUSIC_DIRECTORY_REGISTRY_FILE_NAME)
-  });
-
-  return new DesktopMusicLibraryService({
-    registry,
+function createMusicLibraryService(): DesktopMusicLibraryService {
+  const options: DesktopMusicLibraryServiceFactoryOptions = {
+    userDataPath: app.getPath("userData"),
     selectDirectoryPath: async () => {
       const options: Electron.OpenDialogOptions = {
         title: "选择本地音乐目录",
@@ -172,7 +176,9 @@ function createDesktopMusicLibraryService(): DesktopMusicLibraryService {
 
       return result.canceled ? null : (result.filePaths[0] ?? null);
     }
-  });
+  };
+
+  return createDesktopMusicLibraryService(options);
 }
 
 if (process.platform === "win32") {
@@ -187,10 +193,7 @@ void app
       isTrustedRendererUrl(senderUrl, rendererTarget?.expectedUrl ?? "");
 
     registerPlatformInfoHandler(isTrustedSender);
-    registerMusicLibraryIpcHandlers(
-      createDesktopMusicLibraryService(),
-      isTrustedSender
-    );
+    registerMusicLibraryIpcHandlers(createMusicLibraryService(), isTrustedSender);
     await createMainWindow();
 
     app.on("activate", () => {

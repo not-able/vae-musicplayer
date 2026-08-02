@@ -4,11 +4,27 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { InMemoryLocalAudioBindingRepository } from "../../src/features/local-library/inMemoryLocalAudioBindingRepository";
+import {
+  createDesktopAudioSourceRef,
+  isLocalAudioBindingId,
+  isLocalAudioDirectoryId,
+  isLocalAudioSourceId,
+  isLocalAudioTrackId,
+  type LocalAudioBinding,
+  type LocalAudioBindingId,
+  type LocalAudioDirectoryId,
+  type LocalAudioSourceId,
+  type LocalAudioTrackId
+} from "../../src/types/localAudioBinding";
 import { MusicDirectoryRegistry } from "./directoryRegistry";
 import { createMusicLibraryIpcHandlers } from "./ipcHandlers";
 import { DesktopMusicLibraryService } from "./musicLibraryService";
 
 const temporaryRoots: string[] = [];
+const BINDING_ID = "11111111-1111-4111-8111-111111111111";
+const TRACK_ID = "track_sample_001";
+const UNKNOWN_DIRECTORY_ID = "55555555-5555-4555-8555-555555555555";
 
 afterEach(async () => {
   await Promise.all(
@@ -28,6 +44,7 @@ async function createTestContext(selectDirectoryPath?: () => Promise<string | nu
   });
   const service = new DesktopMusicLibraryService({
     registry,
+    bindingRepository: new InMemoryLocalAudioBindingRepository(),
     selectDirectoryPath: selectDirectoryPath ?? (async () => musicDirectory)
   });
   const handlers = createMusicLibraryIpcHandlers(
@@ -36,6 +53,55 @@ async function createTestContext(selectDirectoryPath?: () => Promise<string | nu
   );
 
   return { handlers, musicDirectory };
+}
+
+function bindingId(value: string): LocalAudioBindingId {
+  if (!isLocalAudioBindingId(value)) {
+    throw new Error(`Invalid test binding ID: ${value}`);
+  }
+
+  return value;
+}
+
+function trackId(value: string): LocalAudioTrackId {
+  if (!isLocalAudioTrackId(value)) {
+    throw new Error(`Invalid test track ID: ${value}`);
+  }
+
+  return value;
+}
+
+function sourceId(value: string): LocalAudioSourceId {
+  if (!isLocalAudioSourceId(value)) {
+    throw new Error(`Invalid test source ID: ${value}`);
+  }
+
+  return value;
+}
+
+function directoryId(value: string): LocalAudioDirectoryId {
+  if (!isLocalAudioDirectoryId(value)) {
+    throw new Error(`Invalid test directory ID: ${value}`);
+  }
+
+  return value;
+}
+
+function createBinding(directoryIdValue: string): LocalAudioBinding {
+  return {
+    bindingId: bindingId(BINDING_ID),
+    trackId: trackId(TRACK_ID),
+    source: createDesktopAudioSourceRef({
+      directoryId: directoryId(directoryIdValue),
+      relativePath: "album/sample.mp3"
+    }),
+    fileName: "sample.mp3",
+    fileSize: 1024,
+    modifiedAt: 1_765_000_000_000,
+    availability: "unknown",
+    createdAt: "2026-08-02T00:00:00.000Z",
+    updatedAt: "2026-08-02T00:00:00.000Z"
+  };
 }
 
 describe("music library IPC handlers", () => {
@@ -74,7 +140,7 @@ describe("music library IPC handlers", () => {
 
   it("rejects invalid IDs, unknown IDs and requests that include a path", async () => {
     const { handlers, musicDirectory } = await createTestContext();
-    const unknownDirectoryId = "55555555-5555-4555-8555-555555555555";
+    const unknownDirectoryId = UNKNOWN_DIRECTORY_ID;
 
     await expect(
       handlers.scanDirectory("trusted-renderer", [{ directoryId: "../escape" }])
@@ -98,8 +164,15 @@ describe("music library IPC handlers", () => {
       ok: false,
       error: {
         code: "untrusted_sender",
-        message: "已拒绝来自非受信 Renderer 的本地目录请求。"
+        message: "已拒绝来自非受信 Renderer 的本地音乐库请求。"
       }
+    });
+
+    await expect(
+      handlers.listLocalAudioBindings("https://untrusted.example/", [])
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "untrusted_sender" }
     });
   });
 
@@ -110,5 +183,88 @@ describe("music library IPC handlers", () => {
       ok: true,
       value: null
     });
+  });
+
+  it("saves, finds, lists and removes a desktop binding through narrow handlers", async () => {
+    const { handlers } = await createTestContext();
+    const selection = await handlers.selectDirectory("trusted-renderer", []);
+    if (!selection.ok || selection.value === null) {
+      throw new Error("Expected directory selection to succeed.");
+    }
+
+    const binding = createBinding(selection.value.directoryId);
+
+    await expect(
+      handlers.saveLocalAudioBinding("trusted-renderer", [{ binding }])
+    ).resolves.toEqual({ ok: true, value: undefined });
+    await expect(
+      handlers.listLocalAudioBindings("trusted-renderer", [])
+    ).resolves.toEqual({ ok: true, value: [binding] });
+    await expect(
+      handlers.findLocalAudioBindingByBindingId("trusted-renderer", [
+        { bindingId: binding.bindingId }
+      ])
+    ).resolves.toEqual({ ok: true, value: binding });
+    await expect(
+      handlers.findLocalAudioBindingByTrackId("trusted-renderer", [
+        { trackId: binding.trackId }
+      ])
+    ).resolves.toEqual({ ok: true, value: binding });
+    await expect(
+      handlers.removeLocalAudioBindingByTrackId("trusted-renderer", [
+        { trackId: binding.trackId }
+      ])
+    ).resolves.toEqual({ ok: true, value: true });
+    await expect(
+      handlers.removeLocalAudioBindingByBindingId("trusted-renderer", [
+        { bindingId: binding.bindingId }
+      ])
+    ).resolves.toEqual({ ok: true, value: false });
+  });
+
+  it("rejects invalid binding requests, web sources and unknown directories", async () => {
+    const { handlers, musicDirectory } = await createTestContext();
+    const unknownDirectoryBinding = createBinding(UNKNOWN_DIRECTORY_ID);
+    const webBinding: LocalAudioBinding = {
+      ...unknownDirectoryBinding,
+      source: {
+        type: "web-file-copy",
+        sourceId: sourceId("local_audio_copy_001")
+      }
+    };
+
+    await expect(
+      handlers.saveLocalAudioBinding("trusted-renderer", [{ binding: webBinding }])
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" }
+    });
+    await expect(
+      handlers.saveLocalAudioBinding("trusted-renderer", [
+        { binding: unknownDirectoryBinding, path: musicDirectory }
+      ])
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" }
+    });
+    await expect(
+      handlers.saveLocalAudioBinding("trusted-renderer", [
+        { binding: unknownDirectoryBinding }
+      ])
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "unknown_directory" }
+    });
+    await expect(
+      handlers.findLocalAudioBindingByBindingId("trusted-renderer", [
+        { bindingId: "../escape" }
+      ])
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" }
+    });
+    await expect(
+      handlers.listLocalAudioBindings("trusted-renderer", [])
+    ).resolves.toEqual({ ok: true, value: [] });
   });
 });
