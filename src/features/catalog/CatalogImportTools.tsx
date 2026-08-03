@@ -125,12 +125,16 @@ export function CatalogImportTools({
       <CatalogImportDialog
         id="local-directory-import-dialog"
         isOpen={openTool === "local-directory"}
-        title={desktopDirectoryScanApi ? "预览本地音乐目录" : "批量绑定本地音频"}
+        title={desktopDirectoryScanApi ? "扫描并绑定本地音频" : "批量绑定本地音频"}
         triggerRef={localDirectoryTriggerRef}
         onClose={() => setOpenTool(undefined)}
       >
         {desktopDirectoryScanApi ? (
-          <DesktopLocalDirectoryPreview api={desktopDirectoryScanApi} />
+          <DesktopLocalDirectoryPreview
+            api={desktopDirectoryScanApi}
+            catalog={catalog}
+            catalogStatus={catalogStatus}
+          />
         ) : (
           <LocalDirectoryImport
             catalog={catalog}

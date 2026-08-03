@@ -25,8 +25,8 @@
 - [x] 2.2C Main binding service 与窄 IPC。
 - [x] 2.3 扫描候选接入导入预览。
 - [x] 2.4A 安全的候选确认与绑定服务。
-- [ ] 2.4B 曲目选择、替换确认和解绑确认 UI（当前 active task）。
-- [ ] 2.5 missing/changed 状态检查。
+- [x] 2.4B 曲目选择、替换确认和解绑确认 UI。
+- [ ] 2.5 missing/changed 状态检查（当前 active task）。
 
 ## 阶段 3：本地播放
 

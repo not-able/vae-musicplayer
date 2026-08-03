@@ -134,7 +134,13 @@ describe("local directory import integration", () => {
           listDirectories,
           selectDirectory: vi.fn(async () => null),
           scanDirectory: vi.fn(),
-          bindings: { bindCandidateToTrack }
+          bindings: {
+            list: vi.fn(async () => []),
+            findByBindingId: vi.fn(async () => undefined),
+            findByTrackId: vi.fn(async () => undefined),
+            bindCandidateToTrack,
+            unbindTrack: vi.fn(async () => undefined)
+          }
         }
       }
     });
@@ -159,7 +165,7 @@ describe("local directory import integration", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(container.textContent).toContain("预览本地音乐目录");
+    expect(container.textContent).toContain("扫描并绑定本地音频");
     expect(
       container.querySelector('[aria-label="桌面音乐目录扫描预览"]')
     ).not.toBeNull();

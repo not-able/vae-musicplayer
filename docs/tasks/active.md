@@ -1,52 +1,51 @@
 # Active Task
 
-- 任务 ID：`ELECTRON-2.4B`
+- 任务 ID：`ELECTRON-2.5`
 - 状态：`ready`
 - 分支：`desktop/electron`
 
 ## 前置条件
 
 - 工作区干净。
-- 当前分支包含 `desktop(electron): secure candidate binding commands`。
+- 当前分支包含 `desktop(electron): add candidate binding confirmation UI`。
 - 开始前阅读：
   - `docs/architecture/overview.md`
   - `docs/architecture/desktop-security-boundary.md`
   - `docs/architecture/local-audio-lifecycle.md`
+  - `docs/decisions/0003-controlled-directory-references.md`
   - `docs/decisions/0004-portable-audio-binding-model.md`
   - `docs/decisions/0005-main-owned-scan-candidates.md`
 
 ## 目标
 
-在现有 Electron 扫描预览中增加逐项曲目选择、显式替换确认和解绑确认 UI，只调用 2.4A 的安全候选命令。
+由 Main 根据受控目录和文件元数据刷新桌面 binding 的 `available`、`missing`、`permission-required`、`changed` 或 `unknown` 状态，并向 Renderer 返回脱敏摘要。
 
 ## 范围
 
-- 为每个当前 candidate 提供从现有 catalog 明确选择目标 track 的交互；不根据文件名自动选择。
-- 加载不含 sourceRef 的 binding summary，并显示目标 track 当前是否已绑定。
-- 未绑定 track 经用户明确确认后调用 `bindCandidateToTrack({ candidateId, trackId })`。
-- 已绑定 track 必须展示当前 binding 信息并二次确认，再携带 `expectedExistingBindingId` 调用替换命令。
-- 解绑必须二次确认，并调用 `unbindTrack({ trackId, expectedBindingId })`。
-- 成功后刷新 binding summary；冲突或 candidate 失效时显示脱敏反馈，保留可用预览并提示重新扫描/刷新。
-- 使用现有弹窗、表格、表单和按钮模式；保持键盘可访问性，不进行全局 UI 改版。
-- Web `LocalDirectoryImport`、旧 browser `File`/handle 流程和播放器保持不变。
-- 增加选择、确认、取消、冲突、失效与 Web 兼容的聚焦测试，并更新相关文档。
+- 只由 Main 从持久化 binding 的 `directoryId + relativePath` 解析实际文件；Renderer 不提交路径或 sourceRef。
+- 复用目录注册表和扫描器的路径规范化、授权根目录、符号链接与逃逸防护规则。
+- 使用文件存在性、可读性、大小和修改时间判断 availability；不读取音频内容。
+- 为 availability 刷新增加固定 IPC/Preload 窄接口或扩展现有只读查询流程，并继续校验 sender 和参数。
+- 更新 binding availability 时保持 Repository 的显式时间戳语义和一个 track 一个 binding 约束。
+- UI 显示安全状态和可恢复反馈，不展示路径、sourceRef、内部 channel、堆栈或原始异常。
+- 增加可用、丢失、权限不足、元数据变化、未知错误、路径逃逸、冲突和 Web 兼容测试。
 
 ## 明确不做
 
-- 新 IPC、通用 invoke/send、路径/sourceRef/完整 binding 参数。
-- 自动匹配、批量绑定或修改 catalog 元数据。
-- 音频播放、`app-media://`、availability 刷新、标签解析。
-- Repository/schema 修改、IndexedDB 迁移或 SQLite。
-- 全局 UI 改版或现有 Web 导入重构。
+- 音频内容读取、标签/封面/时长解析或哈希比对。
+- 文件监听、后台常驻扫描、增量索引或自动修复 binding。
+- 音频播放、`app-media://`、Range 请求或播放器 hook 重构。
+- 自动匹配、批量绑定、目录导入 UI 改版或 Repository schema 迁移。
+- SQLite、IndexedDB 迁移、Tauri 或系统媒体能力。
 
 ## 验收条件
 
-- 用户可逐项选择现有 track 并明确确认新 binding；取消不会写入。
-- 替换和解绑都有二次确认，并使用当前 expected binding ID；冲突不会误改新状态。
-- UI 和请求中不出现目录 ID、相对路径、sourceRef、绝对路径或完整 binding。
-- candidate 失效和 Repository 错误显示安全可恢复反馈。
-- Web 目录导入行为保持不变，默认验证命令全部通过。
+- Renderer 只能请求刷新受控 binding 状态，不能构造任意文件访问。
+- Main 能稳定区分现存未变、丢失、权限不足和大小/修改时间变化，并为未知失败返回安全状态或脱敏错误。
+- availability 更新不会覆盖并发产生的新 binding，过期请求不能修改新状态。
+- 绑定确认 UI 能刷新并显示状态；Web 导入和 Web 播放行为不变。
+- 默认验证命令和新增聚焦测试全部通过。
 
 ## 建议提交
 
-`desktop(electron): add candidate binding confirmation UI`
+`desktop(electron): refresh local audio availability`

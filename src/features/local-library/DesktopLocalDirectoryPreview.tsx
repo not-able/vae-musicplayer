@@ -1,5 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type {
+  DesktopAudioCandidateId,
+  DesktopLocalAudioBindingSummary
+} from "../../../electron/music-library/types";
+import type { CatalogData } from "../../types";
+import type {
+  LocalAudioBindingId,
+  LocalAudioTrackId
+} from "../../types/localAudioBinding";
+import type { CatalogLibraryStatus } from "../catalog/useCatalogLibrary";
+import {
+  DesktopAudioBindingDialog,
+  type DesktopBindingDialogSession
+} from "./DesktopAudioBindingDialog";
 import {
   buildDesktopAudioScanPreview,
   getDesktopLibraryErrorMessage,
@@ -7,25 +21,61 @@ import {
   type DesktopAudioScanPreview,
   type DesktopMusicDirectoryOption
 } from "./desktopAudioCandidatePreview";
+import {
+  associateCandidatesWithBindings,
+  buildDesktopCatalogTrackOptions,
+  getDesktopBindingErrorFeedback,
+  parseDesktopBindingSummaries,
+  type DesktopCatalogTrackOption
+} from "./desktopAudioBindingUi";
 import type { DesktopDirectoryScanApi } from "./desktopDirectoryScanApi";
 import { getLocalDirectoryScanErrorMessage } from "./localDirectoryEntryScanner";
 
 interface DesktopLocalDirectoryPreviewProps {
   readonly api: DesktopDirectoryScanApi;
+  readonly catalog: CatalogData;
+  readonly catalogStatus: CatalogLibraryStatus;
+}
+
+type BindingLoadStatus = "error" | "loading" | "ready";
+
+interface CandidateActionMessage {
+  readonly candidateId?: DesktopAudioCandidateId;
+  readonly message: string;
+  readonly tone: "error" | "success";
+}
+
+interface OpenBindingDialog extends DesktopBindingDialogSession {
+  readonly candidateId: DesktopAudioCandidateId;
 }
 
 export function DesktopLocalDirectoryPreview({
-  api
+  api,
+  catalog,
+  catalogStatus
 }: DesktopLocalDirectoryPreviewProps) {
   const [directories, setDirectories] = useState<
     readonly DesktopMusicDirectoryOption[]
   >([]);
   const [selectedDirectoryId, setSelectedDirectoryId] = useState("");
   const [preview, setPreview] = useState<DesktopAudioScanPreview>();
+  const [bindingSummaries, setBindingSummaries] = useState<
+    readonly DesktopLocalAudioBindingSummary[]
+  >([]);
+  const [bindingHintByCandidateId, setBindingHintByCandidateId] = useState<
+    ReadonlyMap<DesktopAudioCandidateId, LocalAudioBindingId>
+  >(() => new Map());
+  const [bindingLoadStatus, setBindingLoadStatus] =
+    useState<BindingLoadStatus>("loading");
   const [isLoadingDirectories, setIsLoadingDirectories] = useState(true);
   const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [isSubmittingBinding, setIsSubmittingBinding] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
+  const [candidateActionMessage, setCandidateActionMessage] =
+    useState<CandidateActionMessage>();
+  const [openBindingDialog, setOpenBindingDialog] = useState<OpenBindingDialog>();
+  const bindingSubmissionInProgressRef = useRef(false);
 
   const loadDirectories = useCallback(async () => {
     setIsLoadingDirectories(true);
@@ -48,24 +98,85 @@ export function DesktopLocalDirectoryPreview({
       setDirectories([]);
       setSelectedDirectoryId("");
       setPreview(undefined);
+      setOpenBindingDialog(undefined);
       setErrorMessage(getDesktopLibraryErrorMessage(error, "list"));
     } finally {
       setIsLoadingDirectories(false);
     }
   }, [api]);
 
+  const loadBindingSummaries = useCallback(
+    async (showLoading = true) => {
+      if (showLoading) {
+        setBindingLoadStatus("loading");
+      }
+
+      try {
+        const nextSummaries = parseDesktopBindingSummaries(await api.bindings.list());
+        setBindingSummaries(nextSummaries);
+        setBindingLoadStatus("ready");
+        return nextSummaries;
+      } catch (error: unknown) {
+        setBindingSummaries([]);
+        setBindingLoadStatus("error");
+        setCandidateActionMessage({
+          tone: "error",
+          message: getDesktopBindingErrorFeedback(error, "list").message
+        });
+        return undefined;
+      }
+    },
+    [api]
+  );
+
   useEffect(() => {
     const loadTimer = window.setTimeout(() => void loadDirectories(), 0);
     return () => window.clearTimeout(loadTimer);
   }, [loadDirectories]);
+
+  useEffect(() => {
+    const loadTimer = window.setTimeout(() => void loadBindingSummaries(), 0);
+    return () => window.clearTimeout(loadTimer);
+  }, [loadBindingSummaries]);
 
   const selectedDirectory = useMemo(
     () =>
       directories.find((directory) => directory.directoryId === selectedDirectoryId),
     [directories, selectedDirectoryId]
   );
+  const trackOptions = useMemo(
+    () => buildDesktopCatalogTrackOptions(catalog),
+    [catalog]
+  );
+  const trackById = useMemo(
+    () => new Map(trackOptions.map((track) => [track.trackId, track] as const)),
+    [trackOptions]
+  );
+  const bindingByTrackId = useMemo(
+    () =>
+      new Map(bindingSummaries.map((summary) => [summary.trackId, summary] as const)),
+    [bindingSummaries]
+  );
+  const candidateBindingById = useMemo(
+    () =>
+      associateCandidatesWithBindings(
+        preview?.candidates ?? [],
+        bindingSummaries,
+        bindingHintByCandidateId
+      ),
+    [bindingHintByCandidateId, bindingSummaries, preview?.candidates]
+  );
+  const dialogCandidate = preview?.candidates.find(
+    (candidate) => candidate.candidateId === openBindingDialog?.candidateId
+  );
   const isBusy = isLoadingDirectories || isSelectingDirectory || isScanning;
   const canScan = !isBusy && selectedDirectory?.availability === "available";
+  const canManageBindings =
+    bindingLoadStatus === "ready" &&
+    catalogStatus === "ready" &&
+    selectedDirectory?.availability === "available" &&
+    !isBusy &&
+    !isSubmittingBinding;
 
   async function selectDirectory() {
     if (isBusy) {
@@ -74,6 +185,7 @@ export function DesktopLocalDirectoryPreview({
 
     setIsSelectingDirectory(true);
     setErrorMessage(undefined);
+    closeCandidateUi();
 
     try {
       const selected = await api.selectDirectory();
@@ -103,6 +215,7 @@ export function DesktopLocalDirectoryPreview({
     setIsScanning(true);
     setPreview(undefined);
     setErrorMessage(undefined);
+    closeCandidateUi();
 
     try {
       const result = await api.scanDirectory({
@@ -116,11 +229,169 @@ export function DesktopLocalDirectoryPreview({
     }
   }
 
+  function closeCandidateUi() {
+    setOpenBindingDialog(undefined);
+    setCandidateActionMessage(undefined);
+    setBindingHintByCandidateId(new Map());
+  }
+
+  function clearPreview() {
+    if (isSubmittingBinding) {
+      return;
+    }
+
+    setPreview(undefined);
+    closeCandidateUi();
+  }
+
+  function openCandidateDialog(
+    candidateId: DesktopAudioCandidateId,
+    mode: OpenBindingDialog["mode"],
+    returnFocusTo: HTMLButtonElement
+  ) {
+    if (!canManageBindings) {
+      return;
+    }
+
+    setCandidateActionMessage(undefined);
+    setOpenBindingDialog({ candidateId, mode, returnFocusTo });
+  }
+
+  async function bindCandidate(
+    track: DesktopCatalogTrackOption,
+    expectedTargetBinding: DesktopLocalAudioBindingSummary | undefined
+  ) {
+    if (
+      !openBindingDialog ||
+      !dialogCandidate ||
+      !canManageBindings ||
+      bindingSubmissionInProgressRef.current
+    ) {
+      return;
+    }
+
+    const candidateId = dialogCandidate.candidateId;
+    const previousCandidateBinding = candidateBindingById.get(candidateId);
+    let failureOperation: "bind" | "unbind" = "bind";
+    bindingSubmissionInProgressRef.current = true;
+    setIsSubmittingBinding(true);
+    setCandidateActionMessage(undefined);
+
+    try {
+      const savedBinding = parseDesktopBindingSummaries([
+        await api.bindings.bindCandidateToTrack({
+          candidateId,
+          trackId: track.trackId,
+          ...(expectedTargetBinding
+            ? { expectedExistingBindingId: expectedTargetBinding.bindingId }
+            : {})
+        })
+      ])[0];
+
+      if (!savedBinding) {
+        throw new TypeError("Desktop binding result is missing.");
+      }
+
+      setBindingHintByCandidateId(
+        new Map([[candidateId, savedBinding.bindingId] as const])
+      );
+
+      if (
+        previousCandidateBinding &&
+        previousCandidateBinding.trackId !== savedBinding.trackId
+      ) {
+        failureOperation = "unbind";
+        parseDesktopBindingSummaries([
+          await api.bindings.unbindTrack({
+            trackId: previousCandidateBinding.trackId,
+            expectedBindingId: previousCandidateBinding.bindingId
+          })
+        ]);
+      }
+
+      setOpenBindingDialog(undefined);
+      await loadBindingSummaries(false);
+      setCandidateActionMessage({
+        candidateId,
+        tone: "success",
+        message: `已绑定到《${track.title}》。`
+      });
+    } catch (error: unknown) {
+      await handleBindingFailure(error, failureOperation, candidateId);
+    } finally {
+      bindingSubmissionInProgressRef.current = false;
+      setIsSubmittingBinding(false);
+    }
+  }
+
+  async function unbindCandidate(binding: DesktopLocalAudioBindingSummary) {
+    if (
+      !openBindingDialog ||
+      !dialogCandidate ||
+      !canManageBindings ||
+      bindingSubmissionInProgressRef.current
+    ) {
+      return;
+    }
+
+    const candidateId = dialogCandidate.candidateId;
+    bindingSubmissionInProgressRef.current = true;
+    setIsSubmittingBinding(true);
+    setCandidateActionMessage(undefined);
+
+    try {
+      parseDesktopBindingSummaries([
+        await api.bindings.unbindTrack({
+          trackId: binding.trackId,
+          expectedBindingId: binding.bindingId
+        })
+      ]);
+      setBindingHintByCandidateId((current) => {
+        const next = new Map(current);
+        next.delete(candidateId);
+        return next;
+      });
+      setOpenBindingDialog(undefined);
+      await loadBindingSummaries(false);
+      setCandidateActionMessage({
+        candidateId,
+        tone: "success",
+        message: "已解除绑定；磁盘文件和曲库内容均未删除。"
+      });
+    } catch (error: unknown) {
+      await handleBindingFailure(error, "unbind", candidateId);
+    } finally {
+      bindingSubmissionInProgressRef.current = false;
+      setIsSubmittingBinding(false);
+    }
+  }
+
+  async function handleBindingFailure(
+    error: unknown,
+    operation: "bind" | "unbind",
+    candidateId: DesktopAudioCandidateId
+  ) {
+    const feedback = getDesktopBindingErrorFeedback(error, operation);
+
+    setOpenBindingDialog(undefined);
+    if (feedback.kind === "conflict") {
+      await loadBindingSummaries(false);
+    }
+    if (feedback.kind === "directory-unavailable") {
+      await loadDirectories();
+    }
+    setCandidateActionMessage({
+      candidateId,
+      tone: "error",
+      message: feedback.message
+    });
+  }
+
   return (
     <section className="directory-import" aria-label="桌面音乐目录扫描预览">
       <div className="directory-import-heading">
         <p className="helper-text">
-          本阶段只预览扫描候选，不会自动匹配歌曲、创建绑定或读取音频内容。
+          扫描只生成临时候选；只有你选择现有曲目并确认后，应用才会保存绑定。
         </p>
       </div>
 
@@ -135,6 +406,7 @@ export function DesktopLocalDirectoryPreview({
               setSelectedDirectoryId(event.target.value);
               setPreview(undefined);
               setErrorMessage(undefined);
+              closeCandidateUi();
             }}
           >
             {directories.length === 0 ? <option value="">暂无已授权目录</option> : null}
@@ -184,10 +456,50 @@ export function DesktopLocalDirectoryPreview({
         </p>
       ) : null}
 
+      {bindingLoadStatus === "loading" ? (
+        <p className="directory-import-empty" role="status">
+          正在读取现有绑定状态…
+        </p>
+      ) : null}
+      {bindingLoadStatus === "error" ? (
+        <div className="desktop-binding-load-error" role="alert">
+          <span>绑定状态暂时不可用；刷新成功前不会提交绑定操作。</span>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => void loadBindingSummaries()}
+          >
+            刷新绑定状态
+          </button>
+        </div>
+      ) : null}
+      {catalogStatus !== "ready" ? (
+        <p className="directory-import-warning" role="status">
+          曲目目录尚未准备好，暂时不能选择绑定曲目。
+        </p>
+      ) : null}
+      {candidateActionMessage && !candidateActionMessage.candidateId ? (
+        <p
+          className={
+            candidateActionMessage.tone === "error"
+              ? "directory-import-error"
+              : "directory-import-result"
+          }
+          role={candidateActionMessage.tone === "error" ? "alert" : "status"}
+        >
+          {candidateActionMessage.message}
+        </p>
+      ) : null}
+
       {preview ? (
         <DesktopScanPreviewTable
           preview={preview}
-          onClear={() => setPreview(undefined)}
+          canManageBindings={canManageBindings}
+          bindingByCandidateId={candidateBindingById}
+          trackById={trackById}
+          actionMessage={candidateActionMessage}
+          onOpenBindingDialog={openCandidateDialog}
+          onClear={clearPreview}
         />
       ) : (
         <p className="directory-import-empty" role="status">
@@ -200,15 +512,50 @@ export function DesktopLocalDirectoryPreview({
                 : "选择或刷新已授权目录，然后扫描以生成仅存在于当前页面的预览。"}
         </p>
       )}
+
+      {openBindingDialog && dialogCandidate ? (
+        <DesktopAudioBindingDialog
+          session={openBindingDialog}
+          candidate={dialogCandidate}
+          currentCandidateBinding={candidateBindingById.get(
+            dialogCandidate.candidateId
+          )}
+          tracks={trackOptions}
+          bindingByTrackId={bindingByTrackId}
+          isSubmitting={isSubmittingBinding}
+          onBind={(track, expectedTargetBinding) =>
+            void bindCandidate(track, expectedTargetBinding)
+          }
+          onUnbind={(binding) => void unbindCandidate(binding)}
+          onClose={() => setOpenBindingDialog(undefined)}
+        />
+      ) : null}
     </section>
   );
 }
 
 function DesktopScanPreviewTable({
   preview,
+  canManageBindings,
+  bindingByCandidateId,
+  trackById,
+  actionMessage,
+  onOpenBindingDialog,
   onClear
 }: {
   readonly preview: DesktopAudioScanPreview;
+  readonly canManageBindings: boolean;
+  readonly bindingByCandidateId: ReadonlyMap<
+    DesktopAudioCandidateId,
+    DesktopLocalAudioBindingSummary
+  >;
+  readonly trackById: ReadonlyMap<LocalAudioTrackId, DesktopCatalogTrackOption>;
+  readonly actionMessage?: CandidateActionMessage;
+  readonly onOpenBindingDialog: (
+    candidateId: DesktopAudioCandidateId,
+    mode: OpenBindingDialog["mode"],
+    returnFocusTo: HTMLButtonElement
+  ) => void;
   readonly onClear: () => void;
 }) {
   return (
@@ -225,45 +572,126 @@ function DesktopScanPreviewTable({
       ) : (
         <div className="directory-import-table-wrap">
           <table className="directory-import-table desktop-directory-table">
-            <caption>桌面扫描候选预览；此处不会创建或保存音频绑定。</caption>
+            <caption>桌面扫描候选；每项都需要明确选择现有曲目并确认绑定。</caption>
             <thead>
               <tr>
                 <th scope="col">文件</th>
                 <th scope="col">大小 / 修改时间</th>
                 <th scope="col">解析提示</th>
                 <th scope="col">状态 / 问题</th>
+                <th scope="col">曲目绑定</th>
               </tr>
             </thead>
             <tbody>
-              {preview.candidates.map((candidate) => (
-                <tr key={candidate.candidateId}>
-                  <td>
-                    <strong>{candidate.fileName}</strong>
-                    <span>{candidate.fileExtension.toUpperCase()}</span>
-                  </td>
-                  <td>
-                    <strong>{formatFileSize(candidate.fileSize)}</strong>
-                    <span>{formatModifiedAt(candidate.modifiedAt)}</span>
-                  </td>
-                  <td>
-                    <strong>{candidate.trackTitle ?? "曲名未识别"}</strong>
-                    <span>专辑：{candidate.albumTitle ?? "未识别"}</span>
-                    <span>歌手：{candidate.artistName ?? "未识别"}</span>
-                  </td>
-                  <td>
-                    <strong>
-                      {candidate.parseStatus === "parsed" ? "已解析" : "需要检查"}
-                    </strong>
-                    <span>
-                      {candidate.issues.length > 0
-                        ? candidate.issues
-                            .map(getLocalDirectoryScanErrorMessage)
-                            .join("；")
-                        : "无扫描问题"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {preview.candidates.map((candidate) => {
+                const binding = bindingByCandidateId.get(candidate.candidateId);
+                const boundTrack = binding ? trackById.get(binding.trackId) : undefined;
+                const rowMessage =
+                  actionMessage?.candidateId === candidate.candidateId
+                    ? actionMessage
+                    : undefined;
+
+                return (
+                  <tr key={candidate.candidateId}>
+                    <td>
+                      <strong>{candidate.fileName}</strong>
+                      <span>{candidate.fileExtension.toUpperCase()}</span>
+                    </td>
+                    <td>
+                      <strong>{formatFileSize(candidate.fileSize)}</strong>
+                      <span>{formatModifiedAt(candidate.modifiedAt)}</span>
+                    </td>
+                    <td>
+                      <strong>{candidate.trackTitle ?? "曲名未识别"}</strong>
+                      <span>专辑：{candidate.albumTitle ?? "未识别"}</span>
+                      <span>歌手：{candidate.artistName ?? "未识别"}</span>
+                    </td>
+                    <td>
+                      <strong>
+                        {candidate.parseStatus === "parsed" ? "已解析" : "需要检查"}
+                      </strong>
+                      <span>
+                        {candidate.issues.length > 0
+                          ? candidate.issues
+                              .map(getLocalDirectoryScanErrorMessage)
+                              .join("；")
+                          : "无扫描问题"}
+                      </span>
+                    </td>
+                    <td className="desktop-binding-cell">
+                      {binding ? (
+                        <>
+                          <strong>
+                            已绑定：{boundTrack?.title ?? "曲目已不在目录中"}
+                          </strong>
+                          <span>
+                            {boundTrack
+                              ? `${boundTrack.artistName} · ${boundTrack.albumTitle}`
+                              : "可以更换曲目或解除这个旧绑定。"}
+                          </span>
+                          <div className="desktop-binding-row-actions">
+                            <button
+                              type="button"
+                              className="text-button"
+                              disabled={!canManageBindings}
+                              onClick={(event) =>
+                                onOpenBindingDialog(
+                                  candidate.candidateId,
+                                  "select",
+                                  event.currentTarget
+                                )
+                              }
+                            >
+                              更换曲目
+                            </button>
+                            <button
+                              type="button"
+                              className="text-button danger-button"
+                              disabled={!canManageBindings}
+                              onClick={(event) =>
+                                onOpenBindingDialog(
+                                  candidate.candidateId,
+                                  "unbind",
+                                  event.currentTarget
+                                )
+                              }
+                            >
+                              解除绑定
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={!canManageBindings}
+                          onClick={(event) =>
+                            onOpenBindingDialog(
+                              candidate.candidateId,
+                              "select",
+                              event.currentTarget
+                            )
+                          }
+                        >
+                          绑定曲目
+                        </button>
+                      )}
+                      {rowMessage ? (
+                        <span
+                          className={
+                            rowMessage.tone === "error"
+                              ? "desktop-binding-row-error"
+                              : "desktop-binding-row-success"
+                          }
+                          role={rowMessage.tone === "error" ? "alert" : "status"}
+                        >
+                          {rowMessage.message}
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

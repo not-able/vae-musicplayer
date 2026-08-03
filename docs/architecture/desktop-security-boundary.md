@@ -29,4 +29,4 @@ Renderer 只加载明确的开发服务器地址或打包后的本地页面。�
 - Main 为扫描结果生成不可预测 `candidateId`；公开预览不含 `directoryId`、相对路径或 sourceRef。
 - 候选按 webContents 和 scan generation 隔离；重扫、忘记目录、Renderer 销毁或重启后失效。
 
-目录注册、扫描和 binding API 的当前操作说明见 [`../desktop-development.md`](../desktop-development.md)。Renderer 只能提交 `candidateId + trackId`，不能提交完整 binding、路径、sourceRef 或文件元数据。Main 从候选 session 生成 `desktop-file` source，并通过 expected binding ID 防止过期替换或解绑；存储错误会转换为不含本机路径的稳定公开错误。
+目录注册、扫描和 binding API 的当前操作说明见 [`../desktop-development.md`](../desktop-development.md)。Renderer 的确认 UI 只能提交 `candidateId + trackId` 以及需要比较交换时的 expected binding ID，不能提交完整 binding、路径、sourceRef 或文件元数据。Main 从候选 session 生成 `desktop-file` source，并通过 expected binding ID 防止过期替换或解绑；冲突后 UI 重新加载脱敏 summary，存储错误会转换为不含本机路径的稳定公开错误。

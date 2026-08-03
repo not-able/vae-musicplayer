@@ -3,7 +3,9 @@ import type { DesktopMusicLibraryApi } from "../../../electron/music-library/typ
 export type DesktopDirectoryScanApi = Pick<
   DesktopMusicLibraryApi,
   "listDirectories" | "scanDirectory" | "selectDirectory"
->;
+> & {
+  readonly bindings: DesktopMusicLibraryApi["bindings"];
+};
 
 export function getDesktopDirectoryScanApi(
   globalObject: unknown
@@ -21,7 +23,11 @@ export function getDesktopDirectoryScanApi(
   if (
     typeof musicLibrary.selectDirectory !== "function" ||
     typeof musicLibrary.listDirectories !== "function" ||
-    typeof musicLibrary.scanDirectory !== "function"
+    typeof musicLibrary.scanDirectory !== "function" ||
+    !isRecord(musicLibrary.bindings) ||
+    typeof musicLibrary.bindings.list !== "function" ||
+    typeof musicLibrary.bindings.bindCandidateToTrack !== "function" ||
+    typeof musicLibrary.bindings.unbindTrack !== "function"
   ) {
     return undefined;
   }
