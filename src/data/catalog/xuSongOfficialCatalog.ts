@@ -1,9 +1,16 @@
-import type { CatalogData } from "../../types";
+import type { AlbumType, CatalogData } from "../../types";
+
+export type XuSongOfficialTrackDefinition = readonly [
+  id: string,
+  title: string,
+  aliases?: readonly string[]
+];
 
 export interface XuSongOfficialAlbumDefinition {
   id: string;
   title: string;
-  tracks: readonly (readonly [id: string, title: string])[];
+  type?: AlbumType;
+  tracks: readonly XuSongOfficialTrackDefinition[];
 }
 
 const artistId = "artist_vae";
@@ -44,7 +51,11 @@ export const xuSongOfficialAlbumDefinitions: readonly XuSongOfficialAlbumDefinit
       id: "album_xusong_no1",
       title: "许嵩 No.1",
       tracks: [
-        ["album_xusong_no1_track_01", "爱情里的眼泪"],
+        [
+          "album_xusong_no1_track_01",
+          "爱情里的眼泪",
+          ["爱情里的眼泪 (with 安琪)", "爱情里的眼泪 (feat. 安琪)"]
+        ],
         ["album_xusong_no1_track_02", "安琪"],
         ["album_xusong_no1_track_03", "断桥残雪"],
         ["album_xusong_no1_track_04", "粉色信笺"],
@@ -83,7 +94,7 @@ export const xuSongOfficialAlbumDefinitions: readonly XuSongOfficialAlbumDefinit
       id: "album_xusong_sugelameiyoudi",
       title: "苏格拉没有底",
       tracks: [
-        ["album_xusong_sugelameiyoudi_track_01", "想像之中"],
+        ["album_xusong_sugelameiyoudi_track_01", "想像之中", ["想象之中"]],
         ["album_xusong_sugelameiyoudi_track_02", "河山大好"],
         ["album_xusong_sugelameiyoudi_track_03", "拆东墙"],
         ["album_xusong_sugelameiyoudi_track_04", "医生"],
@@ -119,7 +130,7 @@ export const xuSongOfficialAlbumDefinitions: readonly XuSongOfficialAlbumDefinit
         ["album_xusong_buruchichaqu_track_02", "山水之间"],
         ["album_xusong_buruchichaqu_track_03", "七夕"],
         ["album_xusong_buruchichaqu_track_04", "有桃花"],
-        ["album_xusong_buruchichaqu_track_05", "惊鸿一面"],
+        ["album_xusong_buruchichaqu_track_05", "惊鸿一面", ["惊鸿一面 (with 黄龄)"]],
         ["album_xusong_buruchichaqu_track_06", "隐隐约约"],
         ["album_xusong_buruchichaqu_track_07", "宇宙之大"],
         ["album_xusong_buruchichaqu_track_08", "梧桐灯"],
@@ -186,6 +197,118 @@ export const xuSongOfficialAlbumDefinitions: readonly XuSongOfficialAlbumDefinit
         ["album_xusong_anbocaixiang_track_08", "出雨林记"],
         ["album_xusong_anbocaixiang_track_09", "忽略不计"]
       ]
+    },
+    {
+      id: "album_xusong_singles_2006_2015",
+      title: "早期与独立作品（2006—2015）",
+      type: "single_collection",
+      tracks: [
+        ["track_xusong_meiguihuadezangli", "玫瑰花的葬礼"],
+        ["track_xusong_qitiandasheng", "齐天大圣"],
+        ["track_xusong_qiuqianzhui", "秋千坠"],
+        ["track_xusong_sanchangdianying", "散场电影"],
+        ["track_xusong_niruochengfeng", "你若成风"],
+        ["track_xusong_qinglvzhuang", "情侣装"],
+        ["track_xusong_xuanranbieli", "渲染别离", ["渲染离别"]],
+        ["track_xusong_bieyaowo", "别咬我"],
+        ["track_xusong_songnidedubai", "送你的独白"],
+        ["track_xusong_yaotouwan", "摇头玩"],
+        ["track_xusong_suyan", "素颜", ["素颜 (with 何曼婷)"]],
+        ["track_xusong_kuayuexinshijie", "跨越新世界"],
+        ["track_xusong_tianlongbabu_zhisudi", "天龙八部之宿敌"],
+        ["track_xusong_xiaofannaomeishenmedabuliao", "小烦恼没什么大不了"],
+        ["track_xusong_weizhangdongwu", "违章动物"],
+        ["track_xusong_qiangu", "千古"]
+      ]
+    },
+    {
+      id: "album_xusong_singles_2016_2020",
+      title: "独立单曲与合作（2016—2020）",
+      type: "single_collection",
+      tracks: [
+        ["track_xusong_shuxiangnianhua", "书香年华", ["书香年华 (with 孙涛)"]],
+        ["track_xusong_buyu", "不语", ["不语(电影《不速之客》主题曲)"]],
+        ["track_xusong_jianghu", "江湖"],
+        ["track_xusong_jinnianyong", "今年勇"],
+        ["track_xusong_shenyeshudian", "深夜书店"],
+        ["track_xusong_tongguan", "通关", ["通关 (QQ三国十周年主题曲)"]],
+        ["track_xusong_hudiedeshijian", "蝴蝶的时间"],
+        ["track_xusong_woleyi", "我乐意", ["我乐意(QQ炫舞系列主题曲)"]],
+        ["track_xusong_feichiyuni", "飞驰于你", ["飞驰于你(QQ飞车手游敦煌版本主题曲)"]],
+        [
+          "track_xusong_juedaifenghua",
+          "绝代风华",
+          ["绝代风华 (游戏《天下3》十周年主题曲)"]
+        ],
+        [
+          "track_xusong_yumu",
+          "雨幕",
+          ["雨幕 (新天龙八部端游主题曲)", "雨幕（新天龙八部端游主题曲）"]
+        ],
+        ["track_xusong_xianmu", "羡慕"],
+        [
+          "track_xusong_quanshijiezuihaodeni",
+          "全世界最好的你",
+          ["全世界最好的你 (电视剧《全世界最好的你》同名主题曲)"]
+        ],
+        ["track_xusong_wenquan", "温泉"],
+        ["track_xusong_fangsi", "放肆", ["放肆 (《天龙八部》端游怀旧版主题曲)"]],
+        ["track_xusong_ruguodangshi2020", "如果当时2020"],
+        [
+          "track_xusong_banchengyansha_hechang",
+          "半城烟沙（合唱版）",
+          ["半城烟沙(合唱版)·新天龙八部怀旧服推广曲"]
+        ]
+      ]
+    },
+    {
+      id: "album_xusong_singles_2021_present",
+      title: "独立单曲与合作（2021—至今）",
+      type: "single_collection",
+      tracks: [
+        ["track_xusong_baisemianbaoche_live", "白色面包车", ["白色面包车 (现场)"]],
+        ["track_xusong_jiban", "羁绊", ["羁绊 (电视剧《一片冰心在玉壶》主题曲)"]],
+        ["track_xusong_liuxiang", "留香"],
+        ["track_xusong_tianzhidao", "天知道", ["天知道 (《天谕》手游盟友主题曲)"]],
+        [
+          "track_xusong_shihuazhongguo",
+          "诗画中国",
+          ["诗画中国(《诗画中国》节目主题曲)"]
+        ],
+        ["track_xusong_zhishangxue", "纸上雪", ["纸上雪(诗画中国 第2期)"]],
+        [
+          "track_xusong_mantuoshanzhuang",
+          "曼陀山庄",
+          ["曼陀山庄 (《天龙八部》端游怀旧服主题曲)"]
+        ],
+        ["track_xusong_meixiangdao", "没想到"],
+        ["track_xusong_hepai", "合拍"],
+        [
+          "track_xusong_xinyousuoxiang",
+          "心有所向",
+          ["心有所向(《经典咏流传·正青春》主题曲)"]
+        ],
+        ["track_xusong_zhiyouni", "只有你", ["只有你 (影视剧《鱼生知有你》主题曲)"]],
+        ["track_xusong_rumi", "如谜", ["如谜(《新天龙八部》手游主题曲)"]],
+        ["track_xusong_huapingsheng", "画平生", ["画平生(电影《花千骨》主题曲)"]],
+        [
+          "track_xusong_zaofabaidicheng",
+          "早发白帝城",
+          ["早发白帝城(《诗画中国》第2季 第1期)"]
+        ],
+        [
+          "track_xusong_falling_in_love",
+          "Falling in Love",
+          ["Falling in Love(电视剧《在暴雪时分》片头曲)"]
+        ],
+        [
+          "track_xusong_jiangxinbixin",
+          "将芯比心",
+          ["将芯比心(《2024中国·AI盛典》主题曲)"]
+        ],
+        ["track_xusong_yelu", "野路"],
+        ["track_xusong_lanxiange", "揽仙歌", ["揽仙歌(《问道》手游9周年主题曲)"]]
+      ]
     }
   ];
 
@@ -205,16 +328,17 @@ export function createXuSongOfficialCatalog(
       id: album.id,
       artistId,
       title: album.title,
-      type: "album",
+      type: album.type ?? "album",
       sortOrder: index + 1,
       trackIds: album.tracks.map(([trackId]) => trackId)
     })),
     tracks: albumDefinitions.flatMap((album) =>
-      album.tracks.map(([id, title], index) => ({
+      album.tracks.map(([id, title, aliases], index) => ({
         id,
         artistId,
         albumId: album.id,
         title,
+        ...(aliases === undefined ? {} : { aliases: [...aliases] }),
         trackNumber: index + 1
       }))
     )

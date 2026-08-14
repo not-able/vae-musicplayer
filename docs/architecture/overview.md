@@ -20,7 +20,7 @@ Web adapters
 
 ## Catalog
 
-Web 与 Electron 共用 `src/data/catalog/xuSongOfficialCatalog.ts` 作为唯一静态 baseline，再叠加持久化 `UserCatalogChanges`。内置 album/track ID 显式稳定；旧 verified import 通过非破坏 canonical reference 兼容，不按标题猜测删除。长期决定见 [`../decisions/0006-canonical-built-in-catalog.md`](../decisions/0006-canonical-built-in-catalog.md)。
+Web 与 Electron 共用 `src/data/catalog/xuSongOfficialCatalog.ts` 作为唯一静态 baseline，再叠加持久化 `UserCatalogChanges`。当前 baseline 含 11 个既有发行分组和 3 个 `single_collection`，共 162 首；内置 album/track ID 显式稳定，Track 的有限 `aliases` 用于保存真实标题变体。旧 verified import 通过非破坏 canonical reference 兼容，不按标题猜测删除。来源清单见 [`../catalog/xu-song-discography-audit.md`](../catalog/xu-song-discography-audit.md)，长期决定见 [`../decisions/0006-canonical-built-in-catalog.md`](../decisions/0006-canonical-built-in-catalog.md)。
 
 ## 当前实现
 

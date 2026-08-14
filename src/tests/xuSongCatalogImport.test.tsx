@@ -56,18 +56,18 @@ describe("verified Xu Song catalog import", () => {
     expect(container.textContent).toContain("安泊猜想");
 
     await act(async () => {
-      findButton(container, "确认新增 11 张专辑")?.click();
+      findButton(container, "确认新增 14 张专辑")?.click();
     });
 
     expect(onImport).toHaveBeenCalledOnce();
-    expect(onImport.mock.calls[0]?.[0]).toHaveLength(11);
+    expect(onImport.mock.calls[0]?.[0]).toHaveLength(14);
     expect(
       onImport.mock.calls[0]?.[0].reduce(
         (total, draft) => total + draft.tracks.length,
         0
       )
-    ).toBe(111);
-    expect(container.textContent).toContain("已新增 11 张专辑和 111 首歌曲。");
+    ).toBe(162);
+    expect(container.textContent).toContain("已新增 14 张专辑和 162 首歌曲。");
 
     await act(async () => {
       root.unmount();

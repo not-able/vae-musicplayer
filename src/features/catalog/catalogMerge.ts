@@ -37,7 +37,10 @@ function cloneAlbum(album: Album): Album {
 }
 
 function cloneTrack(track: Track): Track {
-  return { ...track };
+  return {
+    ...track,
+    ...(track.aliases === undefined ? {} : { aliases: [...track.aliases] })
+  };
 }
 
 function applyAlbumOverrides(
@@ -244,6 +247,18 @@ function assertCatalogIntegrity(catalog: CatalogData): void {
   for (const track of catalog.tracks) {
     assertNonBlank(track.title, "Track");
     assertOptionalPositiveInteger(track.trackNumber, "Track number");
+
+    if (track.aliases !== undefined) {
+      const normalizedAliases = new Set<string>();
+      for (const alias of track.aliases) {
+        assertNonBlank(alias, "Track alias");
+        const normalizedAlias = alias.trim().toLocaleLowerCase();
+        if (normalizedAliases.has(normalizedAlias)) {
+          throw new Error(`Track aliases must be unique for ${track.id}: ${alias}.`);
+        }
+        normalizedAliases.add(normalizedAlias);
+      }
+    }
 
     if (!artistIds.has(track.artistId)) {
       throw new Error(`Unknown artist ID for track ${track.id}: ${track.artistId}.`);

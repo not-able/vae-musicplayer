@@ -60,6 +60,7 @@ function createCompleteChanges(): UserCatalogChanges {
         artistId: "artist_vae",
         albumId: "album_user_001",
         title: "用户歌曲一",
+        aliases: ["用户歌曲一（别名）"],
         trackNumber: 1,
         durationSeconds: 180,
         note: "仅保存元数据"

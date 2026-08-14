@@ -5,8 +5,8 @@
 ## 当前近期顺序（用户调整）
 
 - [x] `CATALOG-1A`：canonical built-in Xu Song catalog。
-- [ ] `CATALOG-1B`：complete Xu Song discography audit（当前 active task）。
-- [ ] `AUDIO-UNIFY-1`：unified local audio binding service。
+- [x] `CATALOG-1B`：complete Xu Song discography audit。
+- [ ] `AUDIO-UNIFY-1`：unified local audio binding service（当前 active task）。
 - [ ] `AUDIO-UNIFY-2`：unified single-track Electron binding UI。
 - [ ] `AUDIO-UNIFY-3`：smart multi-format batch matching。
 - [ ] `PLAYBACK-1`：Electron binding playback / controlled media protocol。

@@ -58,6 +58,7 @@ const trackKeys = [
   "artistId",
   "albumId",
   "title",
+  "aliases",
   ...legacyTrackKeys,
   "trackNumber",
   "durationSeconds",
@@ -378,6 +379,9 @@ function decodeTrack(value: unknown, path: string): Track {
 
   assignOptionalNumber(record, track, "trackNumber", path);
   assignOptionalNumber(record, track, "durationSeconds", path);
+  if (hasOwn(record, "aliases")) {
+    track.aliases = decodeStringArray(record.aliases, `${path}.aliases`);
+  }
   assignOptionalString(record, track, "note", path);
 
   return track;

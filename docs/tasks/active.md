@@ -1,46 +1,48 @@
 # Active Task
 
-- 任务 ID：`CATALOG-1B`
+- 任务 ID：`AUDIO-UNIFY-1`
 - 状态：`ready`
 - 分支：`desktop/electron`
 
 ## 前置条件
 
 - 工作区干净。
-- 当前分支包含 `feat(catalog): use canonical built-in Xu Song catalog`。
+- 当前分支包含 `feat(catalog): complete built-in Xu Song discography`。
 - 开始前阅读：
-  - `docs/architecture/overview.md`
-  - `docs/decisions/0006-canonical-built-in-catalog.md`
-  - `src/data/catalog/xuSongOfficialCatalog.ts`
-  - `src/features/catalog/xuSongCatalogCompatibility.ts`
+  - `docs/architecture/local-audio-lifecycle.md`
+  - `docs/local-audio-binding-model.md`
+  - `docs/decisions/0004-portable-audio-binding-model.md`
+  - `src/features/local-library/useLocalAudioLibrary.ts`
+  - `src/features/local-library/localAudioRepository.ts`
 
 ## 目标
 
-基于可追溯的可靠来源审计并补充许嵩完整作品目录，同时保持 `CATALOG-1A` 已发布的 album/track ID 永久稳定。
+定义一个供 Web 与 Electron 调用方共同使用的本地音频绑定服务边界，统一读取、绑定、替换和解绑结果语义，同时保持平台文件对象与安全能力留在各自 adapter 内。
 
 ## 范围
 
-- 盘点正式专辑、EP、独立单曲、合作曲及游戏/影视歌曲，并为来源留下可维护的审计说明。
-- 只为新增实体分配新的显式 ID；不得修改现有 11 张目录及 111 首歌曲的 ID。
-- 在现有模型允许范围内补充必要的目录分类；确需最小 metadata 扩展时先写清兼容策略和测试。
-- 继续使用同一个 `xuSongOfficialCatalog`，不创建 Web/Electron 两份目录。
-- 更新聚焦测试，覆盖完整性、来源审计、显式 ID 唯一性和现有 binding ID 兼容。
+- 盘点 Web `LocalAudioFileRecord` 流程与 Electron `LocalAudioBinding` 窄 API 的重复职责和差异。
+- 定义平台无关的 service contract、结构化错误与读取/写入结果，不在公共接口暴露 `File`、handle、路径、Electron 或通用 IPC。
+- 为现有 Web Repository 与 Electron preload API 提供最小 adapter，使上层状态管理可依赖同一服务语义。
+- 保持一个 track 最多一个 binding，并保留 Electron expected binding ID 的乐观并发保护。
+- 添加聚焦纯测试和兼容测试；现有 Web 导入、Electron 候选确认与目录预览行为不变。
 
 ## 明确不做
 
-- 音频 Provider 或音源体系统一。
-- 自动/批量匹配、单曲 Electron 文件选择绑定。
-- 音频播放、`app-media://`、Range、seek 或播放器重构。
-- availability、标签解析、封面、时长、SQLite 或 Tauri。
-- 恢复已移除的远程/许嵩目录导入 UI。
+- Electron 单文件 picker 或新的绑定 UI（`AUDIO-UNIFY-2`）。
+- 自动/批量文件名匹配（`AUDIO-UNIFY-3`）。
+- 音频播放、`app-media://`、Range、seek 或播放器 hook 重构。
+- availability、标签解析、封面、时长、数据迁移、SQLite 或 Tauri。
+- 修改 canonical catalog、恢复旧导入入口或扩展 Renderer 文件权限。
 
 ## 验收条件
 
-- 目录补充均有可靠来源依据，不凭记忆猜测。
-- 所有新增 album/track ID 显式且唯一，现有 ID 快照不变。
-- Web/Electron 默认目录一致，用户 overlay 与旧导入兼容测试继续通过。
-- 默认验证命令全部通过，并完成 Web/Electron 目录浏览核验。
+- Web/Electron 上层可通过同一平台无关 service contract 查询并变更 binding。
+- Renderer 仍不能构造桌面 sourceRef、绝对路径或完整 binding；Preload 不暴露通用 IPC。
+- 旧 Web 浏览器对象仅存在于 Web adapter，既有持久化数据与导入流程继续可用。
+- Electron candidate/session、expected binding ID 与脱敏错误安全语义保持不变。
+- 默认验证全部通过，并分别验证 Web 与 Electron 现有绑定入口。
 
 ## 建议提交
 
-`feat(catalog): complete Xu Song discography audit`
+`refactor(local-audio): unify binding service contract`

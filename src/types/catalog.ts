@@ -46,6 +46,7 @@ export interface Track {
   artistId: EntityId;
   albumId: EntityId;
   title: string;
+  aliases?: string[];
   trackNumber?: number;
   durationSeconds?: number;
   note?: string;
