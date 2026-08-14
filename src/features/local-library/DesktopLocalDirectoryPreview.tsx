@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  DesktopAudioCandidateId,
-  DesktopLocalAudioBindingSummary
-} from "../../../electron/music-library/types";
+import type { DesktopAudioCandidateId } from "../../../electron/music-library/types";
 import type { CatalogData } from "../../types";
-import type {
-  LocalAudioBindingId,
-  LocalAudioTrackId
-} from "../../types/localAudioBinding";
+import type { LocalAudioTrackId } from "../../types/localAudioBinding";
 import type { CatalogLibraryStatus } from "../catalog/useCatalogLibrary";
 import {
   DesktopAudioBindingDialog,
@@ -29,6 +23,12 @@ import {
   type DesktopCatalogTrackOption
 } from "./desktopAudioBindingUi";
 import type { DesktopDirectoryScanApi } from "./desktopDirectoryScanApi";
+import { createElectronLocalAudioBindingService } from "./electronLocalAudioBindingService";
+import type {
+  LocalAudioBindingKey,
+  LocalAudioBindingSummary
+} from "./localAudioBindingService";
+import { isLocalAudioCandidateId } from "./localAudioBindingService";
 import { getLocalDirectoryScanErrorMessage } from "./localDirectoryEntryScanner";
 
 interface DesktopLocalDirectoryPreviewProps {
@@ -60,10 +60,10 @@ export function DesktopLocalDirectoryPreview({
   const [selectedDirectoryId, setSelectedDirectoryId] = useState("");
   const [preview, setPreview] = useState<DesktopAudioScanPreview>();
   const [bindingSummaries, setBindingSummaries] = useState<
-    readonly DesktopLocalAudioBindingSummary[]
+    readonly LocalAudioBindingSummary[]
   >([]);
   const [bindingHintByCandidateId, setBindingHintByCandidateId] = useState<
-    ReadonlyMap<DesktopAudioCandidateId, LocalAudioBindingId>
+    ReadonlyMap<DesktopAudioCandidateId, LocalAudioBindingKey>
   >(() => new Map());
   const [bindingLoadStatus, setBindingLoadStatus] =
     useState<BindingLoadStatus>("loading");
@@ -76,6 +76,10 @@ export function DesktopLocalDirectoryPreview({
     useState<CandidateActionMessage>();
   const [openBindingDialog, setOpenBindingDialog] = useState<OpenBindingDialog>();
   const bindingSubmissionInProgressRef = useRef(false);
+  const bindingService = useMemo(
+    () => createElectronLocalAudioBindingService(api.bindings),
+    [api.bindings]
+  );
 
   const loadDirectories = useCallback(async () => {
     setIsLoadingDirectories(true);
@@ -112,7 +116,18 @@ export function DesktopLocalDirectoryPreview({
       }
 
       try {
-        const nextSummaries = parseDesktopBindingSummaries(await api.bindings.list());
+        const result = await bindingService.listBindings();
+        if (!result.ok) {
+          setBindingSummaries([]);
+          setBindingLoadStatus("error");
+          setCandidateActionMessage({
+            tone: "error",
+            message: getDesktopBindingErrorFeedback(result.error, "list").message
+          });
+          return undefined;
+        }
+
+        const nextSummaries = parseDesktopBindingSummaries(result.value);
         setBindingSummaries(nextSummaries);
         setBindingLoadStatus("ready");
         return nextSummaries;
@@ -126,7 +141,7 @@ export function DesktopLocalDirectoryPreview({
         return undefined;
       }
     },
-    [api]
+    [bindingService]
   );
 
   useEffect(() => {
@@ -259,7 +274,7 @@ export function DesktopLocalDirectoryPreview({
 
   async function bindCandidate(
     track: DesktopCatalogTrackOption,
-    expectedTargetBinding: DesktopLocalAudioBindingSummary | undefined
+    expectedTargetBinding: LocalAudioBindingSummary | undefined
   ) {
     if (
       !openBindingDialog ||
@@ -271,6 +286,14 @@ export function DesktopLocalDirectoryPreview({
     }
 
     const candidateId = dialogCandidate.candidateId;
+    if (!isLocalAudioCandidateId(candidateId)) {
+      setCandidateActionMessage({
+        candidateId,
+        tone: "error",
+        message: "本地音频绑定请求未能通过安全校验，请刷新页面后重试。"
+      });
+      return;
+    }
     const previousCandidateBinding = candidateBindingById.get(candidateId);
     let failureOperation: "bind" | "unbind" = "bind";
     bindingSubmissionInProgressRef.current = true;
@@ -278,15 +301,19 @@ export function DesktopLocalDirectoryPreview({
     setCandidateActionMessage(undefined);
 
     try {
-      const savedBinding = parseDesktopBindingSummaries([
-        await api.bindings.bindCandidateToTrack({
-          candidateId,
-          trackId: track.trackId,
-          ...(expectedTargetBinding
-            ? { expectedExistingBindingId: expectedTargetBinding.bindingId }
-            : {})
-        })
-      ])[0];
+      const bindResult = await bindingService.bindCandidate({
+        candidateId,
+        trackId: track.trackId,
+        ...(expectedTargetBinding
+          ? { expectedExistingBindingId: expectedTargetBinding.bindingId }
+          : {})
+      });
+      if (!bindResult.ok) {
+        await handleBindingFailure(bindResult.error, "bind", candidateId);
+        return;
+      }
+
+      const savedBinding = parseDesktopBindingSummaries([bindResult.value])[0];
 
       if (!savedBinding) {
         throw new TypeError("Desktop binding result is missing.");
@@ -301,12 +328,15 @@ export function DesktopLocalDirectoryPreview({
         previousCandidateBinding.trackId !== savedBinding.trackId
       ) {
         failureOperation = "unbind";
-        parseDesktopBindingSummaries([
-          await api.bindings.unbindTrack({
-            trackId: previousCandidateBinding.trackId,
-            expectedBindingId: previousCandidateBinding.bindingId
-          })
-        ]);
+        const unbindResult = await bindingService.unbindTrack({
+          trackId: previousCandidateBinding.trackId,
+          expectedBindingId: previousCandidateBinding.bindingId
+        });
+        if (!unbindResult.ok) {
+          await handleBindingFailure(unbindResult.error, "unbind", candidateId);
+          return;
+        }
+        parseDesktopBindingSummaries([unbindResult.value]);
       }
 
       setOpenBindingDialog(undefined);
@@ -324,7 +354,7 @@ export function DesktopLocalDirectoryPreview({
     }
   }
 
-  async function unbindCandidate(binding: DesktopLocalAudioBindingSummary) {
+  async function unbindCandidate(binding: LocalAudioBindingSummary) {
     if (
       !openBindingDialog ||
       !dialogCandidate ||
@@ -340,12 +370,15 @@ export function DesktopLocalDirectoryPreview({
     setCandidateActionMessage(undefined);
 
     try {
-      parseDesktopBindingSummaries([
-        await api.bindings.unbindTrack({
-          trackId: binding.trackId,
-          expectedBindingId: binding.bindingId
-        })
-      ]);
+      const unbindResult = await bindingService.unbindTrack({
+        trackId: binding.trackId,
+        expectedBindingId: binding.bindingId
+      });
+      if (!unbindResult.ok) {
+        await handleBindingFailure(unbindResult.error, "unbind", candidateId);
+        return;
+      }
+      parseDesktopBindingSummaries([unbindResult.value]);
       setBindingHintByCandidateId((current) => {
         const next = new Map(current);
         next.delete(candidateId);
@@ -547,7 +580,7 @@ function DesktopScanPreviewTable({
   readonly canManageBindings: boolean;
   readonly bindingByCandidateId: ReadonlyMap<
     DesktopAudioCandidateId,
-    DesktopLocalAudioBindingSummary
+    LocalAudioBindingSummary
   >;
   readonly trackById: ReadonlyMap<LocalAudioTrackId, DesktopCatalogTrackOption>;
   readonly actionMessage?: CandidateActionMessage;

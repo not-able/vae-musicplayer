@@ -1,16 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { EntityId, LocalAudioFileRecord } from "../../types";
+import { isLocalAudioTrackId } from "../../types/localAudioBinding";
+import { getLocalAudioFileValidationError } from "./localAudioFile";
 import {
-  createLocalAudioFileHandleRecord,
-  createLocalAudioFileRecord,
-  getLocalAudioFileValidationError
-} from "./localAudioFile";
+  type LocalAudioBindingKey,
+  type LocalAudioBindingServiceError
+} from "./localAudioBindingService";
 import {
   getFileHandleReadStatus,
   requestFileHandleReadAccess
 } from "./fileSystemAccess";
 import type { LocalAudioFileRepository } from "./localAudioRepository";
+import {
+  createWebLocalAudioBindingService,
+  getWebLocalAudioBindingKey,
+  type WebLocalAudioBindingService
+} from "./webLocalAudioBindingService";
 
 export type LocalAudioLibraryStatus = "loading" | "ready" | "error";
 
@@ -47,8 +53,15 @@ export interface LocalAudioLibrary {
 }
 
 export function useLocalAudioLibrary(
-  repository: LocalAudioFileRepository
+  source: LocalAudioFileRepository | WebLocalAudioBindingService
 ): LocalAudioLibrary {
+  const bindingService = useMemo(
+    () =>
+      isWebLocalAudioBindingService(source)
+        ? source
+        : createWebLocalAudioBindingService(source),
+    [source]
+  );
   const [bindingsByTrackId, setBindingsByTrackId] = useState<
     ReadonlyMap<EntityId, LocalAudioFileRecord>
   >(() => new Map());
@@ -68,8 +81,8 @@ export function useLocalAudioLibrary(
   useEffect(() => {
     let isActive = true;
 
-    void repository
-      .list()
+    void bindingService
+      .listLegacyRecords()
       .then(async (records) => {
         if (!isActive) {
           return;
@@ -105,7 +118,7 @@ export function useLocalAudioLibrary(
     return () => {
       isActive = false;
     };
-  }, [repository]);
+  }, [bindingService]);
 
   const bindAudioFile = useCallback(
     async (trackId: EntityId, file: File): Promise<boolean> => {
@@ -125,9 +138,35 @@ export function useLocalAudioLibrary(
       setErrorMessage(undefined);
 
       try {
-        const record = createBindingRecord(trackId, file, undefined);
+        if (!isLocalAudioTrackId(trackId)) {
+          setErrorMessage("本地音频绑定请求无效。");
+          return false;
+        }
 
-        await repository.save(record);
+        const existingRecord = bindingsByTrackIdRef.current.get(trackId);
+        const expectedExistingBindingId = existingRecord
+          ? getLegacyBindingKey(existingRecord)
+          : undefined;
+        if (existingRecord && !expectedExistingBindingId) {
+          setErrorMessage("无法读取本地音频绑定状态，请稍后重试。");
+          return false;
+        }
+
+        const { result, legacyRecord: record } =
+          await bindingService.bindBrowserAudioFile({
+            trackId,
+            file,
+            ...(expectedExistingBindingId ? { expectedExistingBindingId } : {})
+          });
+        if (!result.ok || !record) {
+          setErrorMessage(
+            result.ok
+              ? "无法读取本地音频绑定状态，请稍后重试。"
+              : getBindingServiceErrorMessage(result.error)
+          );
+          return false;
+        }
+
         const nextBindings = new Map(bindingsByTrackIdRef.current);
         nextBindings.set(trackId, record);
         bindingsByTrackIdRef.current = nextBindings;
@@ -140,15 +179,15 @@ export function useLocalAudioLibrary(
           incrementBindingRevision(currentRevisions, trackId)
         );
         return true;
-      } catch (error) {
-        setErrorMessage(getStorageWriteErrorMessage(error));
+      } catch {
+        setErrorMessage("无法保存本地音频绑定，请稍后重试。");
         return false;
       } finally {
         claimedTrackIdsRef.current.delete(trackId);
         setPendingTrackIds((currentIds) => removeId(currentIds, trackId));
       }
     },
-    [repository]
+    [bindingService]
   );
 
   const bindAudioFiles = useCallback(
@@ -231,22 +270,32 @@ export function useLocalAudioLibrary(
 
       try {
         for (const request of validRequests) {
-          const record = createBindingRecord(
-            request.trackId,
-            request.file,
-            request.fileHandle
-          );
-
-          try {
-            await repository.save(record);
-            savedRecords.push(record);
-          } catch (error) {
+          if (!isLocalAudioTrackId(request.trackId)) {
             failed.push({
               trackId: request.trackId,
               fileName: request.file.name,
-              reason: getStorageWriteErrorMessage(error)
+              reason: "本地音频绑定请求无效。"
             });
+            continue;
           }
+
+          const { result, legacyRecord } = await bindingService.bindBrowserAudioFile({
+            trackId: request.trackId,
+            file: request.file,
+            ...(request.fileHandle ? { fileHandle: request.fileHandle } : {})
+          });
+          if (!result.ok || !legacyRecord) {
+            failed.push({
+              trackId: request.trackId,
+              fileName: request.file.name,
+              reason: result.ok
+                ? "无法读取本地音频绑定状态，请稍后重试。"
+                : getBindingServiceErrorMessage(result.error)
+            });
+            continue;
+          }
+
+          savedRecords.push(legacyRecord);
         }
 
         if (savedRecords.length > 0) {
@@ -291,7 +340,7 @@ export function useLocalAudioLibrary(
         }
       }
     },
-    [repository]
+    [bindingService]
   );
 
   const unbindAudioFile = useCallback(
@@ -306,7 +355,29 @@ export function useLocalAudioLibrary(
       setErrorMessage(undefined);
 
       try {
-        await repository.remove(trackId);
+        if (!isLocalAudioTrackId(trackId)) {
+          setErrorMessage("本地音频解绑请求无效。");
+          return false;
+        }
+
+        const currentRecord = bindingsByTrackIdRef.current.get(trackId);
+        const expectedBindingId = currentRecord
+          ? getLegacyBindingKey(currentRecord)
+          : undefined;
+        if (!currentRecord || !expectedBindingId) {
+          setErrorMessage("未找到要解除的本地音频绑定。");
+          return false;
+        }
+
+        const result = await bindingService.unbindTrack({
+          trackId,
+          expectedBindingId
+        });
+        if (!result.ok) {
+          setErrorMessage(getBindingServiceErrorMessage(result.error));
+          return false;
+        }
+
         const nextBindings = new Map(bindingsByTrackIdRef.current);
         nextBindings.delete(trackId);
         bindingsByTrackIdRef.current = nextBindings;
@@ -319,15 +390,15 @@ export function useLocalAudioLibrary(
           incrementBindingRevision(currentRevisions, trackId)
         );
         return true;
-      } catch (error) {
-        setErrorMessage(getStorageWriteErrorMessage(error));
+      } catch {
+        setErrorMessage("无法解除本地音频绑定，请稍后重试。");
         return false;
       } finally {
         claimedTrackIdsRef.current.delete(trackId);
         setPendingTrackIds((currentIds) => removeId(currentIds, trackId));
       }
     },
-    [repository]
+    [bindingService]
   );
 
   const requestAudioAccess = useCallback(
@@ -419,18 +490,6 @@ export function useLocalAudioLibrary(
   };
 }
 
-function createBindingRecord(
-  trackId: EntityId,
-  file: File,
-  fileHandle: FileSystemFileHandle | undefined
-): LocalAudioFileRecord {
-  const updatedAt = new Date().toISOString();
-
-  return fileHandle
-    ? createLocalAudioFileHandleRecord(trackId, file, fileHandle, updatedAt)
-    : createLocalAudioFileRecord(trackId, file, updatedAt);
-}
-
 async function refreshRestoredAudioBinding(
   record: LocalAudioFileRecord
 ): Promise<LocalAudioFileRecord> {
@@ -465,10 +524,18 @@ function removeId(ids: ReadonlySet<EntityId>, id: EntityId): ReadonlySet<EntityI
   return nextIds;
 }
 
-function getStorageWriteErrorMessage(error: unknown): string {
-  if (error instanceof DOMException && error.name === "QuotaExceededError") {
-    return "本地存储空间不足，无法保存这个音频文件。";
-  }
+function getLegacyBindingKey(
+  record: LocalAudioFileRecord
+): LocalAudioBindingKey | undefined {
+  return getWebLocalAudioBindingKey(record);
+}
 
-  return "无法保存本地音频文件，请检查浏览器存储权限和剩余空间。";
+function getBindingServiceErrorMessage(error: LocalAudioBindingServiceError): string {
+  return error.message;
+}
+
+function isWebLocalAudioBindingService(
+  value: LocalAudioFileRepository | WebLocalAudioBindingService
+): value is WebLocalAudioBindingService {
+  return "bindBrowserAudioFile" in value;
 }

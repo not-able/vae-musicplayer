@@ -20,6 +20,7 @@ import {
 } from "../features/catalog/xuSongCatalogCompatibility";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
 import { useLocalAudioLibrary } from "../features/local-library/useLocalAudioLibrary";
+import { createWebLocalAudioBindingService } from "../features/local-library/webLocalAudioBindingService";
 import { PlayerBar } from "../features/player/PlayerBar";
 import type { PlayerAction } from "../features/player/playerReducer";
 import { useLocalAudioPlayback } from "../features/player/useLocalAudioPlayback";
@@ -142,7 +143,11 @@ export function App({
     repository: persistedPlaylistLibraryRepository,
     onHydrate: hydratePlaylistLibrary
   });
-  const localAudioLibrary = useLocalAudioLibrary(localAudioRepository);
+  const localAudioBindingService = useMemo(
+    () => createWebLocalAudioBindingService(localAudioRepository),
+    [localAudioRepository]
+  );
+  const localAudioLibrary = useLocalAudioLibrary(localAudioBindingService);
   const dispatchPlayer = useCallback(
     (action: PlayerAction) => dispatch({ type: "player", action }),
     []

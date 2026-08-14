@@ -7,13 +7,13 @@ import {
   type KeyboardEvent as ReactKeyboardEvent
 } from "react";
 
-import type { DesktopLocalAudioBindingSummary } from "../../../electron/music-library/types";
 import type { LocalAudioTrackId } from "../../types/localAudioBinding";
 import type { DesktopAudioCandidatePreview } from "./desktopAudioCandidatePreview";
 import {
   searchDesktopCatalogTracks,
   type DesktopCatalogTrackOption
 } from "./desktopAudioBindingUi";
+import type { LocalAudioBindingSummary } from "./localAudioBindingService";
 
 const MAX_VISIBLE_TRACKS = 80;
 
@@ -25,18 +25,15 @@ export interface DesktopBindingDialogSession {
 interface DesktopAudioBindingDialogProps {
   readonly session: DesktopBindingDialogSession;
   readonly candidate: DesktopAudioCandidatePreview;
-  readonly currentCandidateBinding?: DesktopLocalAudioBindingSummary;
+  readonly currentCandidateBinding?: LocalAudioBindingSummary;
   readonly tracks: readonly DesktopCatalogTrackOption[];
-  readonly bindingByTrackId: ReadonlyMap<
-    LocalAudioTrackId,
-    DesktopLocalAudioBindingSummary
-  >;
+  readonly bindingByTrackId: ReadonlyMap<LocalAudioTrackId, LocalAudioBindingSummary>;
   readonly isSubmitting: boolean;
   readonly onBind: (
     track: DesktopCatalogTrackOption,
-    expectedTargetBinding: DesktopLocalAudioBindingSummary | undefined
+    expectedTargetBinding: LocalAudioBindingSummary | undefined
   ) => void;
-  readonly onUnbind: (binding: DesktopLocalAudioBindingSummary) => void;
+  readonly onUnbind: (binding: LocalAudioBindingSummary) => void;
   readonly onClose: () => void;
 }
 

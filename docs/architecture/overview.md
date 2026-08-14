@@ -24,13 +24,13 @@ Web 与 Electron 共用 `src/data/catalog/xuSongOfficialCatalog.ts` 作为唯一
 
 ## 当前实现
 
-| 层                 | 职责                                                                          |
-| ------------------ | ----------------------------------------------------------------------------- |
-| React Renderer     | Web UI 与只含 `candidateId` 的 Electron 预览/绑定确认；不能访问真实文件引用。 |
-| Electron Preload   | 暴露平台信息、目录摘要和候选 binding 窄 API，不暴露通用 IPC。                 |
-| Electron Main      | 安全窗口、目录/扫描、临时候选 session、binding service 及 JSON adapter。      |
-| Domain/Application | 平台无关目录条目解析、`LocalAudioBinding` 与 Repository 契约。                |
-| Web adapter        | 旧 Web IndexedDB Repository 继续管理浏览器 `File`/handle；尚未迁移。          |
+| 层                 | 职责                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| React Renderer     | Web UI 与只含 `candidateId` 的 Electron 预览/绑定确认；依赖统一 binding service 结果。 |
+| Electron Preload   | 暴露平台信息、目录摘要和候选 binding 固定方法，不暴露通用 IPC。                        |
+| Electron Main      | 安全窗口、目录/扫描、临时候选 session、binding service 及 JSON adapter。               |
+| Domain/Application | 平台无关目录解析、`LocalAudioBinding`、Repository 与统一 service contract。            |
+| Web adapter        | 旧 IndexedDB Repository 与浏览器 `File`/handle 兼容；对外只给脱敏 service result。     |
 
 ## Planned
 

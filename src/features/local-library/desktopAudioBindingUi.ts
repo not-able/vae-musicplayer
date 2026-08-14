@@ -1,14 +1,14 @@
-import type {
-  DesktopAudioCandidateId,
-  DesktopLocalAudioBindingSummary
-} from "../../../electron/music-library/types";
+import type { DesktopAudioCandidateId } from "../../../electron/music-library/types";
 import type { CatalogData } from "../../types";
 import {
-  isLocalAudioBindingId,
   isLocalAudioTrackId,
-  type LocalAudioBindingId,
   type LocalAudioTrackId
 } from "../../types/localAudioBinding";
+import {
+  parseLocalAudioBindingSummaries,
+  type LocalAudioBindingKey,
+  type LocalAudioBindingSummary
+} from "./localAudioBindingService";
 import type { DesktopAudioCandidatePreview } from "./desktopAudioCandidatePreview";
 
 export interface DesktopCatalogTrackOption {
@@ -81,33 +81,16 @@ export function searchDesktopCatalogTracks(
 
 export function parseDesktopBindingSummaries(
   value: unknown
-): readonly DesktopLocalAudioBindingSummary[] {
-  if (!Array.isArray(value)) {
-    throw new TypeError("Desktop binding summaries are invalid.");
-  }
-
-  const summaries = value.map(parseDesktopBindingSummary);
-  const bindingIds = new Set<LocalAudioBindingId>();
-  const trackIds = new Set<LocalAudioTrackId>();
-
-  for (const summary of summaries) {
-    if (bindingIds.has(summary.bindingId) || trackIds.has(summary.trackId)) {
-      throw new TypeError("Desktop binding summaries contain duplicate IDs.");
-    }
-
-    bindingIds.add(summary.bindingId);
-    trackIds.add(summary.trackId);
-  }
-
-  return summaries;
+): readonly LocalAudioBindingSummary[] {
+  return parseLocalAudioBindingSummaries(value);
 }
 
 export function associateCandidatesWithBindings(
   candidates: readonly DesktopAudioCandidatePreview[],
-  summaries: readonly DesktopLocalAudioBindingSummary[],
-  bindingHintByCandidateId: ReadonlyMap<DesktopAudioCandidateId, LocalAudioBindingId>
-): ReadonlyMap<DesktopAudioCandidateId, DesktopLocalAudioBindingSummary> {
-  const result = new Map<DesktopAudioCandidateId, DesktopLocalAudioBindingSummary>();
+  summaries: readonly LocalAudioBindingSummary[],
+  bindingHintByCandidateId: ReadonlyMap<DesktopAudioCandidateId, LocalAudioBindingKey>
+): ReadonlyMap<DesktopAudioCandidateId, LocalAudioBindingSummary> {
+  const result = new Map<DesktopAudioCandidateId, LocalAudioBindingSummary>();
   const summariesById = new Map(
     summaries.map((summary) => [summary.bindingId, summary] as const)
   );
@@ -171,6 +154,7 @@ export function getDesktopBindingErrorFeedback(
       };
     case "directory_missing":
     case "directory_unreadable":
+    case "directory_unavailable":
     case "unknown_directory":
       return {
         kind: "directory-unavailable",
@@ -179,17 +163,20 @@ export function getDesktopBindingErrorFeedback(
     case "binding_store_corrupt":
     case "binding_store_read_failed":
     case "binding_store_schema_unsupported":
+    case "read_failed":
       return {
         kind: "generic",
         message: "无法读取本地音频绑定状态，请稍后重试。"
       };
     case "binding_store_write_failed":
+    case "write_failed":
       return {
         kind: "generic",
         message: "无法保存本地音频绑定，请稍后重试。"
       };
     case "binding_invalid":
     case "invalid_request":
+    case "security_rejected":
     case "untrusted_sender":
       return {
         kind: "generic",
@@ -208,54 +195,9 @@ export function getDesktopBindingErrorFeedback(
   }
 }
 
-function parseDesktopBindingSummary(value: unknown): DesktopLocalAudioBindingSummary {
-  if (
-    !isPlainRecord(value) ||
-    !hasOnlyKeys(value, [
-      "bindingId",
-      "trackId",
-      "fileName",
-      "fileSize",
-      "modifiedAt",
-      "availability",
-      "createdAt",
-      "updatedAt"
-    ]) ||
-    !hasRequiredKeys(value, [
-      "bindingId",
-      "trackId",
-      "fileName",
-      "availability",
-      "createdAt",
-      "updatedAt"
-    ]) ||
-    !isLocalAudioBindingId(value.bindingId) ||
-    !isLocalAudioTrackId(value.trackId) ||
-    !isSafeFileName(value.fileName) ||
-    !isOptionalFileSize(value.fileSize) ||
-    !isOptionalTimestamp(value.modifiedAt) ||
-    !isAvailability(value.availability) ||
-    !isIsoDateString(value.createdAt) ||
-    !isIsoDateString(value.updatedAt)
-  ) {
-    throw new TypeError("Desktop binding summary is invalid.");
-  }
-
-  return {
-    bindingId: value.bindingId,
-    trackId: value.trackId,
-    fileName: value.fileName,
-    ...(value.fileSize !== undefined ? { fileSize: value.fileSize } : {}),
-    ...(value.modifiedAt !== undefined ? { modifiedAt: value.modifiedAt } : {}),
-    availability: value.availability,
-    createdAt: value.createdAt,
-    updatedAt: value.updatedAt
-  };
-}
-
 function hasMatchingDisplayMetadata(
   candidate: DesktopAudioCandidatePreview,
-  summary: DesktopLocalAudioBindingSummary
+  summary: LocalAudioBindingSummary
 ): boolean {
   return (
     candidate.fileName === summary.fileName &&
@@ -272,7 +214,7 @@ function getCandidateFingerprint(candidate: DesktopAudioCandidatePreview): strin
   );
 }
 
-function getBindingFingerprint(summary: DesktopLocalAudioBindingSummary): string {
+function getBindingFingerprint(summary: LocalAudioBindingSummary): string {
   return createFingerprint(summary.fileName, summary.fileSize, summary.modifiedAt);
 }
 
@@ -301,6 +243,15 @@ function groupByFingerprint<T>(
 }
 
 function getPublicErrorCode(error: unknown): string | undefined {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+
   return error instanceof Error ? /^\[([a-z_]+)\]/.exec(error.message)?.[1] : undefined;
 }
 
@@ -308,76 +259,6 @@ function normalizeSearchText(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("zh-CN");
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function hasOnlyKeys(
-  value: Record<string, unknown>,
-  allowedKeys: readonly string[]
-): boolean {
-  const allowed = new Set(allowedKeys);
-  return Reflect.ownKeys(value).every(
-    (key) => typeof key === "string" && allowed.has(key)
-  );
-}
-
-function hasRequiredKeys(
-  value: Record<string, unknown>,
-  requiredKeys: readonly string[]
-): boolean {
-  return requiredKeys.every((key) => Object.hasOwn(value, key));
-}
-
 function isSafeText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 && !value.includes("\0");
-}
-
-function isSafeFileName(value: unknown): value is string {
-  return (
-    isSafeText(value) &&
-    !value.includes("/") &&
-    !value.includes("\\") &&
-    !value.includes(":")
-  );
-}
-
-function isOptionalFileSize(value: unknown): value is number | undefined {
-  return (
-    value === undefined ||
-    (typeof value === "number" && Number.isSafeInteger(value) && value >= 0)
-  );
-}
-
-function isOptionalTimestamp(value: unknown): value is number | undefined {
-  return (
-    value === undefined ||
-    (typeof value === "number" && Number.isFinite(value) && value >= 0)
-  );
-}
-
-function isAvailability(
-  value: unknown
-): value is DesktopLocalAudioBindingSummary["availability"] {
-  return (
-    value === "available" ||
-    value === "missing" ||
-    value === "permission-required" ||
-    value === "changed" ||
-    value === "unknown"
-  );
-}
-
-function isIsoDateString(value: unknown): value is string {
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
 }

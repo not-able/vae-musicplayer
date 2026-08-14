@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  DesktopAudioCandidateId,
-  DesktopLocalAudioBindingSummary
-} from "../../electron/music-library/types";
+import type { DesktopAudioCandidateId } from "../../electron/music-library/types";
 import { mockCatalog } from "../data/catalog/mockCatalog";
-import type { LocalAudioBindingId } from "../types/localAudioBinding";
 import type { DesktopAudioCandidatePreview } from "../features/local-library/desktopAudioCandidatePreview";
 import {
   associateCandidatesWithBindings,
@@ -14,16 +10,20 @@ import {
   parseDesktopBindingSummaries,
   searchDesktopCatalogTracks
 } from "../features/local-library/desktopAudioBindingUi";
+import type {
+  LocalAudioBindingKey,
+  LocalAudioBindingSummary
+} from "../features/local-library/localAudioBindingService";
 
 const CANDIDATE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as DesktopAudioCandidateId;
-const BINDING_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as LocalAudioBindingId;
+const BINDING_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as LocalAudioBindingKey;
 
 function createSummary(
-  overrides: Partial<DesktopLocalAudioBindingSummary> = {}
-): DesktopLocalAudioBindingSummary {
+  overrides: Partial<LocalAudioBindingSummary> = {}
+): LocalAudioBindingSummary {
   return {
     bindingId: BINDING_ID,
-    trackId: mockCatalog.tracks[0]!.id as DesktopLocalAudioBindingSummary["trackId"],
+    trackId: mockCatalog.tracks[0]!.id as LocalAudioBindingSummary["trackId"],
     fileName: "sample.mp3",
     fileSize: 2048,
     modifiedAt: 1_765_000_000_000,

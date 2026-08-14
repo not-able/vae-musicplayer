@@ -23,8 +23,11 @@
 | LocalAudioBinding | track 与 source reference 的用户确认关系，含可用性和文件元数据。 | 模型已实现                                    |
 | Repository        | 保存 binding 元数据；不检查文件、不读音频、不生成 URL。          | 契约、内存实现和 Electron JSON adapter 已完成 |
 | Binding API       | 只接受 candidate/track/expected binding ID 的 Main 窄命令。      | 已实现并接入确认 UI                           |
+| Binding service   | 统一摘要、结构化结果及绑定/替换/解绑并发语义。                   | Web/Electron contract 与最小 adapter 已实现   |
 | Playable URL      | 播放期临时资源定位，由受控 resolver 生成，不进入 binding。       | planned                                       |
 
 一个 track 最多一个当前 binding。扫描不会自动绑定；Main 候选 session 不持久化，并按 webContents/generation 隔离。Renderer 不接收可组合成文件引用的目录与相对路径，替换/解绑使用 expected binding ID 防止陈旧操作。确认 UI 只在候选与 binding 展示元数据一一对应时恢复已有行关联，歧义时不自动猜测；本次会话的成功写入仍以 Main 返回并重新加载的 binding summary 为事实来源。binding 不保存 Renderer 可用的绝对路径；playable URL 不作为持久化标识。Web 旧模型仍可保存浏览器 `File` 或 `FileSystemFileHandle`，但这些对象停留在 Web adapter 边界内。
+
+`LocalAudioBindingService` 是 Renderer/Application 可依赖的公共语义边界：只传递 opaque candidate ID、track ID、expected binding key 与脱敏 summary/result。Web adapter 将浏览器文件暂存在内存候选表并继续写原 IndexedDB Repository；Electron adapter 只调用现有 `window.desktop.musicLibrary.bindings` 固定方法。两边都要求显式 expected key 才能替换或解绑，且不会在公共结果中返回 source reference、路径或平台对象。Web 旧记录没有独立 binding UUID，因此 adapter 使用持久化 `record.id + updatedAt` 派生版本化 key，不改写旧数据也能阻止陈旧操作。
 
 模型细节见 [`../local-audio-binding-model.md`](../local-audio-binding-model.md)。
