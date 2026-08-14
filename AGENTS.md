@@ -66,7 +66,24 @@ active task 可以增加检查，但不能无理由跳过上述默认验证。
 3. 将完成的 active task 归档到 `docs/tasks/completed/`。
 4. 创建且只创建一个新的 `docs/tasks/active.md`；下一任务仅规划，不继续实现。
 5. 将代码与相关状态文档放入同一提交。
-6. 检查工作区干净且不 push。
-7. 最终报告列出关键修改、验证结果、残余风险、下一 active task 和 commit hash。
+6. 最终报告列出关键修改、验证结果、残余风险、下一 active task 和 commit hash。
 
-维护规则见 `docs/development/workflow.md`。
+任务完成并满足以下全部条件时允许自动 push：
+
+- 当前分支为 desktop/electron
+- 所有要求的测试、lint、build 通过
+- git diff 已检查
+- 没有敏感信息、用户数据或构建产物
+- 提交已经创建
+- 工作区干净
+
+只允许普通 push 到 origin/desktop/electron。
+
+禁止：
+
+- force push
+- push 到 main
+- push 到 desktop/tauri
+- push 未验证提交
+- push 含敏感信息的提交
+  维护规则见 `docs/development/workflow.md`。
