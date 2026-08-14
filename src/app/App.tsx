@@ -2,7 +2,7 @@ import { useCallback, useMemo, useReducer, useRef } from "react";
 
 import { appReducer, createAppState } from "./appReducer";
 import { PageShell } from "../components/PageShell";
-import { mockCatalog } from "../data/catalog/mockCatalog";
+import { xuSongOfficialCatalog } from "../data/catalog/xuSongOfficialCatalog";
 import { CatalogOverview } from "../features/catalog/CatalogOverview";
 import { CatalogImportTools } from "../features/catalog/CatalogImportTools";
 import { getAlbumTracks } from "../features/catalog/catalog";
@@ -14,6 +14,10 @@ import type {
 import type { LocalCatalogRepository } from "../features/catalog/localCatalogRepository";
 import { useCatalogDeletion } from "../features/catalog/useCatalogDeletion";
 import { useCatalogLibrary } from "../features/catalog/useCatalogLibrary";
+import {
+  mergeXuSongCanonicalCatalogChanges,
+  prepareXuSongCanonicalCatalogChanges
+} from "../features/catalog/xuSongCatalogCompatibility";
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
 import { useLocalAudioLibrary } from "../features/local-library/useLocalAudioLibrary";
 import { PlayerBar } from "../features/player/PlayerBar";
@@ -30,7 +34,12 @@ import { localStorageCatalogRepository } from "../infra/storage/localStorageCata
 import { localStorageCatalogDeletionIntentRepository } from "../infra/storage/localStorageCatalogDeletionIntentRepository";
 import { localStoragePlaylistLibraryRepository } from "../infra/storage/localStoragePlaylistLibraryRepository";
 import { localStoragePlayerSettingsRepository } from "../infra/storage/localStoragePlayerSettingsRepository";
-import type { EntityId, PlaySequenceEntry, PlaylistLibrary } from "../types";
+import type {
+  CatalogData,
+  EntityId,
+  PlaySequenceEntry,
+  PlaylistLibrary
+} from "../types";
 import type { PlayerSettingsRepository } from "../features/player/playerSettingsRepository";
 import { createTemporaryPlaylist } from "../utils/playlist";
 
@@ -73,6 +82,7 @@ function createAudioElementKey(
 }
 
 interface AppProps {
+  defaultCatalog?: CatalogData;
   catalogRepository?: LocalCatalogRepository;
   catalogEntityIdFactory?: CatalogEntityIdFactory;
   localAudioRepository?: LocalAudioFileRepository;
@@ -85,6 +95,7 @@ interface AppProps {
 }
 
 export function App({
+  defaultCatalog = xuSongOfficialCatalog,
   catalogRepository = localStorageCatalogRepository,
   catalogEntityIdFactory,
   localAudioRepository = indexedDbLocalAudioRepository,
@@ -108,9 +119,15 @@ export function App({
     [playlistLibraryRepository, playlistRepository]
   );
   const catalogLibrary = useCatalogLibrary(
-    mockCatalog,
+    defaultCatalog,
     catalogRepository,
-    catalogEntityIdFactory
+    catalogEntityIdFactory,
+    defaultCatalog === xuSongOfficialCatalog
+      ? prepareXuSongCanonicalCatalogChanges
+      : undefined,
+    defaultCatalog === xuSongOfficialCatalog
+      ? mergeXuSongCanonicalCatalogChanges
+      : undefined
   );
   const catalog = catalogLibrary.catalog;
   const hydratePlaylistLibrary = useCallback(
@@ -159,7 +176,7 @@ export function App({
     [localAudioPlayback, player.currentEntry]
   );
   const catalogDeletion = useCatalogDeletion({
-    defaultCatalog: mockCatalog,
+    defaultCatalog,
     catalogChanges: catalogLibrary.changes,
     catalogStatus: catalogLibrary.status,
     playlistLibrary,

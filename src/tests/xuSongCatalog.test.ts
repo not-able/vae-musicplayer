@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { xuSongOfficialCatalog } from "../data/catalog/xuSongOfficialCatalog";
+import {
+  createXuSongOfficialCatalog,
+  xuSongOfficialAlbumDefinitions,
+  xuSongOfficialCatalog
+} from "../data/catalog/xuSongOfficialCatalog";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { createXuSongCatalogImportPlan } from "../features/catalog/xuSongCatalogImport";
 import type { CatalogData } from "../types";
@@ -59,6 +63,46 @@ describe("verified Xu Song catalog", () => {
     expect(serialized).not.toContain("http");
     expect(serialized).not.toContain("audio");
     expect(serialized).not.toContain("lyric");
+  });
+
+  it("keeps explicit album and track IDs stable when definitions are inserted or reordered", () => {
+    const originalTrackIdsByAlbumAndTitle = new Map(
+      xuSongOfficialCatalog.tracks.map((track) => [
+        `${track.albumId}:${track.title}`,
+        track.id
+      ])
+    );
+    const firstAlbum = xuSongOfficialAlbumDefinitions[0];
+    if (!firstAlbum) {
+      throw new Error("Expected at least one built-in album definition.");
+    }
+
+    const reorderedDefinitions = [
+      ...xuSongOfficialAlbumDefinitions.slice(1).reverse(),
+      {
+        ...firstAlbum,
+        tracks: [
+          ["track_xusong_future_explicit", "后续显式单曲"] as const,
+          ...firstAlbum.tracks.slice().reverse()
+        ]
+      }
+    ];
+    const reorderedCatalog = createXuSongOfficialCatalog(reorderedDefinitions);
+
+    expect(reorderedCatalog.albums.find((album) => album.title === "自定义")?.id).toBe(
+      "album_xusong_zidingyi"
+    );
+    for (const track of xuSongOfficialCatalog.tracks) {
+      expect(
+        reorderedCatalog.tracks.find(
+          (candidate) =>
+            candidate.albumId === track.albumId && candidate.title === track.title
+        )?.id
+      ).toBe(originalTrackIdsByAlbumAndTitle.get(`${track.albumId}:${track.title}`));
+    }
+    expect(
+      reorderedCatalog.tracks.find((track) => track.title === "后续显式单曲")?.id
+    ).toBe("track_xusong_future_explicit");
   });
 
   it("previews all verified albums as one additive import without mutating the current catalog", () => {

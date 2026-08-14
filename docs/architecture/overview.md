@@ -18,6 +18,10 @@ Web adapters
     └─ browser File / FileSystemFileHandle compatibility storage
 ```
 
+## Catalog
+
+Web 与 Electron 共用 `src/data/catalog/xuSongOfficialCatalog.ts` 作为唯一静态 baseline，再叠加持久化 `UserCatalogChanges`。内置 album/track ID 显式稳定；旧 verified import 通过非破坏 canonical reference 兼容，不按标题猜测删除。长期决定见 [`../decisions/0006-canonical-built-in-catalog.md`](../decisions/0006-canonical-built-in-catalog.md)。
+
 ## 当前实现
 
 | 层                 | 职责                                                                          |

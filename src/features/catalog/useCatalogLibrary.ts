@@ -28,6 +28,10 @@ import type { LocalCatalogRepository } from "./localCatalogRepository";
 
 const albumTypes = new Set<AlbumType>(["album", "ep", "single_collection", "other"]);
 
+function keepCatalogChanges(changes: UserCatalogChanges): UserCatalogChanges {
+  return changes;
+}
+
 export type CatalogLibraryStatus = "loading" | "ready" | "error";
 
 export interface CatalogAlbumDraft {
@@ -150,6 +154,15 @@ interface CatalogLoadResult {
 
 type CatalogSaveOperation = "album" | "track" | "directory_import";
 
+export type CatalogChangesPreparer = (
+  changes: UserCatalogChanges
+) => UserCatalogChanges;
+
+export type CatalogChangesMerger = (
+  defaultCatalog: CatalogData,
+  changes: UserCatalogChanges
+) => CatalogData;
+
 type CatalogSaveResult =
   | {
       ok: true;
@@ -160,7 +173,9 @@ type CatalogSaveResult =
 export function useCatalogLibrary(
   defaultCatalog: CatalogData,
   repository: LocalCatalogRepository,
-  idFactory?: CatalogEntityIdFactory
+  idFactory?: CatalogEntityIdFactory,
+  prepareChanges: CatalogChangesPreparer = keepCatalogChanges,
+  mergeChanges: CatalogChangesMerger = mergeCatalogChanges
 ): CatalogLibrary {
   const [loadResult, setLoadResult] = useState<CatalogLoadResult>();
   const [saveOperation, setSaveOperation] = useState<CatalogSaveOperation>();
@@ -174,8 +189,8 @@ export function useCatalogLibrary(
 
     async function loadCatalog(): Promise<void> {
       try {
-        const changes = await repository.load();
-        const catalog = mergeCatalogChanges(defaultCatalog, changes);
+        const changes = prepareChanges(await repository.load());
+        const catalog = mergeChanges(defaultCatalog, changes);
 
         if (sourceToken.active) {
           setLoadResult({
@@ -210,7 +225,7 @@ export function useCatalogLibrary(
     return () => {
       sourceToken.active = false;
     };
-  }, [defaultCatalog, repository]);
+  }, [defaultCatalog, mergeChanges, prepareChanges, repository]);
 
   const activeResult =
     loadResult?.defaultCatalog === defaultCatalog &&
@@ -230,7 +245,7 @@ export function useCatalogLibrary(
       setSaveOperation(operation);
 
       try {
-        const nextChanges = mutate();
+        const nextChanges = prepareChanges(mutate());
 
         if (nextChanges === currentChanges) {
           return {
@@ -239,7 +254,7 @@ export function useCatalogLibrary(
           };
         }
 
-        const nextCatalog = mergeCatalogChanges(defaultCatalog, nextChanges);
+        const nextCatalog = mergeChanges(defaultCatalog, nextChanges);
         await repository.save(nextChanges);
 
         if (!sourceToken.active) {
@@ -286,7 +301,7 @@ export function useCatalogLibrary(
         setSaveOperation(undefined);
       }
     },
-    [defaultCatalog, repository]
+    [defaultCatalog, mergeChanges, prepareChanges, repository]
   );
 
   const createAlbum = useCallback(
@@ -816,7 +831,8 @@ export function useCatalogLibrary(
         return;
       }
 
-      const nextCatalog = mergeCatalogChanges(defaultCatalog, changes);
+      const preparedChanges = prepareChanges(changes);
+      const nextCatalog = mergeChanges(defaultCatalog, preparedChanges);
       const sourceToken = activeResult.sourceToken;
 
       setLoadResult((currentResult) => {
@@ -834,12 +850,12 @@ export function useCatalogLibrary(
           state: {
             catalog: nextCatalog,
             status: "ready",
-            changes
+            changes: preparedChanges
           }
         };
       });
     },
-    [activeResult, defaultCatalog, repository]
+    [activeResult, defaultCatalog, mergeChanges, prepareChanges, repository]
   );
 
   if (activeResult) {

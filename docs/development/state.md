@@ -1,58 +1,42 @@
-# Electron Development State
+# Development State
 
-- 更新时间：2026-08-03
+- 更新时间：2026-08-14
 - 分支：`desktop/electron`
-- 当前阶段：阶段 2 — 桌面音频绑定与导入（2.4B 已完成）
-- 当前任务：`ELECTRON-2.5` — missing/changed 状态检查
+- 当前阶段：目录基线稳定化（`CATALOG-1A` 已完成）
+- 当前任务：`CATALOG-1B` — 完整许嵩作品目录审计与补充
 
 ## 已完成
 
-- Electron 安全 Main/Preload/Renderer 桌面壳，Web 入口保持独立。
-- Windows x64 NSIS 安装包与 unpacked 打包流程。
-- 受控目录选择、持久化目录注册表和安全递归扫描；绝对路径仅由 Main 持有。
-- Web/Electron 共用的平台无关目录条目解析规则。
-- 可序列化 `LocalAudioBinding` 模型、branded identifiers、Repository 契约与内存参考实现。
-- 带 schema version、原子写入和损坏备份的 Electron JSON binding Repository。
-- Main binding service、固定 IPC channels 和 `window.desktop.musicLibrary.bindings` 窄 API。
-- Main 内存候选 session、不可预测 `candidateId`、安全绑定/替换/解绑命令与脱敏 binding summary。
-- Electron 扫描候选逐项曲目搜索/选择、新绑定、替换确认、更换曲目和解绑确认 UI；Web 导入分支保持不变。
-
-## 关键提交
-
-- `80cf92f` — `desktop(electron): add secure application shell`
-- `e082a02` — `desktop(electron): add controlled music directory scanning`
-- `c3f3a26` — `refactor(local-library): define portable audio binding model`
-- `7ccc999` — `refactor(local-library): define audio binding repository`
-- `6d481c7` — `desktop(electron): persist local audio bindings`
-- `db60170` — `desktop(electron): expose local audio binding service`
-- `4fda05c` — `desktop(electron): preview scanned audio candidates`
-- `db2c448` — `desktop(electron): secure candidate binding commands`
-- `desktop(electron): add candidate binding confirmation UI` — 与本次状态交接同一提交
+- Electron 安全桌面壳、受控目录扫描、可移植 binding、Main 候选确认服务及绑定/替换/解绑 UI。
+- 正式 Web/Electron 启动统一使用 `src/data/catalog/xuSongOfficialCatalog.ts`，不再使用占位 `mockCatalog`。
+- 当前 11 张内置目录的 album/track ID 均在源码中显式定义；插入和重排不会改变既有 ID。
+- 用户目录继续使用 `canonical baseline + UserCatalogChanges`，新增、编辑、删除和恢复默认能力保持可用。
+- 正常产品 UI 已移除“导入许嵩目录”和“导入远程元数据”，本地音源入口保留；底层远程 Provider 暂未清理。
+- 旧 verified import 仅在结构完整且唯一匹配时标记 canonical external reference，并以旧实体遮蔽重复 baseline；不删除旧实体或改写其随机 ID。
+- 旧 placeholder baseline 的删除标记被安全丢弃；针对 placeholder 的编辑或用户新增歌曲会物化为普通用户实体，避免整个 change set 因 baseline 切换失效。
 
 ## 核心不变量
 
-- Renderer 无 Node.js、Electron 或通用 IPC 能力。
-- Main 校验 IPC sender，并只从受控注册表解析目录绝对路径。
-- 桌面文件引用为 `directoryId + relativePath`；公共 binding 不保存绝对路径或平台对象。
-- Renderer 的目录摘要不含 `displayPath`；扫描预览只含不可预测 `candidateId` 和安全展示元数据。
-- 扫描候选不会自动成为 binding；一个 track 最多一个当前 binding。
-- Main 将候选绑定到 webContents 和当前 scan generation；重扫、忘记目录、Renderer 销毁或应用重启都会使相关候选失效。
-- Renderer 不能提交完整 binding、路径、sourceRef 或文件元数据；绑定 UI 只提交 candidate/track/expected binding ID。
-- 替换和解绑使用 expected binding ID 比较交换；冲突后 UI 刷新 Main binding summary，过期请求不会覆盖或删除新 binding。
-- Repository 不读取音频、不生成播放 URL、不隐式修改时间戳。
-- Web 目录导入、旧 Web Repository、播放器和 Web 构建保持兼容。
+- `xuSongOfficialCatalog` 是 Web/Electron 唯一正式 baseline；`mockCatalog` 仅作为测试 fixture 导出。
+- 内置 album/track ID 显式、稳定，不从数组位置或 track number 动态生成。
+- 内置数据可由用户 overlay 修改或删除；开发者维护的 baseline 本身保持只读。
+- 不按标题猜测或删除旧导入；只有完整、唯一结构匹配或已持久化 canonical reference 才去重显示。
+- 旧导入的本地实体 ID 保持不变，因此引用这些 track ID 的 playlist/binding 不需要迁移。
+- Renderer/Main 文件安全边界、桌面 binding API 和 Web 音频流程保持不变。
 
 ## 当前遗留问题
 
-- binding availability 尚未根据目录和文件状态刷新，`missing`/`changed` 仍不能自动判定。
-- 受控桌面播放协议和桌面音频播放仍未实现。
+- 现有 11 张目录尚未覆盖全部独立单曲、合作曲、影视/游戏歌曲和可靠发行元数据；由 `CATALOG-1B` 处理。
+- 旧占位歌曲 `track_sample_*` 与真实作品没有可靠语义映射；相关 binding 记录不会被删除，但不能猜测迁移到 canonical track。
+- 音源统一、桌面单曲绑定、智能批量匹配、受控播放协议和 availability 检查均尚未实现。
 
 ## 下一步任务序列
 
-1. `ELECTRON-2.5`：missing/changed 状态检查。
-2. 阶段 3：受控桌面音频播放。
-3. 后续音乐库增强与桌面体验。
+1. `CATALOG-1B`：完整许嵩作品目录审计与补充。
+2. `AUDIO-UNIFY-1` 至 `AUDIO-UNIFY-3`：统一音频绑定服务、单曲 Electron 绑定 UI 与智能批量匹配。
+3. `PLAYBACK-1`、`PLAYBACK-2`：受控桌面播放与统一播放/binding 状态。
+4. `ELECTRON-2.5`：missing/changed 状态检查（已延后，任务说明保存在 `docs/tasks/deferred/`）。
 
 ## 最近一次验证状态
 
-2026-08-03：`npm run test:run`（40 个文件、369 项测试）、`npm run lint`、`npm run build`、`npm run desktop:build` 与 `git diff --check` 全部通过。`npm run desktop:dev` 已实际验证安全探针、目录扫描预览、曲目搜索、新绑定、替换/取消、解绑/取消和重扫失效；临时目录授权与 binding 已清理。
+2026-08-14：`npm run test:run`（41 个测试文件、377 项测试）、`npm run lint`、`npm run build`、`npm run desktop:build` 与 `git diff --check` 全部通过。`npm run desktop:dev` 已验证 Electron 安全探针和 canonical 首屏；隔离 userData 中完成本地音源入口、专辑打开、新增、编辑、删除确认、重启持久化与恢复默认验证；普通 `npm run dev` Web 首屏行为一致。临时进程、userData、日志和截图均已清理。

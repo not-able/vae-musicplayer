@@ -1,8 +1,8 @@
-import { act, createElement } from "react";
+import { act, createElement, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "../app/App";
+import { App as ProductionApp } from "../app/App";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import { createEmptyUserCatalogChanges } from "../features/catalog/catalogMutations";
 import type { CatalogDeletionIntentRepository } from "../features/catalog/catalogDeletionRepository";
@@ -10,6 +10,13 @@ import type { LocalCatalogRepository } from "../features/catalog/localCatalogRep
 import type { LocalAudioFileRepository } from "../features/local-library/localAudioRepository";
 import type { TemporaryPlaylistRepository } from "../features/playlist/playlistRepository";
 import type { LocalAudioFileRecord, UserCatalogChanges } from "../types";
+
+function App(props: ComponentProps<typeof ProductionApp>) {
+  return createElement(ProductionApp, {
+    ...props,
+    defaultCatalog: mockCatalog
+  });
+}
 
 function createDirectoryFile(relativePath: string): File {
   const file = new File(

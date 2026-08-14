@@ -16,15 +16,13 @@ import type {
   LocalAudioBindingRequest,
   LocalAudioLibraryStatus
 } from "../local-library/useLocalAudioLibrary";
-import { CatalogImportPanel } from "./CatalogImportPanel";
-import { XuSongCatalogImport } from "./VerifiedXuSongCatalogImport";
 import type {
   CatalogDirectoryImportAlbumDraft,
   CatalogDirectoryImportResult,
   CatalogLibraryStatus
 } from "./useCatalogLibrary";
 
-type CatalogImportTool = "verified-catalog" | "qq-metadata" | "local-directory";
+type CatalogImportTool = "local-directory";
 
 interface CatalogImportToolsProps {
   catalog: CatalogData;
@@ -51,34 +49,12 @@ export function CatalogImportTools({
 }: CatalogImportToolsProps) {
   const [openTool, setOpenTool] = useState<CatalogImportTool>();
   const desktopDirectoryScanApi = getDesktopDirectoryScanApi(globalThis);
-  const verifiedCatalogTriggerRef = useRef<HTMLButtonElement>(null);
-  const qqMetadataTriggerRef = useRef<HTMLButtonElement>(null);
   const localDirectoryTriggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <>
-      <div className="catalog-import-tools" role="group" aria-label="目录导入工具">
-        <span className="catalog-import-tools-label">导入工具</span>
-        <button
-          className="text-button"
-          ref={qqMetadataTriggerRef}
-          type="button"
-          aria-expanded={openTool === "qq-metadata"}
-          aria-controls="qq-metadata-import-dialog"
-          onClick={() => setOpenTool("qq-metadata")}
-        >
-          导入远程元数据
-        </button>
-        <button
-          className="text-button"
-          ref={verifiedCatalogTriggerRef}
-          type="button"
-          aria-expanded={openTool === "verified-catalog"}
-          aria-controls="verified-catalog-import-dialog"
-          onClick={() => setOpenTool("verified-catalog")}
-        >
-          导入许嵩目录
-        </button>
+      <div className="catalog-import-tools" role="group" aria-label="本地音源工具">
+        <span className="catalog-import-tools-label">本地音源</span>
         <button
           className="text-button"
           ref={localDirectoryTriggerRef}
@@ -90,37 +66,6 @@ export function CatalogImportTools({
           {desktopDirectoryScanApi ? "扫描本地音频" : "批量绑定音频"}
         </button>
       </div>
-
-      <CatalogImportDialog
-        id="verified-catalog-import-dialog"
-        isOpen={openTool === "verified-catalog"}
-        title="导入许嵩正式目录"
-        triggerRef={verifiedCatalogTriggerRef}
-        onClose={() => setOpenTool(undefined)}
-      >
-        <XuSongCatalogImport
-          catalog={catalog}
-          catalogStatus={catalogStatus}
-          isCatalogSaving={isCatalogSaving}
-          isEmbedded
-          onImport={onImportCatalogDrafts}
-        />
-      </CatalogImportDialog>
-
-      <CatalogImportDialog
-        id="qq-metadata-import-dialog"
-        isOpen={openTool === "qq-metadata"}
-        title="导入自托管 QQ 元数据"
-        triggerRef={qqMetadataTriggerRef}
-        onClose={() => setOpenTool(undefined)}
-      >
-        <CatalogImportPanel
-          catalog={catalog}
-          catalogStatus={catalogStatus}
-          isCatalogSaving={isCatalogSaving}
-          onImport={onImportCatalogDrafts}
-        />
-      </CatalogImportDialog>
 
       <CatalogImportDialog
         id="local-directory-import-dialog"
@@ -250,7 +195,7 @@ function CatalogImportDialog({
       >
         <div className="catalog-import-dialog-heading">
           <div>
-            <p className="eyebrow">导入工具</p>
+            <p className="eyebrow">本地音源</p>
             <h2 id={titleId}>{title}</h2>
           </div>
           <button

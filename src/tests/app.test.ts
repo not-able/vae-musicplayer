@@ -1,8 +1,8 @@
-import { act, createElement } from "react";
+import { act, createElement, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "../app/App";
+import { App as ProductionApp } from "../app/App";
 import { mockCatalog } from "../data/catalog/mockCatalog";
 import {
   addAlbumToUserCatalog,
@@ -33,6 +33,13 @@ import {
   createTemporaryPlaylist,
   updatePlaylistItemRepeatCount
 } from "../utils/playlist";
+
+function App(props: ComponentProps<typeof ProductionApp>) {
+  return createElement(ProductionApp, {
+    ...props,
+    defaultCatalog: mockCatalog
+  });
+}
 
 function findButton(container: HTMLElement, ariaLabel: string) {
   const expectedAriaLabel = ariaLabel.endsWith("加入临时歌单")
@@ -1608,6 +1615,66 @@ describe("quick playback actions", () => {
 });
 
 describe("persistent catalog integration", () => {
+  it("starts the production app with the canonical catalog and only the local-audio tool", async () => {
+    const catalogRepository = createMemoryLocalCatalogRepository(async () =>
+      createEmptyUserCatalogChanges()
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(ProductionApp, {
+          catalogRepository,
+          localAudioRepository: createMemoryLocalAudioRepository()
+        })
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toContain("自定义");
+    expect(container.textContent).toContain("有何不可");
+    expect(container.textContent).not.toContain("示例专辑 A");
+    expect(findButtonByText(container, "导入许嵩目录")).toBeUndefined();
+    expect(findButtonByText(container, "导入远程元数据")).toBeUndefined();
+    expect(findButtonByText(container, "批量绑定音频")).toBeDefined();
+    expect(catalogRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("loads canonical data alongside legacy placeholder changes without discarding user entities", async () => {
+    const legacyChanges = createUserCatalogChanges();
+    legacyChanges.deletedDefaultAlbumIds = ["album_sample_001"];
+    const catalogRepository = createMemoryLocalCatalogRepository(async () =>
+      structuredClone(legacyChanges)
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(ProductionApp, {
+          catalogRepository,
+          localAudioRepository: createMemoryLocalAudioRepository()
+        })
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toContain("自定义");
+    expect(container.textContent).toContain("用户专辑");
+    expect(container.textContent).not.toContain("示例专辑 A");
+    expect(container.textContent).not.toContain("无法读取用户目录");
+    expect(catalogRepository.save).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("shows the built-in catalog immediately and keeps existing behavior for empty changes", async () => {
     const deferred = createDeferred<UserCatalogChanges>();
     const catalogRepository = createMemoryLocalCatalogRepository(

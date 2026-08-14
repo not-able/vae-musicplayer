@@ -2,6 +2,17 @@
 
 状态标记只以 Git 中已存在的实现和测试为依据。路线图描述顺序与总体目标；当前工作的详细边界只由 `docs/tasks/active.md` 定义。
 
+## 当前近期顺序（用户调整）
+
+- [x] `CATALOG-1A`：canonical built-in Xu Song catalog。
+- [ ] `CATALOG-1B`：complete Xu Song discography audit（当前 active task）。
+- [ ] `AUDIO-UNIFY-1`：unified local audio binding service。
+- [ ] `AUDIO-UNIFY-2`：unified single-track Electron binding UI。
+- [ ] `AUDIO-UNIFY-3`：smart multi-format batch matching。
+- [ ] `PLAYBACK-1`：Electron binding playback / controlled media protocol。
+- [ ] `PLAYBACK-2`：unified playback and binding state。
+- [ ] `ELECTRON-2.5`：missing / changed detection（延后）。
+
 ## 阶段 0：Electron 基础壳
 
 - [x] Main / Preload / Renderer 三层结构与安全窗口配置。
@@ -26,7 +37,7 @@
 - [x] 2.3 扫描候选接入导入预览。
 - [x] 2.4A 安全的候选确认与绑定服务。
 - [x] 2.4B 曲目选择、替换确认和解绑确认 UI。
-- [ ] 2.5 missing/changed 状态检查（当前 active task）。
+- [ ] 2.5 missing/changed 状态检查（按用户调整延后至近期序列尾部）。
 
 ## 阶段 3：本地播放
 
